@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+.next/
+.expo/
+coverage/
+.turbo/
+
+# environment/secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# logs and local state
+*.log
+.DS_Store
+.cache/
+tmp/
+
+# generated dictionary/source artifacts that may need licensing review
+packages/word-tools/data/raw/*
+packages/word-tools/data/generated/*
+!packages/word-tools/data/raw/.gitkeep
+!packages/word-tools/data/generated/.gitkeep

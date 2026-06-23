@@ -1,0 +1,80 @@
+import type { ApiEnvelope, LobbyFixture } from './types.js';
+import { fixtureUsers } from './users.js';
+
+export const lobbyFixtures = {
+  privateWaiting: {
+    id: 'lobby_private_waiting',
+    code: 'CROWN1',
+    state: 'waiting',
+    visibility: 'private',
+    rated: false,
+    rankedCompatible: false,
+    minPlayers: 2,
+    maxPlayers: 4,
+    roundsCount: 3,
+    roundTimeSeconds: 120,
+    scoringPreset: 'standard_v1',
+    members: [
+      { userId: fixtureUsers.ashar.id, role: 'host', ready: true, connected: true },
+      { userId: fixtureUsers.luna.id, role: 'player', ready: false, connected: true },
+    ],
+    disabledStartReason: 'players_not_ready',
+  },
+  publicReady: {
+    id: 'lobby_public_ready',
+    code: 'GRID22',
+    state: 'ready',
+    visibility: 'public',
+    rated: false,
+    rankedCompatible: true,
+    minPlayers: 2,
+    maxPlayers: 4,
+    roundsCount: 3,
+    roundTimeSeconds: 120,
+    scoringPreset: 'standard_v1',
+    members: [
+      { userId: fixtureUsers.ashar.id, role: 'host', ready: true, connected: true },
+      { userId: fixtureUsers.ruby.id, role: 'player', ready: true, connected: true },
+    ],
+  },
+  ratedPrivateDisabled: {
+    id: 'lobby_rated_private_disabled',
+    code: 'RANKED',
+    state: 'locked',
+    visibility: 'private',
+    rated: true,
+    rankedCompatible: false,
+    minPlayers: 2,
+    maxPlayers: 2,
+    roundsCount: 3,
+    roundTimeSeconds: 120,
+    scoringPreset: 'standard_v1',
+    members: [{ userId: fixtureUsers.ashar.id, role: 'host', ready: false, connected: true }],
+    disabledStartReason: 'rated_private_lobbies_disabled_v1',
+  },
+  fullPublic: {
+    id: 'lobby_full_public',
+    code: 'FULL99',
+    state: 'full',
+    visibility: 'public',
+    rated: false,
+    rankedCompatible: true,
+    minPlayers: 2,
+    maxPlayers: 2,
+    roundsCount: 3,
+    roundTimeSeconds: 120,
+    scoringPreset: 'standard_v1',
+    members: [
+      { userId: fixtureUsers.luna.id, role: 'host', ready: true, connected: true },
+      { userId: fixtureUsers.ruby.id, role: 'player', ready: true, connected: true },
+    ],
+    disabledStartReason: 'lobby_full',
+  },
+} as const satisfies Record<string, LobbyFixture>;
+
+export const lobbyEnvelopes = {
+  listOpen: { data: [lobbyFixtures.privateWaiting, lobbyFixtures.publicReady], error: null, requestId: 'req_lobbies_open' },
+  listEmpty: { data: [], error: null, requestId: 'req_lobbies_empty' },
+  joinFull: { data: null, error: { code: 'LOBBY_FULL', message: 'That lobby is already full.', retryable: true }, requestId: 'req_join_full' },
+  notFound: { data: null, error: { code: 'LOBBY_NOT_FOUND', message: 'Lobby not found or expired.', retryable: false }, requestId: 'req_lobby_not_found' },
+} as const satisfies Record<string, ApiEnvelope<readonly LobbyFixture[] | LobbyFixture>>;

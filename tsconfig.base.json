@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022"
+    ],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@wordle-royale/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@wordle-royale/game-engine": [
+        "packages/game-engine/src/index.ts"
+      ],
+      "@wordle-royale/design-tokens": [
+        "packages/design-tokens/src/index.ts"
+      ],
+      "@wordle-royale/fixtures": [
+        "packages/fixtures/src/index.ts"
+      ]
+    }
+  }
+}

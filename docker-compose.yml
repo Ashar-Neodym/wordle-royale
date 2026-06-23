@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wordle-royale-postgres
+    environment:
+      POSTGRES_USER: wordle
+      POSTGRES_PASSWORD: wordle_local_password
+      POSTGRES_DB: wordle_royale_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wordle -d wordle_royale_local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: wordle-royale-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,13 @@
+{
+  "name": "@wordle-royale/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Next.js web app placeholder",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "node -e \"console.log('Placeholder: implement app dev script in a follow-up ticket.')\"",
+    "typecheck": "node -e \"console.log('Placeholder typecheck for @wordle-royale/web')\"",
+    "build": "node -e \"console.log('Placeholder build for @wordle-royale/web')\""
+  }
+}

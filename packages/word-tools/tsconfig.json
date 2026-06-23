@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "../contracts/src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

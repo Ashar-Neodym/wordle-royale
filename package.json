@@ -1,0 +1,27 @@
+{
+  "name": "wordle-royale",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wordle Royale pnpm monorepo workspace.",
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "validate:workspace": "node scripts/validate-workspace.mjs",
+    "typecheck": "pnpm validate:workspace",
+    "lint": "pnpm validate:workspace",
+    "test": "pnpm validate:workspace",
+    "build": "pnpm -r --if-present build",
+    "dev:web": "pnpm --filter @wordle-royale/web dev",
+    "dev:api": "pnpm --filter @wordle-royale/api dev",
+    "dev:mobile": "pnpm --filter @wordle-royale/mobile dev",
+    "deps:up": "docker compose up -d postgres redis",
+    "deps:down": "docker compose down",
+    "deps:reset": "docker compose down --volumes --remove-orphans",
+    "smoke:local": "node scripts/local-smoke.mjs",
+    "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
+    "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"
+  }
+}

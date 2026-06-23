@@ -1,0 +1,13 @@
+{
+  "name": "@wordle-royale/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Expo React Native app placeholder",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "node -e \"console.log('Placeholder: implement app dev script in a follow-up ticket.')\"",
+    "typecheck": "node -e \"console.log('Placeholder typecheck for @wordle-royale/mobile')\"",
+    "build": "node -e \"console.log('Placeholder build for @wordle-royale/mobile')\""
+  }
+}

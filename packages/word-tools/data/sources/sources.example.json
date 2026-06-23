@@ -1,0 +1,14 @@
+{
+  "sources": [
+    {
+      "sourceId": "safe-fixture",
+      "name": "Project hand-curated test fixture",
+      "licenseName": "Project fixture",
+      "licenseReviewStatus": "approved",
+      "commercialUseAllowed": true,
+      "redistributionAllowed": true,
+      "derivativeWorksAllowed": true,
+      "notes": "Small safe fixture list for tests only; not a production dictionary source."
+    }
+  ]
+}

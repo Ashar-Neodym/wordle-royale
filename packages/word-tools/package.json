@@ -1,0 +1,28 @@
+{
+  "name": "@wordle-royale/word-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dictionary fixture/import/validation tooling.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "word-tools": "node src/cli.ts",
+    "word:fixture:build": "node src/cli.ts fixture build",
+    "word:validate": "node src/cli.ts validate",
+    "test": "node --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "bin": {
+    "word-tools": "src/cli.ts"
+  },
+  "dependencies": {
+    "@wordle-royale/contracts": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.10.0"
+  }
+}

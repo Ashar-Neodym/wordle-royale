@@ -1,0 +1,457 @@
+{
+  "reportVersion": 1,
+  "generatedAt": "2026-06-22T00:00:00.000Z",
+  "algorithm": "placement_mmr_v1_candidate",
+  "parameterSets": [
+    {
+      "name": "conservative_beta",
+      "displayName": "Conservative beta",
+      "ratingScale": 400,
+      "establishedK": 20,
+      "provisionalK": 32,
+      "provisionalMatches": 10,
+      "establishedDeltaCap": 32,
+      "provisionalDeltaCap": 48,
+      "ratingFloor": 100
+    },
+    {
+      "name": "baseline_v1",
+      "displayName": "Baseline V1 candidate",
+      "ratingScale": 400,
+      "establishedK": 24,
+      "provisionalK": 36,
+      "provisionalMatches": 10,
+      "establishedDeltaCap": 40,
+      "provisionalDeltaCap": 60,
+      "ratingFloor": 100
+    },
+    {
+      "name": "fast_convergence",
+      "displayName": "Fast convergence stress candidate",
+      "ratingScale": 400,
+      "establishedK": 28,
+      "provisionalK": 48,
+      "provisionalMatches": 10,
+      "establishedDeltaCap": 48,
+      "provisionalDeltaCap": 72,
+      "ratingFloor": 100
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "1v1_equal_ratings",
+      "title": "1v1 equal ratings",
+      "mode": "1v1",
+      "playerCount": 2,
+      "tags": [
+        "1v1",
+        "baseline"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 10,
+            "B": -10
+          },
+          "averageAbsoluteDelta": 10,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 12,
+            "B": -12
+          },
+          "averageAbsoluteDelta": 12,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 14,
+            "B": -14
+          },
+          "averageAbsoluteDelta": 14,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "1v1_upset",
+      "title": "1v1 upset",
+      "mode": "1v1",
+      "playerCount": 2,
+      "tags": [
+        "1v1",
+        "upset"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": -15,
+            "B": 15
+          },
+          "averageAbsoluteDelta": 15,
+          "maxAbsoluteDelta": 15,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": -18,
+            "B": 18
+          },
+          "averageAbsoluteDelta": 18,
+          "maxAbsoluteDelta": 18,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": -21,
+            "B": 21
+          },
+          "averageAbsoluteDelta": 21,
+          "maxAbsoluteDelta": 21,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "1v1_provisional_win",
+      "title": "1v1 provisional win",
+      "mode": "1v1",
+      "playerCount": 2,
+      "tags": [
+        "1v1",
+        "provisional"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 16,
+            "B": -10
+          },
+          "averageAbsoluteDelta": 13,
+          "maxAbsoluteDelta": 16,
+          "capHits": 0,
+          "totalDelta": 6
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 18,
+            "B": -12
+          },
+          "averageAbsoluteDelta": 15,
+          "maxAbsoluteDelta": 18,
+          "capHits": 0,
+          "totalDelta": 6
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 24,
+            "B": -14
+          },
+          "averageAbsoluteDelta": 19,
+          "maxAbsoluteDelta": 24,
+          "capHits": 0,
+          "totalDelta": 10
+        }
+      ]
+    },
+    {
+      "id": "3p_mixed_skill",
+      "title": "3-player mixed skill placements",
+      "mode": "multiplayer",
+      "playerCount": 3,
+      "tags": [
+        "multiplayer",
+        "3p"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 6,
+            "B": 0,
+            "C": -6
+          },
+          "averageAbsoluteDelta": 4,
+          "maxAbsoluteDelta": 6,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 7,
+            "B": 0,
+            "C": -7
+          },
+          "averageAbsoluteDelta": 4.67,
+          "maxAbsoluteDelta": 7,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 8,
+            "B": 0,
+            "C": -8
+          },
+          "averageAbsoluteDelta": 5.33,
+          "maxAbsoluteDelta": 8,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "4p_equal_placements",
+      "title": "4-player equal ratings",
+      "mode": "multiplayer",
+      "playerCount": 4,
+      "tags": [
+        "multiplayer",
+        "4p",
+        "baseline"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 10,
+            "B": 3,
+            "C": -3,
+            "D": -10
+          },
+          "averageAbsoluteDelta": 6.5,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 12,
+            "B": 4,
+            "C": -4,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 8,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 14,
+            "B": 5,
+            "C": -5,
+            "D": -14
+          },
+          "averageAbsoluteDelta": 9.5,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "4p_upset",
+      "title": "4-player upset",
+      "mode": "multiplayer",
+      "playerCount": 4,
+      "tags": [
+        "multiplayer",
+        "4p",
+        "upset"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": -3,
+            "B": 10,
+            "C": -3,
+            "D": -4
+          },
+          "averageAbsoluteDelta": 5,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": -3,
+            "B": 12,
+            "C": -4,
+            "D": -5
+          },
+          "averageAbsoluteDelta": 6,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": -4,
+            "B": 14,
+            "C": -5,
+            "D": -5
+          },
+          "averageAbsoluteDelta": 7,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "4p_middle_tie",
+      "title": "4-player middle tie",
+      "mode": "multiplayer",
+      "playerCount": 4,
+      "tags": [
+        "multiplayer",
+        "4p",
+        "tie"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 10,
+            "B": 0,
+            "C": 0,
+            "D": -10
+          },
+          "averageAbsoluteDelta": 5,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 12,
+            "B": 0,
+            "C": 0,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 6,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 14,
+            "B": 0,
+            "C": 0,
+            "D": -14
+          },
+          "averageAbsoluteDelta": 7,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "abandon_last_after_meaningful_play_placeholder",
+      "title": "Abandon placeholder — last after meaningful play",
+      "mode": "policy_placeholder",
+      "playerCount": 4,
+      "tags": [
+        "abandon",
+        "policy-placeholder"
+      ],
+      "policyNote": "Meaningful-play threshold is not locked; this scenario models only the candidate last-place treatment.",
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 10,
+            "B": 3,
+            "C": -3,
+            "D": -10
+          },
+          "averageAbsoluteDelta": 6.5,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 12,
+            "B": 4,
+            "C": -4,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 8,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 14,
+            "B": 5,
+            "C": -5,
+            "D": -14
+          },
+          "averageAbsoluteDelta": 9.5,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    }
+  ],
+  "policyPlaceholders": [
+    {
+      "id": "last_place_after_meaningful_play",
+      "title": "Last-place after meaningful play",
+      "status": "not_locked",
+      "simulationTreatment": "Model abandoning player as last only after product-approved meaningful-play threshold.",
+      "openDecision": "Exact meaningful-play threshold is still required."
+    },
+    {
+      "id": "fixed_penalty_no_opponent_windfall",
+      "title": "Fixed penalty plus no opponent windfall",
+      "status": "not_locked",
+      "simulationTreatment": "Reserved for future simulation; not applied to current candidate comparison.",
+      "openDecision": "Need policy decision on whether opponents should receive full, partial, or no rating gains."
+    },
+    {
+      "id": "void_early_no_meaningful_play",
+      "title": "Void early/no meaningful play",
+      "status": "not_locked",
+      "simulationTreatment": "No rating deltas should be emitted for early/server-integrity voids.",
+      "openDecision": "Need server-side definition of early abandon, server fault, and admin void states."
+    }
+  ],
+  "recommendation": "Start ranked beta with baseline_v1 for 1v1 only; keep 3–4 player ranked feature-flagged until QA and telemetry pass."
+}
