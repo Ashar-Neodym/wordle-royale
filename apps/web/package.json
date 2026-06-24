@@ -2,12 +2,24 @@
   "name": "@wordle-royale/web",
   "version": "0.0.0",
   "private": true,
-  "description": "Next.js web app placeholder",
+  "description": "Next.js web app shell for Wordle Royale.",
   "type": "module",
-  "main": "src/index.ts",
   "scripts": {
-    "dev": "node -e \"console.log('Placeholder: implement app dev script in a follow-up ticket.')\"",
-    "typecheck": "node -e \"console.log('Placeholder typecheck for @wordle-royale/web')\"",
-    "build": "node -e \"console.log('Placeholder build for @wordle-royale/web')\""
+    "dev": "next dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "next build"
+  },
+  "dependencies": {
+    "@wordle-royale/design-tokens": "workspace:*",
+    "@wordle-royale/fixtures": "workspace:*",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
   }
 }

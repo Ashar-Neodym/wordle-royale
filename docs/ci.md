@@ -1,40 +1,84 @@
-# Wordle Royale CI Skeleton
+# Wordle Royale CI Quality Gates
 
-Initial GitHub Actions CI is intentionally secret-free and local-resource-free.
+GitHub Actions CI is intentionally free, secret-free, and local-resource-free. It does not deploy, mutate environments, or require paid services.
 
-## Current PR checks
+## Required PR / main checks
 
-`.github/workflows/pr-checks.yml` runs:
+`.github/workflows/pr-checks.yml` runs on pull requests and pushes to `main`:
 
-- `pnpm install --frozen-lockfile`
-- `pnpm lint`
-- `pnpm typecheck`
-- `pnpm test`
-- `pnpm smoke:local`
+1. `corepack enable`
+2. `pnpm install --frozen-lockfile`
+3. `pnpm lint`
+4. `pnpm typecheck`
+5. `pnpm test`
+6. `pnpm build`
+7. `pnpm smoke:local`
+8. `pnpm secret-scan`
 
-At the current scaffold stage, lint/typecheck/test use `scripts/validate-workspace.mjs`. Future implementation tickets should replace or extend package-level scripts with real framework checks.
+The workflow uses GitHub-hosted `ubuntu-latest`, Node.js 20, `pnpm/action-setup@v4`, and the lockfile-backed pnpm cache. No repository secrets are required. `NEXT_TELEMETRY_DISABLED=1` is set in CI so Next.js does not emit anonymous telemetry during automated checks.
 
-`pnpm build` is intentionally not a required PR check in this skeleton yet. During Ticket 22 verification it failed in package code outside Yuna's ops scope (`packages/contracts` TypeScript test/import issues). Add build as a required CI gate after owning implementation agents make workspace package builds consistently green.
+## Local verification
+
+Run the same quality gates locally before opening a PR:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm smoke:local
+pnpm secret-scan
+```
+
+`pnpm smoke:local` validates local configuration files and workspace wiring. It does not start app services.
+
+## Secret scan
+
+`pnpm secret-scan` runs `scripts/secret-scan.mjs`, a lightweight source/config scanner for common token/key patterns and suspicious secret assignments.
+
+Intentional exclusions:
+
+- `node_modules/`
+- `dist/`
+- `build/`
+- `.next/`
+- `.expo/`
+- `coverage/`
+- `.turbo/`
+- `.cache/`
+- `tmp/`
+- `docs/`
+- `agent-communication/`
+
+The scan is not a replacement for a full security audit. It is a cheap CI guardrail to catch accidentally committed obvious secrets while avoiding noisy generated artifacts and documentation examples.
+
+## Docker Compose policy
+
+Docker Compose is optional for current CI. CI does not start PostgreSQL or Redis yet.
+
+`pnpm smoke:local` attempts `docker compose version`; if Docker Compose v2 is unavailable, it reports an informational skip and still validates the local non-Docker config. Integration-test jobs can add GitHub Actions service containers later when API/database tests require them.
+
+## Build artifacts and generated files
+
+Generated/build outputs remain ignored via `.gitignore`, including `node_modules/`, `dist/`, `build/`, `.next/`, `.expo/`, `coverage/`, `.turbo/`, and generated word-tool data. Keep source files and deterministic fixtures tracked; keep generated dependency/build output untracked.
 
 ## CI safety rules
 
 - No production secrets required.
 - No cloud deploys from PR checks.
 - No staging/production database or Redis access from PR checks.
-- Future integration-test jobs should use GitHub Actions service containers for PostgreSQL 16 and Redis 7.
-- Production deploy workflows require explicit Ashar approval before implementation.
+- No paid scanners or paid CI services.
+- Future deployment workflows require explicit Ashar approval before implementation.
 
 ## Future CI expansion
 
-When app implementations exist, add jobs for:
+When app implementations need deeper checks, add separate jobs for:
 
-1. API/NestJS unit tests.
-2. Game engine duplicate-letter feedback tests.
-3. API integration tests with PostgreSQL 16 and Redis 7 service containers.
-4. Prisma migration apply check against disposable PostgreSQL.
-5. Next.js production build.
-6. Expo/mobile config/typecheck.
-7. API/worker Docker image build.
-8. Secret scanning.
-9. Dependency audit.
-10. Workspace `pnpm build` after package builds are stabilized.
+1. API/NestJS unit and integration tests.
+2. Disposable PostgreSQL/Redis service-container tests.
+3. Prisma migration apply checks against disposable PostgreSQL.
+4. Next.js production build once the web app replaces placeholders.
+5. Expo/mobile config/typecheck once mobile implementation starts.
+6. API/worker Docker image build if containerization becomes a release target.
+7. Dependency audit with free/open-source tooling.

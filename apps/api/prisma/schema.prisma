@@ -1,0 +1,416 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserAccountStatus {
+  active
+  disabled
+  deleted
+}
+
+enum ConsentScope {
+  training_insights_opt_in
+  analytics_events
+  marketing_email
+}
+
+enum ConsentDecision {
+  granted
+  denied
+  withdrawn
+}
+
+enum DictionaryReleaseStatus {
+  draft
+  active
+  retired
+}
+
+enum DictionaryWordKind {
+  answer
+  guess
+  banned
+}
+
+enum LobbyStatus {
+  waiting
+  ready
+  in_match
+  closed
+}
+
+enum LobbyVisibility {
+  private
+  public
+}
+
+enum MatchStatus {
+  pending
+  active
+  completed
+  voided
+  cancelled
+}
+
+enum MatchMode {
+  casual
+  ranked
+}
+
+enum ParticipantOutcome {
+  pending
+  solved
+  failed
+  abandoned
+  voided
+}
+
+enum RatingEventType {
+  apply
+  void
+  reversal
+  adjustment
+}
+
+enum RatingProfileStatus {
+  active
+  suspended
+  reset
+}
+
+model UserAccount {
+  id          String            @id @default(uuid())
+  email       String?           @unique
+  displayName String
+  status      UserAccountStatus @default(active)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+
+  profile         UserProfile?
+  consentRecords  ConsentRecord[]
+  lobbiesHosted   Lobby[]            @relation("LobbyHost")
+  participants    MatchParticipant[]
+  ratingProfiles  RatingProfile[]
+  analyticsEvents AnalyticsEvent[]
+  auditLogs       AuditLog[]         @relation("AuditActor")
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  publicHandle String   @unique
+  avatarUrl    String?
+  bio          String?
+  countryCode  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConsentRecord {
+  id         String          @id @default(uuid())
+  userId     String
+  scope      ConsentScope
+  decision   ConsentDecision
+  source     String
+  metadata   Json?
+  recordedAt DateTime        @default(now())
+
+  user UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, scope, recordedAt])
+  @@index([scope, decision])
+}
+
+model DictionaryRelease {
+  id             String                  @id @default(uuid())
+  locale         String
+  wordLength     Int                     @default(5)
+  version        String
+  status         DictionaryReleaseStatus @default(draft)
+  sourceLabel    String
+  sourceMetadata Json?
+  artifactSha256 String?
+  answerCount    Int                     @default(0)
+  guessCount     Int                     @default(0)
+  bannedCount    Int                     @default(0)
+  releasedAt     DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  words   DictionaryWord[]
+  matches Match[]
+  rounds  MatchRound[]
+  guesses GuessAttempt[]
+
+  @@unique([locale, wordLength, version])
+  @@index([status, locale, wordLength])
+}
+
+model DictionaryWord {
+  id                  String             @id @default(uuid())
+  dictionaryReleaseId String
+  normalizedWord      String
+  kind                DictionaryWordKind
+  checksum            String?
+  metadata            Json?
+  createdAt           DateTime           @default(now())
+
+  dictionaryRelease DictionaryRelease @relation(fields: [dictionaryReleaseId], references: [id], onDelete: Cascade)
+
+  @@unique([dictionaryReleaseId, normalizedWord, kind])
+  @@index([dictionaryReleaseId, kind])
+  @@index([checksum])
+}
+
+model Lobby {
+  id         String          @id @default(uuid())
+  code       String          @unique
+  hostUserId String
+  status     LobbyStatus     @default(waiting)
+  visibility LobbyVisibility @default(private)
+  mode       MatchMode       @default(casual)
+  maxPlayers Int             @default(4)
+  settings   Json?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  closedAt   DateTime?
+
+  host    UserAccount @relation("LobbyHost", fields: [hostUserId], references: [id])
+  matches Match[]
+
+  @@index([hostUserId, createdAt])
+  @@index([status, mode])
+}
+
+model Match {
+  id                     String      @id @default(uuid())
+  lobbyId                String?
+  dictionaryReleaseId    String
+  mode                   MatchMode   @default(casual)
+  status                 MatchStatus @default(pending)
+  algorithmConfigVersion String?
+  idempotencyKey         String      @unique
+  startedAt              DateTime?
+  completedAt            DateTime?
+  voidedAt               DateTime?
+  voidReason             String?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  lobby             Lobby?             @relation(fields: [lobbyId], references: [id], onDelete: SetNull)
+  dictionaryRelease DictionaryRelease  @relation(fields: [dictionaryReleaseId], references: [id])
+  rounds            MatchRound[]
+  participants      MatchParticipant[]
+  guessAttempts     GuessAttempt[]
+  scoreBreakdowns   ScoreBreakdown[]
+  report            MatchReport?
+  ratingEvents      RatingEvent[]
+  analyticsEvents   AnalyticsEvent[]
+  auditLogs         AuditLog[]
+
+  @@index([status, mode, createdAt])
+  @@index([dictionaryReleaseId])
+}
+
+model MatchRound {
+  id                  String    @id @default(uuid())
+  matchId             String
+  dictionaryReleaseId String
+  roundNumber         Int
+  answerWordHash      String
+  answerWordSaltRef   String?
+  maxAttempts         Int       @default(6)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+
+  match             Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  dictionaryRelease DictionaryRelease @relation(fields: [dictionaryReleaseId], references: [id])
+  guessAttempts     GuessAttempt[]
+  scoreBreakdowns   ScoreBreakdown[]
+
+  @@unique([matchId, roundNumber])
+  @@index([dictionaryReleaseId])
+}
+
+model MatchParticipant {
+  id          String             @id @default(uuid())
+  matchId     String
+  userId      String
+  seatNumber  Int
+  outcome     ParticipantOutcome @default(pending)
+  placement   Int?
+  finalScore  Int                @default(0)
+  joinedAt    DateTime           @default(now())
+  abandonedAt DateTime?
+  metadata    Json?
+
+  match           Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user            UserAccount      @relation(fields: [userId], references: [id])
+  guessAttempts   GuessAttempt[]
+  scoreBreakdowns ScoreBreakdown[]
+  ratingEvents    RatingEvent[]
+
+  @@unique([matchId, userId])
+  @@unique([matchId, seatNumber])
+  @@index([userId, joinedAt])
+}
+
+model GuessAttempt {
+  id                  String   @id @default(uuid())
+  matchId             String
+  roundId             String
+  participantId       String
+  dictionaryReleaseId String
+  attemptNumber       Int
+  normalizedGuess     String
+  feedback            Json
+  serverValidation    Json
+  scoreDelta          Int      @default(0)
+  submittedAt         DateTime @default(now())
+  idempotencyKey      String   @unique
+
+  match             Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  round             MatchRound        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  participant       MatchParticipant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  dictionaryRelease DictionaryRelease @relation(fields: [dictionaryReleaseId], references: [id])
+
+  @@unique([roundId, participantId, attemptNumber])
+  @@index([matchId, submittedAt])
+  @@index([dictionaryReleaseId])
+}
+
+model ScoreBreakdown {
+  id            String   @id @default(uuid())
+  matchId       String
+  roundId       String?
+  participantId String
+  category      String
+  points        Int
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  match       Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  round       MatchRound?      @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  participant MatchParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, participantId])
+  @@index([category])
+}
+
+model MatchReport {
+  id               String   @id @default(uuid())
+  matchId          String   @unique
+  participantData  Json
+  publicSummary    Json?
+  spoilerSafeShare Json?
+  generatedAt      DateTime @default(now())
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+model RatingProfile {
+  id                     String              @id @default(uuid())
+  userId                 String
+  mode                   MatchMode           @default(ranked)
+  rating                 Int                 @default(1500)
+  matchesPlayed          Int                 @default(0)
+  provisionalRemaining   Int                 @default(10)
+  algorithm              String              @default("placement_mmr_v1")
+  algorithmConfigVersion String
+  status                 RatingProfileStatus @default(active)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  user   UserAccount   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events RatingEvent[]
+
+  @@unique([userId, mode, algorithmConfigVersion])
+  @@index([mode, rating])
+}
+
+model RatingEvent {
+  id                     String          @id @default(uuid())
+  ratingProfileId        String
+  matchId                String?
+  participantId          String?
+  type                   RatingEventType
+  idempotencyKey         String          @unique
+  ratingBefore           Int
+  ratingAfter            Int
+  delta                  Int
+  algorithm              String          @default("placement_mmr_v1")
+  algorithmConfigVersion String
+  metadata               Json?
+  voidedByEventId        String?
+  reversalOfEventId      String?
+  createdAt              DateTime        @default(now())
+
+  ratingProfile RatingProfile     @relation(fields: [ratingProfileId], references: [id], onDelete: Cascade)
+  match         Match?            @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  participant   MatchParticipant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@index([ratingProfileId, createdAt])
+  @@index([matchId])
+  @@index([voidedByEventId])
+  @@index([reversalOfEventId])
+}
+
+model LeaderboardSnapshot {
+  id                      String    @id @default(uuid())
+  mode                    MatchMode @default(ranked)
+  algorithmConfigVersion  String
+  generatedAt             DateTime  @default(now())
+  entries                 Json
+  sourceEventMaxCreatedAt DateTime?
+
+  @@index([mode, algorithmConfigVersion, generatedAt])
+}
+
+model AnalyticsEvent {
+  id           String        @id @default(uuid())
+  userId       String?
+  matchId      String?
+  eventName    String
+  payload      Json?
+  consentScope ConsentScope?
+  occurredAt   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+
+  user  UserAccount? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  match Match?       @relation(fields: [matchId], references: [id], onDelete: SetNull)
+
+  @@index([eventName, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([matchId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  matchId     String?
+  action      String
+  entityType  String
+  entityId    String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor UserAccount? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  match Match?       @relation(fields: [matchId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+}

@@ -21,6 +21,7 @@
     "deps:down": "docker compose down",
     "deps:reset": "docker compose down --volumes --remove-orphans",
     "smoke:local": "node scripts/local-smoke.mjs",
+    "secret-scan": "node scripts/secret-scan.mjs",
     "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
     "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"
   }

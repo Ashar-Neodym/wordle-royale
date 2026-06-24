@@ -8,6 +8,17 @@
   "scripts": {
     "dev": "node -e \"console.log('Placeholder: implement app dev script in a follow-up ticket.')\"",
     "typecheck": "node -e \"console.log('Placeholder typecheck for @wordle-royale/api')\"",
-    "build": "node -e \"console.log('Placeholder build for @wordle-royale/api')\""
+    "build": "node -e \"console.log('Placeholder build for @wordle-royale/api')\"",
+    "test": "node --test prisma/*.test.mjs",
+    "db:validate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public}\" prisma validate --schema prisma/schema.prisma",
+    "db:generate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public}\" prisma generate --schema prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.10.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.10.1"
   }
 }
