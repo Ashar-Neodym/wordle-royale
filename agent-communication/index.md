@@ -37,3 +37,23 @@ Tickets 01–17 responses are present in `agent-communication/responses/`.
 ## Hold
 
 Backend NestJS app implementation, Prisma schema, frontend apps, and live integration should wait until Wave C1 outputs are reviewed.
+
+## Wave D — Tickets 25-31
+
+Created after Athena review `docs/2026-06-23-athena-review-after-tickets-18-24.md`.
+
+- Ticket 25 — Elisa — Shared Contracts for Auth, Lobby, Gameplay, and Realtime Events
+- Ticket 26 — Ruby — Database and Prisma Schema Foundation
+- Ticket 27 — Freya — NestJS API Skeleton with Health, Auth Stub, and Lobby Stub
+- Ticket 28 — Luna — Next.js Web App Shell with Design Tokens and Fixture Screens
+- Ticket 29 — Luna — Expo Mobile App Shell with Design Tokens and Fixture Screens
+- Ticket 30 — Yuna — CI Quality Gates and GitHub Actions Hardening
+- Ticket 31 — Jasmine — QA Review Gates for Contracts, API, Web, Mobile, DB, and CI Wave
+
+Recommended order:
+
+1. Wave D0 parallel: Ticket 25 (Elisa), Ticket 26 (Ruby), Ticket 28 (Luna), Ticket 30 (Yuna).
+2. Wave D1 after Ticket 25/26 are complete or mostly complete: Ticket 27 (Freya).
+3. Wave D1 optional/sequential for Luna: Ticket 29 after Ticket 28 unless Luna can safely work in parallel branches.
+4. Wave D2 final verification: Ticket 31 (Jasmine) after implementation responses are present.
+
