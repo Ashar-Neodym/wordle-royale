@@ -6,7 +6,6 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "allowJs": false,
     "noEmit": true,
     "types": ["react"],
