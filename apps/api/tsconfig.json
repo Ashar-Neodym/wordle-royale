@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": "../..",
+    "paths": {
+      "@wordle-royale/contracts": ["packages/contracts/src/index.ts"],
+      "@wordle-royale/fixtures": ["packages/fixtures/src/index.ts"],
+      "@wordle-royale/game-engine": ["packages/game-engine/src/index.ts"],
+      "@wordle-royale/word-tools": ["packages/word-tools/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "prisma/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

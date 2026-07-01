@@ -9,12 +9,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   workspace-checks:
     name: Workspace checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
+      CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
@@ -44,14 +49,22 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
+      - name: Workspace scaffold test
         run: pnpm test
 
-      - name: Build
+      - name: API behavior tests
+        run: pnpm --filter @wordle-royale/api test
+
+      - name: Build all packages and apps
         run: pnpm build
 
       - name: Local config smoke
         run: pnpm smoke:local
+
+      # Config-only Docker Compose check. This validates the local dependency
+      # contract without starting PostgreSQL/Redis or requiring deploy secrets.
+      - name: Dependency config check
+        run: pnpm deps:check
 
       - name: Secret scan
         run: pnpm secret-scan

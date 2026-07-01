@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { clientRequestSchema, idSchema, timestampSchema } from '../common/schemas.ts';
-import { guessRejectReasons, letterFeedbackStates, matchStates, playerRoundStates, roundStates, scoringPresets } from './constants.ts';
+import { defaultRating, guessRejectReasons, letterFeedbackStates, matchStates, playerRoundStates, rankedMatchCompletionReasons, rankedMatchStartSources, ratingEventKinds, ratingEventStatuses, roundStates, scoringPresets } from './constants.ts';
 
 export const matchStateSchema = z.enum(matchStates);
 export const roundStateSchema = z.enum(roundStates);
@@ -95,3 +95,66 @@ export const rejectedGuessResultSchema = z.object({
 });
 
 export const guessResultSchema = z.discriminatedUnion('accepted', [acceptedGuessResultSchema, rejectedGuessResultSchema]);
+
+
+export const rankedMatchStartSourceSchema = z.enum(rankedMatchStartSources);
+export const rankedMatchCompletionReasonSchema = z.enum(rankedMatchCompletionReasons);
+export const ratingEventKindSchema = z.enum(ratingEventKinds);
+export const ratingEventStatusSchema = z.enum(ratingEventStatuses);
+
+export const startRankedMatchRequestSchema = clientRequestSchema.extend({
+  lobbyId: idSchema.optional(),
+  dictionaryReleaseId: idSchema.optional(),
+  participantUserIds: z.array(idSchema).min(2).max(4).optional(),
+  source: rankedMatchStartSourceSchema.default('lobby'),
+}).superRefine((value, ctx) => {
+  if (value.source === 'lobby' && !value.lobbyId) {
+    ctx.addIssue({ code: 'custom', message: 'lobbyId is required when starting a ranked match from a lobby.', path: ['lobbyId'] });
+  }
+});
+
+export const rankedMatchStartResponseDataSchema = z.object({
+  matchId: idSchema,
+  roundId: idSchema,
+  state: z.literal('in_progress'),
+  snapshot: matchSnapshotSchema,
+});
+
+export const currentRankedMatchStateResponseDataSchema = matchSnapshotSchema;
+
+export const completeRankedMatchRequestSchema = clientRequestSchema.extend({
+  matchId: idSchema,
+  reason: rankedMatchCompletionReasonSchema.default('all_players_final'),
+});
+
+export const ratingParticipantDeltaSchema = z.object({
+  userId: idSchema,
+  ratingBefore: z.number().int().default(defaultRating),
+  ratingAfter: z.number().int(),
+  ratingDelta: z.number().int(),
+  placement: z.number().int().positive(),
+  placementGroup: z.number().int().positive().optional(),
+  provisional: z.boolean().default(false),
+});
+
+export const ratingEventContractSchema = z.object({
+  eventId: idSchema,
+  matchId: idSchema,
+  kind: ratingEventKindSchema,
+  status: ratingEventStatusSchema,
+  idempotencyKey: z.string().min(1),
+  algorithmVersion: z.literal('placement_mmr_v1'),
+  defaultRating: z.literal(defaultRating),
+  participants: z.array(ratingParticipantDeltaSchema).min(2),
+  createdAt: timestampSchema,
+  appliedAt: timestampSchema.nullable().optional(),
+});
+
+export const rankedMatchResultSummarySchema = z.object({
+  matchId: idSchema,
+  state: z.literal('completed'),
+  completedAt: timestampSchema,
+  completionReason: rankedMatchCompletionReasonSchema,
+  finalStandings: z.array(participantStandingSchema).min(2),
+  ratingEvent: ratingEventContractSchema.nullable(),
+});

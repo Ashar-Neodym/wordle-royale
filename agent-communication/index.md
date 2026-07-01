@@ -2,58 +2,48 @@
 
 ## Current status
 
-Responses reviewed through Ticket 17. Athena wrote current build-wave decision locks:
+Responses reviewed through Ticket 71. Athena wrote current Wave J review:
 
-`docs/2026-06-22-athena-decision-locks-after-tickets-11-17.md`
+`docs/2026-07-01-athena-review-after-tickets-65-71.md`
+
+Wave J is PASS after Athena fixed Jasmine's whitespace finding in `apps/mobile/README.md` and reran the verification gates.
+
+## Product direction
+
+Ashar's vision: Wordle Royale should be for Wordle what chess.com / lichess are for chess — competitive, social, ranked, replayable, multi-page, and rating-driven with Elo/MMR as a core loop.
+
+## Visual/product correction
+
+UI should stay human, calm, functional, minimal, game-first, rating/community oriented — closer to lichess than a glossy AI/SaaS dashboard. Ashar likes the improvement but wants more real page depth, dropdowns, product navigation, and safe responsive behavior across web and mobile.
 
 ## Completed responses
 
-Tickets 01–17 responses are present in `agent-communication/responses/`.
+Tickets 01–71 responses are present in `agent-communication/responses/`.
 
-## Next build wave
-
-### Wave C0 — blocking scaffold
+## Wave K — GitHub checkpoint and product depth
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 18 | Ruby | Monorepo Foundation Scaffold | Send first; blocks coding parallelism |
+| 72 | Yuna | GitHub Checkpoint Branch/PR and CI Monitor | New; K.0 critical |
+| 73 | Elisa | Product Navigation and Route Contracts v2 | New; K.0 |
+| 74 | Freya | Profile and Match History API Read Model Slice | New; K.1 |
+| 75 | Luna | Web Route Depth: Profile, History, and Match Detail UI | New; K.2 |
+| 76 | Ruby | Lobby Discovery and Matchmaking UX Slice | New; K.1/K.2 |
+| 77 | Luna | Mobile Navigation and Bounds Follow-Up | New; K.2 optional phone smoke |
+| 78 | Elisa | Privacy-Safe Product Analytics and Event Taxonomy Plan | New; K.1 planning |
+| 79 | Jasmine | QA Review Wave K GitHub Checkpoint and Product Depth | New; K.3 last |
 
-### Wave C1 — send after Ticket 18 completes
+## Recommended order
 
-| Ticket | Agent | Title | Status |
-|---|---|---|---|
-| 19 | Freya | Game Engine Core Implementation | Ready after 18 |
-| 20 | Ruby | Word Fixture Tooling Implementation | Ready after 18 |
-| 21 | Luna | Design Tokens and UI Fixture Foundation | Ready after 18 |
-| 22 | Yuna | Local Dev Docker/Env/CI Skeleton | Ready after 18 |
-| 23 | Jasmine | Implementation QA Gates for First Build | Ready after 18 |
+1. Wave K.0 parallel: Tickets 72 and 73.
+2. Wave K.1: Tickets 74, 76, and 78 after/with Ticket 73 direction.
+3. Wave K.2: Tickets 75 and 77 after route/API shape is clear.
+4. Wave K.3: Ticket 79 last.
 
-### Wave C1 optional if Ruby is free
+## Persistent constraints
 
-| Ticket | Agent | Title | Status |
-|---|---|---|---|
-| 24 | Ruby | Rating Tools Simulation Implementation | Ready after 18; can wait if Ruby busy with 20 |
-
-## Hold
-
-Backend NestJS app implementation, Prisma schema, frontend apps, and live integration should wait until Wave C1 outputs are reviewed.
-
-## Wave D — Tickets 25-31
-
-Created after Athena review `docs/2026-06-23-athena-review-after-tickets-18-24.md`.
-
-- Ticket 25 — Elisa — Shared Contracts for Auth, Lobby, Gameplay, and Realtime Events
-- Ticket 26 — Ruby — Database and Prisma Schema Foundation
-- Ticket 27 — Freya — NestJS API Skeleton with Health, Auth Stub, and Lobby Stub
-- Ticket 28 — Luna — Next.js Web App Shell with Design Tokens and Fixture Screens
-- Ticket 29 — Luna — Expo Mobile App Shell with Design Tokens and Fixture Screens
-- Ticket 30 — Yuna — CI Quality Gates and GitHub Actions Hardening
-- Ticket 31 — Jasmine — QA Review Gates for Contracts, API, Web, Mobile, DB, and CI Wave
-
-Recommended order:
-
-1. Wave D0 parallel: Ticket 25 (Elisa), Ticket 26 (Ruby), Ticket 28 (Luna), Ticket 30 (Yuna).
-2. Wave D1 after Ticket 25/26 are complete or mostly complete: Ticket 27 (Freya).
-3. Wave D1 optional/sequential for Luna: Ticket 29 after Ticket 28 unless Luna can safely work in parallel branches.
-4. Wave D2 final verification: Ticket 31 (Jasmine) after implementation responses are present.
-
+- Prefer free/open-source/local-first tooling.
+- Do not add paid SaaS, paid cloud resources, proprietary datasets, or subscription dependencies without Ashar approval.
+- Do not commit secrets or create real `.env` files.
+- Preserve spoiler safety and server authority for gameplay/rating logic.
+- GitHub checkpoint is now desired; prefer branch/PR unless Ashar explicitly wants direct `main` push.

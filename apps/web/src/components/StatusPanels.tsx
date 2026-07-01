@@ -1,10 +1,11 @@
-import { connectionStates, lobbyStates, rank, score } from '../lib/tokens';
-import { lobbyEnvelopes, statusFixtures } from '../lib/fixtures';
+import type { ReactElement } from 'react';
+import { lobbyStates, rank, score } from '../lib/tokens';
+import type { WebApiSnapshot } from '../lib/api-client';
 import styles from './web-shell.module.css';
 
 type BadgeProps = { label: string; bg: string; border: string; text: string; title?: string };
 
-export function TokenBadge({ label, bg, border, text, title }: BadgeProps) {
+export function TokenBadge({ label, bg, border, text, title }: BadgeProps): ReactElement {
   return (
     <span className={styles.badge} style={{ backgroundColor: bg, borderColor: border, color: text }} title={title}>
       {label}
@@ -12,31 +13,29 @@ export function TokenBadge({ label, bg, border, text, title }: BadgeProps) {
   );
 }
 
-export function StatusStrip() {
-  const reconnecting = connectionStates.reconnecting;
-  const resyncing = connectionStates.resyncing;
+export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
   const ready = lobbyStates.ready;
-  const joinError = lobbyEnvelopes.joinFull.error;
+  const isConnected = api.health.status === 'connected';
+  const readinessStatus = api.readiness.data?.status ?? api.readiness.status;
+  const dependencies = api.readiness.data?.dependencies ?? {};
+  const dependencySummary = Object.entries(dependencies)
+    .map(([name, value]) => {
+      const status = typeof value === 'object' && value !== null && 'status' in value ? String(value.status) : 'unknown';
+      return `${name}: ${status}`;
+    })
+    .join(' · ');
+
   return (
-    <section className={styles.statusGrid} aria-label="Reusable loading, error, reconnect, and ranking states">
-      <div className={styles.statusCard}>
-        <span className={styles.spinner} aria-hidden="true" />
+    <section className={styles.statusGrid} aria-label="Server and rating status">
+      <div className={styles.statusCard} role={isConnected ? undefined : 'alert'}>
         <div>
-          <strong>{statusFixtures.loading.label}</strong>
-          <p>Stable loading card for screen shells and mock data transitions.</p>
+          <strong>{isConnected ? `Server online · ${readinessStatus}` : 'Server offline · fixture mode'}</strong>
+          <p>
+            {isConnected
+              ? dependencySummary || `${api.health.data?.service ?? 'API'} ready`
+              : `Showing local fixtures because ${api.health.apiUrl} is unavailable${api.health.error ? `: ${api.health.error}` : '.'}`}
+          </p>
         </div>
-      </div>
-      <div className={styles.statusCard} style={{ borderColor: reconnecting.border }} aria-live={reconnecting.ariaLive}>
-        <strong style={{ color: reconnecting.text }}>{reconnecting.label}</strong>
-        <p>Gameplay input pauses while the server state reconnects.</p>
-      </div>
-      <div className={styles.statusCard} style={{ borderColor: resyncing.border }} aria-live={resyncing.ariaLive}>
-        <strong style={{ color: resyncing.text }}>{resyncing.label}</strong>
-        <p>Fixture-driven state resync after connection recovery.</p>
-      </div>
-      <div className={styles.statusCard} role="alert">
-        <strong>{joinError?.code ?? 'ERROR'}</strong>
-        <p>{joinError?.message ?? 'Something went wrong.'}</p>
       </div>
       <div className={styles.statusCard}>
         <TokenBadge label={ready.label} bg={ready.bg} border={ready.border} text={ready.text} />

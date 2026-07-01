@@ -1,57 +1,48 @@
-import { tileStates } from '../lib/tokens';
+import type { ReactElement } from 'react';
+import { getWebApiSnapshot } from '../lib/api-client';
 import { gameplayFixtures } from '../lib/fixtures';
-import { GameplayScreen } from '../components/GameplayScreen';
-import { LobbyBrowser, WaitingRoom } from '../components/LobbyScreens';
-import { MatchReport, ProfileLeaderboard } from '../components/ReportAndProfile';
+import { PageFrame } from '../components/PageFrame';
 import { StatusStrip } from '../components/StatusPanels';
-import { WordTile } from '../components/WordTile';
 import styles from '../components/web-shell.module.css';
 
-export default function HomePage() {
-  const previewGuess = gameplayFixtures.solvedRound.players[0]?.guesses.at(-1);
-  return (
-    <main className={styles.shell}>
-      <nav className={styles.nav} aria-label="Primary">
-        <a className={styles.brand} href="#top" id="top">
-          <span className={styles.logoMark} aria-hidden="true">♛</span>
-          <span>Wordle Royale</span>
-        </a>
-        <div className={styles.navLinks}>
-          <a href="#lobbies">Lobbies</a>
-          <a href="#waiting-room">Room</a>
-          <a href="#gameplay">Gameplay</a>
-          <a href="#report">Report</a>
-          <a href="#leaderboard">Leaderboard</a>
-        </div>
-      </nav>
+export const dynamic = 'force-dynamic';
 
-      <section className={styles.hero} aria-labelledby="hero-heading">
+export default async function HomePage(): Promise<ReactElement> {
+  const api = await getWebApiSnapshot();
+  const localPlayer = gameplayFixtures.solvedRound.players[0];
+  return (
+    <PageFrame>
+      <section className={styles.hero} aria-labelledby="home-heading">
         <div>
-          <p className={styles.eyebrow}>Crown Grid Arena</p>
-          <h1 id="hero-heading">Fixture-driven web shell for the first playable loop.</h1>
-          <p>
-            A local Next.js app shell using shared design tokens, lobby/gameplay/report fixtures, accessible tile markers, and reusable loading/error/reconnect states.
-          </p>
+          <p className={styles.eyebrow}>Rated word games</p>
+          <h1 id="home-heading">Play Wordle Royale.</h1>
+          <p>Create or join a room, play a server-scored ranked round, and track rating without active-play spoilers.</p>
           <div className={styles.heroActions}>
-            <a className={styles.primaryButton} href="#gameplay">View gameplay board</a>
-            <a className={styles.secondaryButton} href="#lobbies">Browse mock lobbies</a>
+            <a className={styles.primaryButton} href="/play">Play rated</a>
+            <a className={styles.secondaryButton} href="/lobbies">Find lobby</a>
+            <a className={styles.secondaryButton} href="/learn/rules">Rules</a>
           </div>
         </div>
-        <aside className={styles.heroPreview} aria-label="Tile feedback legend">
-          <p className={styles.eyebrow}>Tile feedback</p>
-          <div className={styles.wordRow}>
-            {previewGuess?.feedback.map((state, index) => <WordTile key={`${state}-${index}`} letter={previewGuess.guess[index] ?? ''} state={state} />)}
-          </div>
-          <p className={styles.muted}>Correct, present, and absent use token colors plus non-color markers: {tileStates.correct.icon}, {tileStates.present.icon}, {tileStates.absent.icon}.</p>
+        <aside className={styles.heroPreview} aria-label="Current player snapshot">
+          <p className={styles.eyebrow}>Local profile</p>
+          <strong>{localPlayer ? 'Player One' : 'Guest'}</strong>
+          <p className={styles.muted}>1200 provisional · local demo profile</p>
         </aside>
       </section>
-
-      <StatusStrip />
-      <LobbyBrowser />
-      <WaitingRoom />
-      <GameplayScreen />
-      <MatchReport />
-      <ProfileLeaderboard />
-    </main>
+      <section className={styles.section} aria-labelledby="home-routes-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Pages</p>
+          <h2 id="home-routes-heading">Choose where to go</h2>
+          <p>Wordle Royale now uses real routes instead of one long page. Live-vs-fixture state remains visible and secondary.</p>
+        </div>
+        <div className={styles.routeGrid}>
+          <a className={styles.routeCard} href="/play"><strong>Play</strong><span>Board-first match workspace</span></a>
+          <a className={styles.routeCard} href="/lobbies"><strong>Lobbies</strong><span>Create, join, and start rated rooms</span></a>
+          <a className={styles.routeCard} href="/leaderboard"><strong>Leaderboard</strong><span>Ratings and provisional status</span></a>
+          <a className={styles.routeCard} href="/profile"><strong>Profile</strong><span>Current local player identity</span></a>
+        </div>
+      </section>
+      <StatusStrip api={api} />
+    </PageFrame>
   );
 }

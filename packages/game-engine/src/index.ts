@@ -102,7 +102,7 @@ export function normalizeWord(input: string): string {
 
 function toReadonlySet(values?: ReadonlySet<string> | readonly string[]): ReadonlySet<string> | undefined {
   if (!values) return undefined;
-  return values instanceof Set ? values : new Set(values.map(normalizeWord));
+  return values instanceof Set ? values : new Set(Array.from(values, normalizeWord));
 }
 
 export function validateGuess(input: ValidateGuessInput): ValidateGuessResult {
