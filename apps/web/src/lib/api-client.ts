@@ -12,6 +12,9 @@ import type {
   CompleteRankedMatchRequest,
   RankedMatchResultSummary,
   SuccessEnvelope,
+  CurrentProfileSummary,
+  PublicProfileSummary,
+  MatchHistoryList,
 } from '@wordle-royale/contracts';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
@@ -208,6 +211,20 @@ export async function getLeaderboard(limit = 20): Promise<ApiClientResult<Leader
 
 export async function getRatedProfile(handle = 'alice'): Promise<ApiClientResult<RatedProfilePayload>> {
   return requestEnvelope<RatedProfilePayload>(`/profiles/${encodeURIComponent(handle)}/rating`);
+}
+
+export async function getCurrentProfileSummary(): Promise<ApiClientResult<CurrentProfileSummary>> {
+  return requestEnvelope<CurrentProfileSummary>('/profiles/me/summary');
+}
+
+export async function getPublicProfileSummary(handle: string): Promise<ApiClientResult<PublicProfileSummary>> {
+  return requestEnvelope<PublicProfileSummary>(`/profiles/${encodeURIComponent(handle)}/summary`);
+}
+
+export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiClientResult<MatchHistoryList>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return requestEnvelope<MatchHistoryList>(`/matches/history/me?${params.toString()}`);
 }
 
 export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {

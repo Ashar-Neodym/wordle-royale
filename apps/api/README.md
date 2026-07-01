@@ -13,7 +13,7 @@ Implemented local foundational routes:
 - `GET /profile/me` — public profile stub.
 - `PATCH /profile/me` — profile update stub using shared contract validation.
 - `GET /profile/handles/:handle/availability` — handle availability stub.
-- `GET /lobbies` — public lobby list stub.
+- `GET /lobbies?status=waiting&mode=ranked&visibility=public&limit=20` — public lobby discovery with optional filters and join/start affordances.
 - `POST /lobbies` — create lobby stub using `createLobbyRequestSchema`.
 - `POST /lobbies/join-code` — join by code stub using `joinLobbyByCodeRequestSchema`.
 - `POST /lobbies/:lobbyId/join` — join lobby stub using client request validation.
@@ -71,6 +71,24 @@ pnpm --filter @wordle-royale/api db:validate
 `db:validate` uses a local placeholder `DATABASE_URL` only for Prisma schema validation and does not connect to a database. Do not commit real `.env` files or production credentials.
 
 A deterministic initial SQL migration was generated with `prisma migrate diff --from-empty --to-schema-datamodel`; it has not been applied to any live database in this ticket.
+
+## Lobby discovery and readiness slice
+
+`GET /lobbies` remains backward-compatible and now accepts optional discovery filters:
+
+```http
+GET /lobbies?status=waiting&mode=ranked&visibility=public&limit=20
+```
+
+Discovery rows include the existing `LobbyDto` fields plus product-action metadata for `/lobbies` and `/play`:
+
+- `status`, `visibility`, and `mode` for filtering/grouping.
+- `playerCount` and `maxPlayers` for compact lobby cards.
+- `canJoin` for open/non-full lobbies.
+- `canStart` once the server sees enough joined players for the lobby's `minPlayers` rule.
+- `blockerReason` for start readiness copy (`waiting_for_players`, `lobby_not_open`, or `null`).
+
+The slice does not introduce a full matchmaking queue. Start readiness stays server-derived from persisted lobby settings and members, and gameplay/rating authority remains in the ranked match services.
 
 ## Ranked gameplay persistence slice
 

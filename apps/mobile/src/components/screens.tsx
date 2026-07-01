@@ -156,6 +156,53 @@ export function LivePreviewCard() {
   );
 }
 
+export function ProfileSummary() {
+  const { snapshot, error } = useMobileSnapshot();
+  const liveProfile = snapshot?.ratedProfile.status === 'connected' ? snapshot.ratedProfile.data : null;
+  const fallbackReason = error ?? snapshot?.ratedProfile.error ?? 'Waiting for rated profile preview.';
+
+  return (
+    <Section eyebrow={liveProfile ? 'Profile' : 'Profile preview'} title={liveProfile ? liveProfile.displayName : 'Current player'}>
+      <Text style={shared.body}>Mobile mirrors the web profile destination with a compact, read-only summary. Account editing stays out of scope while auth is stubbed.</Text>
+      {liveProfile ? (
+        <View style={shared.card}>
+          <Text style={local.cardTitle}>@{liveProfile.handle}</Text>
+          <Text style={shared.body}>{liveProfile.rating} rating · {liveProfile.matchesPlayed} ranked games</Text>
+        </View>
+      ) : (
+        <View style={shared.card}>
+          <Text style={local.cardTitle}>Fixture profile standby</Text>
+          <Text style={local.warningText}>Live profile fallback: {fallbackReason}</Text>
+        </View>
+      )}
+    </Section>
+  );
+}
+
+export function HistoryPreview() {
+  return (
+    <Section eyebrow="History" title="Recent matches">
+      <Text style={shared.body}>Web now has real history and match detail routes. Mobile gets the route target first, but does not fake match rows when no mobile history read model is wired.</Text>
+      <View style={shared.card}>
+        <Text style={local.cardTitle}>No mobile history rows loaded</Text>
+        <Text style={shared.body}>Next mobile depth step: connect this card to the same spoiler-safe history summary used by the web route.</Text>
+      </View>
+    </Section>
+  );
+}
+
+export function RulesSummary() {
+  return (
+    <Section eyebrow="Rules" title="How Wordle Royale works">
+      <Text style={shared.body}>Guess the shared daily-style word on a server-owned board. Ranked results use placement and score summaries; active answers, hashes, salts, and hidden guesses never appear on the phone.</Text>
+      <View style={shared.card}>
+        <Text style={local.cardTitle}>Mobile safety rules</Text>
+        <Text style={shared.body}>Read-only preview · spoiler-safe results · no local answer authority · no fake rated actions.</Text>
+      </View>
+    </Section>
+  );
+}
+
 export function StatusRail() {
   const reconnecting = connectionStates.reconnecting;
   const resyncing = connectionStates.resyncing;

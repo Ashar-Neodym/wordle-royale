@@ -95,7 +95,20 @@
 .serverRows { display: grid; gap: 8px; margin-top: 12px; }
 .serverRows div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--wr-human-border); flex-wrap: wrap; }
 .serverRows span { color: var(--wr-human-muted); text-align: right; overflow-wrap: anywhere; }
+.profileHeroCard { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 1.4fr); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--wr-human-border); border-radius: 4px; background: var(--wr-human-surface-2); }
+.profileHeroCard h2 { margin: 0 0 6px; font-size: 1.4rem; }
+.profileStatsGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.metricCard { min-width: 0; padding: 10px; border: 1px solid var(--wr-human-border); border-radius: 4px; background: var(--wr-human-surface); }
+.metricCard span { display: block; color: var(--wr-human-muted); font-size: 12px; margin-bottom: 4px; }
+.metricCard strong { display: block; color: var(--wr-human-text); font-size: 1.1rem; overflow-wrap: anywhere; }
+.historyList { display: grid; gap: 8px; }
+.matchRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--wr-human-border); border-radius: 4px; background: var(--wr-human-surface-2); }
+.matchRow:hover { border-color: var(--wr-human-link); background: #34312c; }
+.matchRow > div { min-width: 0; }
+.matchRow p { margin: 3px 0 0; color: var(--wr-human-muted); line-height: 1.35; }
+.leaderRow a { color: var(--wr-human-text); }
+.leaderRow a:hover, .matchRow:hover strong { color: var(--wr-human-link); }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 980px) { .hero, .matchBanner, .playLayout, .gameShellCompact, .lobbyPageGrid { grid-template-columns: 1fr; } .routeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 620px) { .shell { width: min(100% - 18px, 1160px); padding-top: 10px; overflow-x: clip; } .nav { align-items: stretch; flex-direction: column; } .brand { min-width: 0; } .navLinks { display: none; } .mobileMenu { display: block; } .mobileMenuPanel { grid-template-columns: 1fr; } .rulesGrid, .routeGrid { grid-template-columns: 1fr; } .hero, .matchBanner, .panel, .panelWide, .statusCard, .boardPanel, .sidePanel, .leaderRow, .successPanel, .errorPanel, .practiceNote { padding: 12px; } .guessInputRow { grid-template-columns: 1fr; } .wordRow { grid-template-columns: repeat(5, var(--wr-size-tile-mobile)); } .tile { width: var(--wr-size-tile-mobile); height: var(--wr-size-tile-mobile); } }
+@media (max-width: 980px) { .hero, .matchBanner, .playLayout, .gameShellCompact, .lobbyPageGrid, .profileHeroCard { grid-template-columns: 1fr; } .routeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profileStatsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .shell { width: min(100% - 18px, 1160px); padding-top: 10px; overflow-x: clip; } .nav { align-items: stretch; flex-direction: column; } .brand { min-width: 0; } .navLinks { display: none; } .mobileMenu { display: block; } .mobileMenuPanel { grid-template-columns: 1fr; } .rulesGrid, .routeGrid, .profileStatsGrid { grid-template-columns: 1fr; } .hero, .matchBanner, .panel, .panelWide, .statusCard, .boardPanel, .sidePanel, .leaderRow, .successPanel, .errorPanel, .practiceNote, .profileHeroCard, .matchRow { padding: 12px; } .matchRow { grid-template-columns: 1fr; align-items: start; } .guessInputRow { grid-template-columns: 1fr; } .wordRow { grid-template-columns: repeat(5, var(--wr-size-tile-mobile)); } .tile { width: var(--wr-size-tile-mobile); height: var(--wr-size-tile-mobile); } }
 @media (max-width: 360px) { .shell { width: min(100% - 14px, 1160px); } .wordRow { grid-template-columns: repeat(5, 48px); gap: 5px; } .tile { width: 48px; height: 48px; } .hero h1, .matchBanner h1 { font-size: 1.45rem; } .pageHeader h1 { font-size: 1.35rem; } }

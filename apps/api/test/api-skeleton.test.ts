@@ -104,7 +104,15 @@ function createMockPrismaService(databaseStatus: ReadinessDependency = { status:
         return row;
       },
       findMany: async (args: any) => [...lobbies.values()]
-        .filter((lobby) => lobby.visibility === args.where.visibility && args.where.status.in.includes(lobby.status))
+        .filter((lobby) => !args.where?.visibility || lobby.visibility === args.where.visibility)
+        .filter((lobby) => !args.where?.mode || lobby.mode === args.where.mode)
+        .filter((lobby) => {
+          const status = args.where?.status;
+          if (!status) return true;
+          if (Array.isArray(status.in)) return status.in.includes(lobby.status);
+          return lobby.status === status;
+        })
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
         .slice(0, args.take ?? 20),
       findUnique: async (args: any) => {
         if (args.where.id) return lobbies.get(args.where.id) ?? null;
@@ -264,5 +272,77 @@ describe('api skeleton', () => {
       .send({ clientRequestId: '66666666-6666-4666-8666-666666666666', code: create.body.data.code })
       .expect(201);
     assert.equal(joinByCode.body.data.members.length, 2);
+  });
+
+  it('discovers ranked lobbies with filters, join affordance, and start readiness blockers', async () => {
+    const ranked = await request(app.getHttpServer())
+      .post('/lobbies')
+      .send({
+        clientRequestId: '77777777-7777-4777-8777-777777777777',
+        visibility: 'public',
+        rated: true,
+        mode: 'standard',
+        language: 'en',
+        wordLength: 5,
+        difficulty: 'medium',
+        minPlayers: 2,
+        maxPlayers: 2,
+        roundsCount: 3,
+        roundTimeSeconds: 120,
+        scoringPreset: 'standard_v1',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/lobbies')
+      .send({
+        clientRequestId: '88888888-8888-4888-8888-888888888888',
+        visibility: 'public',
+        rated: false,
+        mode: 'standard',
+        language: 'en',
+        wordLength: 5,
+        difficulty: 'medium',
+        minPlayers: 2,
+        maxPlayers: 4,
+        roundsCount: 3,
+        roundTimeSeconds: 120,
+        scoringPreset: 'standard_v1',
+      })
+      .expect(201);
+
+    const openRanked = await request(app.getHttpServer())
+      .get('/lobbies?status=waiting&mode=ranked&visibility=public&limit=10')
+      .expect(200);
+
+    assert.equal(openRanked.body.error, null);
+    assert.ok(openRanked.body.data.items.every((lobby: any) => lobby.mode === 'ranked'));
+    const discoveryItem = openRanked.body.data.items.find((lobby: any) => lobby.id === ranked.body.data.id);
+    assert.ok(discoveryItem);
+    assert.equal(discoveryItem.status, 'waiting');
+    assert.equal(discoveryItem.visibility, 'public');
+    assert.equal(discoveryItem.playerCount, 1);
+    assert.equal(discoveryItem.maxPlayers, 2);
+    assert.equal(discoveryItem.canJoin, true);
+    assert.equal(discoveryItem.canStart, false);
+    assert.equal(discoveryItem.blockerReason, 'waiting_for_players');
+
+    const joined = await request(app.getHttpServer())
+      .post(`/lobbies/${ranked.body.data.id}/join`)
+      .send({ clientRequestId: '99999999-9999-4999-8999-999999999999' })
+      .expect(201);
+
+    assert.equal(joined.body.data.playerCount, 2);
+    assert.equal(joined.body.data.canJoin, false);
+    assert.equal(joined.body.data.canStart, true);
+    assert.equal(joined.body.data.blockerReason, null);
+
+    const startReady = await request(app.getHttpServer())
+      .get('/lobbies?status=waiting&mode=ranked&visibility=public&limit=10')
+      .expect(200);
+    const readyItem = startReady.body.data.items.find((lobby: any) => lobby.id === ranked.body.data.id);
+    assert.equal(readyItem.playerCount, 2);
+    assert.equal(readyItem.canStart, true);
+    assert.equal(readyItem.blockerReason, null);
   });
 });

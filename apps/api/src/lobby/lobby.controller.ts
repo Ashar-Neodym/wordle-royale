@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { clientRequestSchema, createLobbyRequestSchema, joinLobbyByCodeRequestSchema } from '@wordle-royale/contracts';
 import type { CreateLobbyRequest, JoinLobbyByCodeRequest } from '@wordle-royale/contracts';
 import { ok } from '../shared/envelope.ts';
@@ -10,8 +10,8 @@ export class LobbyController {
   constructor(@Inject(LobbyService) private readonly lobbies: LobbyService) {}
 
   @Get()
-  async listPublicLobbies(@Req() request: unknown) {
-    return ok(await this.lobbies.listPublicLobbies(), request as never);
+  async listPublicLobbies(@Query() query: Record<string, string | undefined>, @Req() request: unknown) {
+    return ok(await this.lobbies.listPublicLobbies(query), request as never);
   }
 
   @Post()

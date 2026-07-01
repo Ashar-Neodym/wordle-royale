@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, guessResultSchema, matchSnapshotSchema, participantStandingSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
+import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, guessResultSchema, matchDetailSummarySchema, matchHistoryListSchema, matchHistoryParticipantSchema, matchHistorySummarySchema, matchHistoryViewerSchema, matchSnapshotSchema, participantStandingSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
 
 export type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
 export type ParticipantStanding = z.infer<typeof participantStandingSchema>;
@@ -17,3 +17,8 @@ export type CompleteRankedMatchRequest = z.infer<typeof completeRankedMatchReque
 export type RatingParticipantDelta = z.infer<typeof ratingParticipantDeltaSchema>;
 export type RatingEventContract = z.infer<typeof ratingEventContractSchema>;
 export type RankedMatchResultSummary = z.infer<typeof rankedMatchResultSummarySchema>;
+export type MatchHistoryParticipant = z.infer<typeof matchHistoryParticipantSchema>;
+export type MatchHistoryViewer = z.infer<typeof matchHistoryViewerSchema>;
+export type MatchHistorySummary = z.infer<typeof matchHistorySummarySchema>;
+export type MatchHistoryList = z.infer<typeof matchHistoryListSchema>;
+export type MatchDetailSummary = z.infer<typeof matchDetailSummarySchema>;

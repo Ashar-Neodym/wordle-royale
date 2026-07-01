@@ -24,8 +24,8 @@ Tickets 01–71 responses are present in `agent-communication/responses/`.
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 72 | Yuna | GitHub Checkpoint Branch/PR and CI Monitor | New; K.0 critical |
-| 73 | Elisa | Product Navigation and Route Contracts v2 | New; K.0 |
+| 72 | Yuna | GitHub Checkpoint Branch/PR and CI Monitor | Done with caveat: branch pushed; PR/CI needs manual PR/auth |
+| 73 | Elisa | Product Navigation and Route Contracts v2 | Done; route contracts saved |
 | 74 | Freya | Profile and Match History API Read Model Slice | New; K.1 |
 | 75 | Luna | Web Route Depth: Profile, History, and Match Detail UI | New; K.2 |
 | 76 | Ruby | Lobby Discovery and Matchmaking UX Slice | New; K.1/K.2 |

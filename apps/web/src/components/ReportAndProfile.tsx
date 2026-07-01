@@ -124,7 +124,7 @@ export function ProfileLeaderboard({
             <article className={styles.leaderRow} key={row.userId}>
               <span className={styles.placement}>{row.rank ? `#${row.rank}` : '—'}</span>
               <div>
-                <strong>{displayName}</strong>
+                <strong>{'handle' in row && row.handle ? <a href={`/profile/${encodeURIComponent(row.handle)}`}>{displayName}</a> : displayName}</strong>
                 <p>{'handle' in row && row.handle ? `@${row.handle} · ` : ''}{row.rating} rating · {'matchesPlayed' in row ? row.matchesPlayed : 0} games</p>
               </div>
               <TokenBadge label={badge.label} bg={badge.bg} border={badge.border} text={badge.text} />

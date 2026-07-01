@@ -11,6 +11,7 @@ import { LeaderboardReadService } from './leaderboard/leaderboard-read.service.t
 import { LobbyController } from './lobby/lobby.controller.ts';
 import { LobbyService } from './lobby/lobby.service.ts';
 import { PrismaService } from './prisma/prisma.service.ts';
+import { ProfileReadService } from './profile/profile-read.service.ts';
 import { ProfileService } from './profile/profile.service.ts';
 
 @Module({
@@ -27,6 +28,6 @@ import { ProfileService } from './profile/profile.service.ts';
     }),
   ],
   controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController],
-  providers: [PrismaService, RedisReadinessService, ReadinessService, ProfileService, LobbyService, GameplayPersistenceService, LeaderboardReadService],
+  providers: [PrismaService, RedisReadinessService, ReadinessService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService],
 })
 export class AppModule {}

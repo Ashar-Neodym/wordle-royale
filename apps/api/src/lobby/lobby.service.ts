@@ -34,6 +34,13 @@ type LobbyRecord = {
   createdAt?: Date | string;
 };
 
+type LobbyListQuery = {
+  status?: string;
+  mode?: string;
+  visibility?: string;
+  limit?: string;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -91,11 +98,18 @@ function toRecordDate(value: Date | string | undefined): string {
 export class LobbyService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listPublicLobbies(): Promise<{ items: LobbyDto[]; pagination: { nextCursor: string | null } }> {
+  async listPublicLobbies(query: LobbyListQuery = {}): Promise<{ items: LobbyDto[]; pagination: { nextCursor: string | null } }> {
+    const visibility = query.visibility === 'private' ? 'private' : 'public';
+    const status = ['waiting', 'ready', 'in_match', 'closed'].includes(query.status ?? '') ? query.status : undefined;
+    const mode = ['ranked', 'casual'].includes(query.mode ?? '') ? query.mode : undefined;
+    const limit = Math.max(1, Math.min(50, Number.parseInt(query.limit ?? '20', 10) || 20));
+    const where: Record<string, unknown> = { visibility, status: status ?? { in: ['waiting', 'ready'] } };
+    if (mode) where.mode = mode;
+
     const rows = await this.prisma.client.lobby.findMany({
-      where: { visibility: 'public', status: { in: ['waiting', 'ready'] } },
+      where,
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: limit,
     }) as LobbyRecord[];
 
     return { items: rows.map((row) => this.toDto(row)), pagination: { nextCursor: null } };
@@ -161,10 +175,23 @@ export class LobbyService {
 
   private toDto(row: LobbyRecord): LobbyDto {
     const stored = readStoredSettings(row.settings);
+    const playerCount = stored.members.filter((lobbyMember) => lobbyMember.state === 'joined').length;
+    const open = row.status === 'waiting' || row.status === 'ready';
+    const full = playerCount >= row.maxPlayers;
+    const enoughPlayers = playerCount >= stored.contractSettings.minPlayers;
+    const blockerReason = !open ? 'lobby_not_open' : !enoughPlayers ? 'waiting_for_players' : null;
     return lobbyDtoSchema.parse({
       id: row.id,
       code: row.code,
       hostUserId: row.hostUserId,
+      status: row.status,
+      visibility: row.visibility,
+      mode: row.mode,
+      playerCount,
+      maxPlayers: row.maxPlayers,
+      canJoin: open && !full,
+      canStart: open && enoughPlayers,
+      blockerReason,
       state: statusToState(row.status),
       settings: stored.contractSettings,
       rankedCompatible: row.mode === 'ranked' && stored.contractSettings.visibility === 'public',

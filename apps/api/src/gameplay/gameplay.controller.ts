@@ -1,13 +1,15 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Inject, Param, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { completeRankedMatchRequestSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from '@wordle-royale/contracts';
 import type { CompleteRankedMatchRequest, StartRankedMatchRequest, SubmitGuessRequest } from '@wordle-royale/contracts';
 import { ok } from '../shared/envelope.ts';
 import { ZodValidationPipe } from '../shared/zod-validation.pipe.ts';
+import { ProfileReadService } from '../profile/profile-read.service.ts';
 import { GameplayPersistenceService } from './gameplay-persistence.service.ts';
 
 const stubCurrentUserId = '11111111-1111-4111-8111-111111111111';
 const stubGuestUserId = '22222222-2222-4222-8222-222222222222';
-const localFixtureUserIds = new Set([stubCurrentUserId, stubGuestUserId]);
+const stubEmptyUserId = '33333333-3333-4333-8333-333333333333';
+const localFixtureUserIds = new Set([stubCurrentUserId, stubGuestUserId, stubEmptyUserId]);
 
 function devHelpersEnabled(): boolean {
   return process.env.NODE_ENV !== 'production';
@@ -43,7 +45,10 @@ type DevTerminalizeBody = {
 
 @Controller('matches')
 export class GameplayController {
-  constructor(@Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService) {}
+  constructor(
+    @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
+    @Inject(ProfileReadService) private readonly profileRead: ProfileReadService,
+  ) {}
 
   @Post('ranked/start')
   async startRankedMatch(
@@ -67,6 +72,20 @@ export class GameplayController {
     const result = await this.gameplay.startRankedMatchFromLobby(startInput);
 
     return ok(result, request as never);
+  }
+
+  @Get('history/me')
+  async getCurrentUserMatchHistory(
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Query('limit') limit: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Req() request: unknown,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const historyInput: { userId: string; limit?: number; cursor?: string } = { userId: resolveFixtureUser(devUserId) };
+    if (parsedLimit) historyInput.limit = parsedLimit;
+    if (cursor) historyInput.cursor = cursor;
+    return ok(await this.profileRead.listCurrentUserMatchHistory(historyInput), request as never);
   }
 
   @Get(':matchId/state')

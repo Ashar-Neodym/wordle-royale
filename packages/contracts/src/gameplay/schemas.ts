@@ -158,3 +158,44 @@ export const rankedMatchResultSummarySchema = z.object({
   finalStandings: z.array(participantStandingSchema).min(2),
   ratingEvent: ratingEventContractSchema.nullable(),
 });
+
+export const matchHistoryParticipantSchema = z.object({
+  userId: idSchema,
+  handle: z.string().regex(/^[a-z0-9_]{3,20}$/).nullable(),
+  displayName: z.string().min(1).max(40),
+  placement: z.number().int().positive().nullable(),
+  outcome: z.enum(['pending', 'solved', 'failed', 'abandoned', 'voided']),
+  finalScore: z.number().int().nonnegative(),
+  ratingDelta: z.number().int().nullable(),
+});
+
+export const matchHistoryViewerSchema = z.object({
+  userId: idSchema,
+  placement: z.number().int().positive().nullable(),
+  outcome: z.enum(['pending', 'solved', 'failed', 'abandoned', 'voided']),
+  finalScore: z.number().int().nonnegative(),
+  ratingDelta: z.number().int().nullable(),
+}).nullable();
+
+export const matchHistorySummarySchema = z.object({
+  matchId: idSchema,
+  mode: z.enum(['ranked', 'casual']),
+  status: z.enum(['pending', 'active', 'completed', 'voided', 'cancelled']),
+  startedAt: timestampSchema.nullable(),
+  completedAt: timestampSchema.nullable(),
+  participants: z.array(matchHistoryParticipantSchema).min(1),
+  viewer: matchHistoryViewerSchema,
+});
+
+export const matchHistoryListSchema = z.object({
+  items: z.array(matchHistorySummarySchema),
+  pagination: z.object({ nextCursor: z.string().min(1).nullable() }),
+});
+
+export const matchDetailSummarySchema = z.object({
+  matchId: idSchema,
+  status: z.enum(['active', 'completed', 'voided', 'cancelled']),
+  activeState: currentRankedMatchStateResponseDataSchema.nullable(),
+  result: rankedMatchResultSummarySchema.nullable(),
+  history: matchHistorySummarySchema,
+});
