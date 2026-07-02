@@ -1,447 +1,168 @@
-# Ticket 79 — QA Review Wave K GitHub Checkpoint and Product Depth Response
+# Ticket 79 — QA Re-check Wave K GitHub Checkpoint Response
 
-Task: QA review Wave K GitHub checkpoint and product depth  
-Agent: Jasmine (QA)  
-Verdict: **FAIL — GitHub checkpoint/CI blocker; local product-depth verification passes**
+Task: Ticket 79 limited re-check after PR #1 update
+Agent: Jasmine (QA)
+Verdict: **CONDITIONAL PASS — CI green and PR mergeable; commit this response/whitespace cleanup before final merge if agent responses are included in PR hygiene gates**
 
 ## Summary
 
-I independently reviewed Wave K against Ticket 79 acceptance criteria.
+I re-checked only the requested GitHub checkpoint items for PR #1 after the Wave K update.
 
-The local Wave K product-depth work is substantially working: root/package gates pass, API behavior tests now cover 37 tests, the profile/history read models are live and spoiler-safe in targeted API smoke checks, web `/profile`, `/profile/:handle`, `/history`, `/matches/:matchId`, and `/lobbies` render against a local API, lobby discovery metadata is present, mobile build/config passes, and secret scan passes.
+The prior hard blocker is resolved: PR #1 now points at the requested latest commit `d02a93cfb5d20c8f939878e318dc6f8e11388f20`, GitHub Actions run `28527480818` completed successfully, and GitHub reports the PR as mergeable with `mergeable_state=clean`.
 
-However, the Wave K checkpoint cannot be approved because the GitHub side is currently blocked:
-
-1. PR `#1` exists for `wave-k/checkpoint-ranked-loop-shell`, but its GitHub Actions run failed.
-2. The failed run is for commit `f6dc44ed546b9f56d3b5b84bd51b28848effa3e2` and failed at `Workspace checks / Setup Node.js`.
-3. The remote PR branch is stale relative to the current local Wave K product-depth work: current local changes from Tickets 73–78 are dirty/uncommitted on top of `f6dc44e`, so the remote PR/CI run does not verify the product-depth implementation I tested locally.
-
-Therefore: **do not merge PR #1 as the Wave K checkpoint yet.** Fix the GitHub Actions setup failure and push the current Wave K work to the PR branch, then rerun CI.
+One small repository-hygiene issue remains in the current remote PR commit: `git diff --check origin/main...HEAD` reports trailing whitespace in this Ticket 79 response file from the prior failed-review response. I have overwritten this response locally without trailing whitespace, but that fix is not on the remote PR until committed/pushed. If the team treats `git diff --check` as a merge gate, commit/push this updated response before merge. If response-file hygiene is not considered merge-blocking, PR #1 is otherwise merge-ready from this limited re-check.
 
 ## Acceptance criteria checked
 
-### 1. Verify GitHub checkpoint branch/PR or direct push status and CI result if available — FAIL
+### 1. PR branch is current — PASS
 
-Evidence:
+Local and remote branch both point at the requested latest commit:
 
 ```text
-Remote branch: wave-k/checkpoint-ranked-loop-shell
-Remote SHA: f6dc44ed546b9f56d3b5b84bd51b28848effa3e2
-PR: https://github.com/Ashar-Neodym/wordle-royale/pull/1
-PR state: open
-Actions run: https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28520528001
-Run status: completed
-Run conclusion: failure
-Failing job: Workspace checks
-Failing step: Setup Node.js
+HEAD:   d02a93cfb5d20c8f939878e318dc6f8e11388f20
+origin/wave-k/checkpoint-ranked-loop-shell: d02a93cfb5d20c8f939878e318dc6f8e11388f20
 ```
 
-Additional blocker:
+GitHub PR API confirms PR #1 is open and uses the same head SHA:
 
 ```text
+count 1
+1 open https://github.com/Ashar-Neodym/wordle-royale/pull/1 d02a93cfb5d20c8f939878e318dc6f8e11388f20 main False
+```
+
+Local working tree was clean before writing this updated response:
+
+```text
+0
 ## wave-k/checkpoint-ranked-loop-shell...origin/wave-k/checkpoint-ranked-loop-shell
- M agent-communication/index.md
- M apps/api/README.md
- M apps/api/src/app.module.ts
- M apps/api/src/auth/auth.controller.ts
- M apps/api/src/gameplay/gameplay.controller.ts
- M apps/api/src/lobby/lobby.controller.ts
- M apps/api/src/lobby/lobby.service.ts
- M apps/api/test/api-skeleton.test.ts
- M apps/mobile/App.tsx
- M apps/mobile/src/components/screens.tsx
- M apps/web/src/app/history/page.tsx
- M apps/web/src/app/profile/page.tsx
- M apps/web/src/components/ReportAndProfile.tsx
- M apps/web/src/components/web-shell.module.css
- M apps/web/src/lib/api-client.ts
- M packages/contracts/src/auth/schemas.ts
- M packages/contracts/src/auth/types.ts
- M packages/contracts/src/gameplay/schemas.ts
- M packages/contracts/src/gameplay/types.ts
- M packages/contracts/src/lobby/schemas.ts
-?? agent-communication/responses/ticket-72-yuna-github-checkpoint-branch-pr-and-ci-monitor-response.md
-?? agent-communication/responses/ticket-73-elisa-product-navigation-and-route-contracts-v2-response.md
-?? agent-communication/responses/ticket-74-freya-profile-and-match-history-api-read-model-slice-response.md
-?? agent-communication/responses/ticket-75-luna-web-route-depth-profile-history-match-detail-ui-response.md
-?? agent-communication/responses/ticket-76-ruby-lobby-discovery-and-matchmaking-ux-slice-response.md
-?? agent-communication/responses/ticket-77-luna-mobile-navigation-and-bounds-follow-up-response.md
-?? agent-communication/responses/ticket-78-elisa-privacy-safe-product-analytics-event-taxonomy-plan-response.md
-?? apps/api/src/profile/profile-read.service.ts
-?? apps/api/test/profile-history-read-model.test.ts
-?? apps/web/src/app/matches/
-?? apps/web/src/app/profile/[handle]/
-?? apps/web/src/components/ProfileHistory.tsx
-?? docs/2026-07-01-privacy-safe-product-analytics-event-taxonomy.md
 ```
 
-Interpretation: PR #1 currently verifies the earlier checkpoint commit only, not the current Wave K product-depth work.
+### 2. CI is green — PASS
 
-### 2. Verify no secrets/generated artifacts were committed — LOCAL PASS, REMOTE NEEDS RECHECK AFTER PUSH
+GitHub Actions run and job evidence:
 
-Local evidence:
+```text
+28527480818 https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28527480818 completed success d02a93cfb5d20c8f939878e318dc6f8e11388f20
+84567768772 Workspace checks completed success https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28527480818/job/84567768772
+```
+
+This directly addresses my prior failure finding where the earlier PR run failed at `Setup Node.js`.
+
+### 3. No remaining merge blockers — CONDITIONAL
+
+GitHub API reports the PR is mergeable and clean:
+
+```text
+open d02a93cfb5d20c8f939878e318dc6f8e11388f20 main False True clean d11707e628d00d18228e791b4e5286cc3083f29f
+```
+
+Secret scan passes locally:
 
 ```text
 Secret scan passed (184 source/config files scanned).
 Excluded: node_modules, dist, build, .next, .expo, coverage, .turbo, .cache, tmp, docs, agent-communication.
 ```
 
-Targeted generated-artifact search found no `tsconfig.tsbuildinfo`, `.next`, or real `.env` files tracked/visible in the repo search. I also reverted the local `apps/web/next-env.d.ts` dev-server/build churn generated during QA.
-
-Caveat: because the current Wave K changes are not pushed, this must be rechecked on the final PR commit.
-
-### 3. Verify route depth changes: profile/history/match detail/lobbies as implemented — PASS LOCALLY
-
-I started local PostgreSQL/Redis, reset/seeded the local DB, ran the API on `127.0.0.1:4079`, ran the web app on `127.0.0.1:4080`, completed a ranked demo match, then inspected the route-depth pages.
-
-Verified routes:
+Generated-artifact check across the PR diff returned no matches for:
 
 ```text
-/profile
-/profile/guest_player
-/history
-/matches/9236fdb2-83db-4dd3-b483-6224a103119e
-/lobbies
+real .env files
+tsconfig.tsbuildinfo
+.next artifacts
 ```
 
-Observed behavior:
-
-- `/profile` rendered `Player One`, `1216 rating`, `1 rated games`, profile metrics, recent match row, and linked leaderboard profiles.
-- `/profile/guest_player` rendered public `Guest Player` rating summary and recent match row.
-- `/history` rendered a real recent ranked match row linking to match detail.
-- `/matches/:matchId` rendered completed result detail with placements, points, and rating movement.
-- `/lobbies` rendered an open room with live join/start affordances and player-count/mode copy.
-- Sample route overflow checks returned `overflow=false`.
-- Browser console after inspected pages reported no JS errors.
-
-Spoiler-safety checks:
-
-- Targeted API smoke for `/profiles/me/summary`, `/profiles/player_one/summary`, `/matches/history/me?limit=20`, and filtered `/lobbies` returned HTTP 200 and no `answerWord`, `answerWordHash`, `answerWordSaltRef`, `answerHash`, `answerSalt`, or `normalizedWord` keys in response JSON.
-- `/matches/:matchId` page body contained no answer/hash/salt leak terms.
-- One dev-mode HTML search on `/profile` saw `answerWords` in dev-bundled source text, not in visible page body or API response data. I do not treat that as a product response leak, but production-source-map/dev-bundle exposure should remain on the radar before public deployment.
-
-### 4. Verify lobby discovery/matchmaking UX slice and backend tests — PASS LOCALLY
-
-Local API tests passed with the new lobby discovery test included:
+Remaining hygiene issue found during re-check:
 
 ```text
-✔ discovers ranked lobbies with filters, join affordance, and start readiness blockers
-ℹ tests 37
-ℹ suites 7
-ℹ pass 37
-ℹ fail 0
+agent-communication/responses/ticket-79-jasmine-qa-review-wave-k-github-checkpoint-product-depth-response.md:3: trailing whitespace.
++Task: QA review Wave K GitHub checkpoint and product depth [two trailing spaces in prior file]
+agent-communication/responses/ticket-79-jasmine-qa-review-wave-k-github-checkpoint-product-depth-response.md:4: trailing whitespace.
++Agent: Jasmine (QA)
 ```
 
-Targeted API smoke:
+This is in the prior Ticket 79 response already present on the PR branch. I have rewritten this file locally without those trailing spaces as part of this re-check response. It needs to be committed/pushed if `git diff --check` remains a required merge hygiene gate.
 
-```json
-{"path":"/lobbies?status=waiting&mode=ranked&visibility=public&limit=20","status":200,"ok":true,"leaks":[],"sample":["items","pagination"]}
-```
+### 4. Final merge recommendation — CONDITIONAL MERGE
 
-Web `/lobbies` showed:
+Recommendation:
 
-```text
-Waiting
-public
-8857B0
-2/4 players · 1 rounds · 120s
-Rated · Ranked-compatible
-Join
-Start ranked
-```
+1. **If maintaining `git diff --check` as a required gate:** commit and push this updated Ticket 79 response/whitespace cleanup, confirm `git diff --check origin/main...HEAD` passes, then merge PR #1.
+2. **If only GitHub Actions + GitHub mergeability are required for this checkpoint:** PR #1 is merge-ready now.
 
-### 5. Verify mobile bounds/navigation follow-up if implemented — PASS BY BUILD/STATIC REVIEW, NOT DEVICE-SMOKED
-
-Evidence:
-
-- `CI=true pnpm build` completed `apps/mobile build: Done`.
-- Ticket 77 response implements mobile IA `Play | Lobbies | Ratings | Menu`, with menu sections for Profile, History, Rules, Settings, and Server.
-- Local build validates Expo config generation and TypeScript compilation.
-
-Caveat: I did not perform a physical Expo Go phone smoke in this QA pass.
-
-### 6. Verify root/package gates and secret scan — PASS LOCALLY
-
-Full local gate chain passed:
-
-```bash
-CI=true pnpm install --frozen-lockfile
-CI=true pnpm lint
-CI=true pnpm typecheck
-CI=true pnpm test
-CI=true pnpm --filter @wordle-royale/api test
-CI=true pnpm build
-CI=true pnpm smoke:local
-CI=true pnpm secret-scan
-CI=true pnpm deps:check
-git diff --check
-git status --short --branch
-```
-
-Key output:
-
-```text
-Already up to date
-Workspace scaffold validation passed (9 workspace packages).
-ℹ tests 37
-ℹ suites 7
-ℹ pass 37
-ℹ fail 0
-apps/web build: ✓ Compiled successfully
-Route (app)
-├ ƒ /history
-├ ƒ /leaderboard
-├ ○ /learn/rules
-├ ƒ /lobbies
-├ ƒ /matches/[matchId]
-├ ƒ /play
-├ ƒ /profile
-├ ƒ /profile/[handle]
-├ ƒ /server
-└ ○ /settings
-apps/mobile build: Done
-apps/api build: Done
-Local smoke passed.
-Secret scan passed (184 source/config files scanned).
-Local dependency check passed.
-```
-
-### 7. Separate PASS/WARN/FAIL and recommend Wave L — COMPLETE
-
-See findings and Wave L recommendations below.
+My QA recommendation is the stricter option: **commit/push the response-file whitespace cleanup, then merge.** The substantive Wave K blocker is resolved; only this small documentation whitespace hygiene issue remains.
 
 ## Commands run + exit codes
 
-Working directory:
-
-```text
-/home/ashar/Desktop/hermes-projects/wordle-royale
+```bash
+git status --short --branch && git rev-parse HEAD && git rev-parse origin/wave-k/checkpoint-ranked-loop-shell
 ```
 
-### Local gates — exit 0
+Exit code: `0`
 
 ```bash
-CI=true pnpm install --frozen-lockfile && \
-CI=true pnpm lint && \
-CI=true pnpm typecheck && \
-CI=true pnpm test && \
-CI=true pnpm --filter @wordle-royale/api test && \
-CI=true pnpm build && \
-CI=true pnpm smoke:local && \
-CI=true pnpm secret-scan && \
-CI=true pnpm deps:check && \
-git diff --check && \
-git status --short --branch
+git fetch origin wave-k/checkpoint-ranked-loop-shell && git status --short --branch && git rev-parse HEAD && git rev-parse origin/wave-k/checkpoint-ranked-loop-shell && git diff --check origin/main...HEAD
 ```
 
-### GitHub/PR status checks — exit 0
+Exit code: `0` for fetch/status/SHA checks; `git diff --check` reported the trailing-whitespace hygiene issue shown above.
 
 ```bash
-git ls-remote --heads origin wave-k/checkpoint-ranked-loop-shell
+curl -L --max-time 30 -fsS -H 'Accept: application/vnd.github+json' -H 'User-Agent: hermes-jasmine-qa' https://api.github.com/repos/Ashar-Neodym/wordle-royale/actions/runs/28527480818
 ```
 
-Output:
-
-```text
-f6dc44ed546b9f56d3b5b84bd51b28848effa3e2 refs/heads/wave-k/checkpoint-ranked-loop-shell
-```
-
-GitHub API checks:
-
-```text
-pulls 1
-1 open https://github.com/Ashar-Neodym/wordle-royale/pull/1 f6dc44ed546b9f56d3b5b84bd51b28848effa3e2
-runs 1
-28520528001 pull_request completed failure f6dc44ed546b9f56d3b5b84bd51b28848effa3e2
-job Workspace checks completed failure https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28520528001/job/84543199768
- step 4 Setup Node.js completed failure
-```
-
-Attempting unauthenticated job-log download returned:
-
-```text
-HTTP Error 403: Forbidden
-```
-
-### Local dependency/API/web route smoke — exit 0 except where noted
+Exit code: `0`; run completed `success` on head SHA `d02a93cfb5d20c8f939878e318dc6f8e11388f20`.
 
 ```bash
-CI=true pnpm deps:up
-CI=true pnpm ranked:smoke:reset
+curl -L --max-time 30 -fsS -H 'Accept: application/vnd.github+json' -H 'User-Agent: hermes-jasmine-qa' 'https://api.github.com/repos/Ashar-Neodym/wordle-royale/pulls?head=Ashar-Neodym:wave-k/checkpoint-ranked-loop-shell&state=open'
 ```
 
-Passed; seed applied:
-
-```text
-Applied local fixture seed: en-5-test-vfixture.001
-Ranked smoke local DB reset and fixture seed completed.
-```
-
-Started API on port `4079`; readiness passed:
-
-```json
-{"status":"ok","service":"wordle-royale-api","environment":"development","dependencies":{"database":{"status":"ok"},"redis":{"status":"ok"}}}
-```
+Exit code: `0`; PR #1 open with the expected head SHA.
 
 ```bash
-API_BASE_URL=http://127.0.0.1:4079 CI=true pnpm ranked:smoke:bootstrap
-API_BASE_URL=http://127.0.0.1:4079 CI=true pnpm ranked:demo:e2e
+curl -L --max-time 30 -fsS -H 'Accept: application/vnd.github+json' -H 'User-Agent: hermes-jasmine-qa' https://api.github.com/repos/Ashar-Neodym/wordle-royale/actions/runs/28527480818/jobs?per_page=20
 ```
 
-Passed; ranked demo match completed:
-
-```text
-result: ok
-matchId: 9236fdb2-83db-4dd3-b483-6224a103119e
-ratingDeltas: +16 / -16
-leaks: []
-```
-
-Targeted API read-model smoke — exit 0:
-
-```text
-/profiles/me/summary -> 200, leaks=[]
-/profiles/player_one/summary -> 200, leaks=[]
-/matches/history/me?limit=20 -> 200, leaks=[]
-/lobbies?status=waiting&mode=ranked&visibility=public&limit=20 -> 200, leaks=[]
-```
-
-Started web on port `4080` and inspected route pages with browser tools. Cleanup after smoke:
+Exit code: `0`; `Workspace checks` completed `success`.
 
 ```bash
-pnpm deps:down
+curl -L --max-time 30 -fsS -H 'Accept: application/vnd.github+json' -H 'User-Agent: hermes-jasmine-qa' https://api.github.com/repos/Ashar-Neodym/wordle-royale/pulls/1
 ```
 
-Passed; PostgreSQL/Redis containers and network removed.
+Exit code: `0`; PR reports `mergeable=True`, `mergeable_state=clean`, `draft=False`.
 
-## Browser / visual evidence
+```bash
+git diff --name-only origin/main...HEAD | grep -E '(^|/)(\.env)$|tsconfig.tsbuildinfo$|(^|/)\.next/' || true
+pnpm secret-scan
+```
 
-Profile page screenshot/inspection showed:
+Exit code: `0`; no generated-artifact matches printed, and secret scan passed.
 
-- top navigation still compact and game-site-like;
-- `Player One` profile hero with `@player_one · 1216 rating · 1 rated games`;
-- profile metrics card: rating `1216`, rank `#1`, games `1`, status `Provisional`;
-- recent match row: `Done`, `#1 · solved · 960 pts`, `+16 MMR`;
-- leaderboard rows link to player profiles;
-- no obvious clipping at the tested desktop viewport.
+## Browser/visual evidence
 
-History/match detail browser evidence:
-
-- `/history` exposed a real recent ranked match row.
-- Clicking the row navigated to `/matches/9236fdb2-83db-4dd3-b483-6224a103119e`.
-- Match detail rendered completed result standings and rating deltas.
-- Body text did not include active answer/hash/salt leak terms.
-
-Lobby browser evidence:
-
-- `/lobbies` showed a local API route state with 1 open room.
-- The lobby card showed `Waiting`, `public`, code, player count, ranked-compatible copy, Join, and Start ranked controls.
-- No horizontal overflow at the tested desktop viewport.
+None for this limited re-check. The user explicitly scoped this pass to PR branch currency, CI status, merge blockers, and merge recommendation.
 
 ## Findings
 
-### FAIL 1 — GitHub Actions is failing on PR #1
+### PASS — Prior GitHub Actions blocker resolved
 
-Owner: Yuna / GitHub operations
+PR #1's latest run is green at the requested latest commit.
 
-Repro:
+### PASS — PR branch is current
 
-1. Open `https://github.com/Ashar-Neodym/wordle-royale/pull/1`.
-2. Open run `https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28520528001`.
-3. Inspect `Workspace checks`.
+Local `HEAD`, `origin/wave-k/checkpoint-ranked-loop-shell`, PR #1 head SHA, and CI run head SHA all match `d02a93cfb5d20c8f939878e318dc6f8e11388f20`.
 
-Observed:
+### WARN/CONDITION — Prior response file has trailing whitespace in current remote PR commit
 
-```text
-Run conclusion: failure
-Failing step: Setup Node.js
-```
-
-Expected:
-
-- PR CI should complete successfully before the checkpoint is mergeable.
-
-Likely owner/action:
-
-- Yuna should inspect authenticated GitHub logs for the exact `actions/setup-node` failure, then patch `.github/workflows/pr-checks.yml` if needed.
-- Possible areas to inspect: pnpm cache setup, lockfile/cache dependency path, and ordering of `pnpm/action-setup`, `actions/setup-node`, and `corepack enable`.
-
-### FAIL 2 — Remote PR branch is stale relative to current Wave K local work
-
-Owner: Yuna / Athena
-
-Evidence:
-
-- `HEAD` and `origin/wave-k/checkpoint-ranked-loop-shell` are both `f6dc44e`.
-- Current working tree has modified/untracked Tickets 73–78 implementation and response files on top of that commit.
-- The remote PR CI failure is for `f6dc44e`, not for the local product-depth implementation verified in this QA pass.
-
-Expected:
-
-- After local Wave K product-depth work is complete, push a new commit to the PR branch and verify CI on that commit.
-
-Required fix:
-
-1. Review/stage intended Wave K files.
-2. Exclude generated artifacts and real secrets.
-3. Commit the Wave K product-depth work.
-4. Push to `wave-k/checkpoint-ranked-loop-shell`.
-5. Rerun/verify GitHub Actions.
-
-### WARN 1 — Mobile route/navigation depth not device-smoked
-
-Owner: Luna / Ashar if phone confidence is required
-
-- Mobile build/config passed.
-- Static bounds and source changes look reasonable.
-- I did not run Expo Go on a physical phone.
-
-### WARN 2 — Analytics taxonomy has a known consent enum mismatch to resolve before implementation
-
-Owner: Elisa / Freya before instrumentation
-
-Evidence from Ticket 78/doc review:
-
-```text
-Shared contracts use product_analytics.
-Prisma currently has ConsentScope.analytics_events.
-```
-
-This is acceptable for a planning ticket, but should block any future analytics-write implementation until reconciled via migration or a single explicit adapter layer.
-
-### WARN 3 — Dev bundle contains internal source term `answerWords`
-
-Owner: Freya/Luna before public deployment
-
-- API responses and visible/body text did not leak answer fields.
-- In dev mode, searching full page HTML on `/profile` found source-bundled text `answerWords` from development tooling, not serialized product data.
-- This is not a current MVP product leak, but production build/source-map exposure should be reviewed before public deployment.
+This is not a product defect and GitHub reports the PR as clean/mergeable. It is only a blocker if the team keeps `git diff --check` as a required merge hygiene gate. This updated local response removes the issue in this file, but it must be committed/pushed to affect PR #1.
 
 ## Required fixes / owner
 
-1. **Yuna** — inspect PR #1 GitHub Actions logs and fix the `Setup Node.js` failure.
-2. **Yuna/Athena** — commit and push the current Wave K product-depth changes to `wave-k/checkpoint-ranked-loop-shell`; the current PR branch is stale.
-3. **Yuna/Jasmine** — rerun/verify PR CI after the new commit; do not merge until CI is green.
-4. **Elisa/Freya** — before implementing analytics events, reconcile `product_analytics` vs `analytics_events` consent naming.
-5. **Luna/Ashar optional** — perform a physical Expo Go smoke if phone layout confidence is required before Wave L.
+Owner: Yuna/Athena
 
-## Recommended Wave L
-
-1. **Checkpoint stabilization first:** make PR #1 green and update it with all Wave K work.
-2. **CI observability:** document exact CI failure cause/fix in the next Yuna response; consider making branch pushes run checks too, not only PR and `main`, if the team wants earlier remote feedback.
-3. **Product-depth hardening:** add web smoke tests or lightweight route smoke scripts for `/profile`, `/history`, `/matches/:matchId`, and `/lobbies` once CI is stable.
-4. **Optional API polish:** consider a one-call `GET /matches/:matchId/summary` only if match detail needs simpler server-side composition.
-5. **Analytics prep:** reconcile consent enum naming before any instrumentation write path.
+- Commit and push this updated Ticket 79 response file if response files remain part of the PR and `git diff --check` remains required.
+- Then merge PR #1 after confirming checks remain green.
 
 ## Residual risks
 
-- GitHub job logs were not accessible unauthenticated (`403`), so I could identify the failed step but not the exact internal error text.
-- Local verification used dev servers and local fixture data, not a deployed preview.
-- The final pushed PR commit has not yet been created for the local Wave K product-depth work.
-- Physical-device mobile behavior remains unverified by Jasmine.
-
-## Final QA verdict
-
-**FAIL** for Wave K checkpoint readiness because PR #1 CI is red and the PR branch is stale relative to the current local Wave K product-depth work.
-
-**Local product-depth implementation passes targeted QA** and can proceed after the checkpoint/CI blockers are fixed and reverified.
+- This was a limited re-check only; I did not rerun the full product-depth browser/API smoke from the earlier Ticket 79 pass.
+- GitHub job logs were not needed because the latest run/job terminal status is `success`.
+- If new commits are pushed after this response, re-check the PR head SHA and CI status again before merge.
