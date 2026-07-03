@@ -174,6 +174,32 @@ function placementDelta(placement: number, participantCount: number): number {
   return Math.round((midpoint - placement) * 32 / (participantCount - 1));
 }
 
+function buildResultActions(matchId: string, standings: Array<{ placement: number; totalScore: number }>): RankedMatchResultSummary['resultActions'] {
+  const sharePlacements = standings
+    .slice(0, 4)
+    .map((standing) => `#${standing.placement} ${standing.totalScore} pts`)
+    .join(', ');
+  return {
+    rematch: {
+      available: false,
+      reason: 'not_implemented',
+      label: 'Create rematch lobby',
+    },
+    share: {
+      spoilerSafe: true,
+      text: `I finished a ranked Wordle Royale match: ${sharePlacements}.`,
+      path: `/matches/${matchId}`,
+    },
+    links: {
+      matchHref: `/matches/${matchId}`,
+      historyHref: '/history',
+      leaderboardHref: '/leaderboard',
+      nextRankedHref: '/lobbies?mode=ranked&status=waiting',
+      profileHrefTemplate: '/profile/{handle}',
+    },
+  };
+}
+
 function isTerminalParticipantOutcome(outcome: string): boolean {
   return outcome === 'solved' || outcome === 'failed' || outcome === 'abandoned' || outcome === 'voided';
 }
@@ -667,6 +693,7 @@ export class GameplayPersistenceService {
       completionReason: reason,
       finalStandings,
       ratingEvent,
+      resultActions: buildResultActions(matchId, finalStandings),
     });
 
     await tx.matchReport.upsert({

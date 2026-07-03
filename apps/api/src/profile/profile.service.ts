@@ -38,11 +38,11 @@ function dateToIso(value: Date | string | undefined): string {
 export class ProfileService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getCurrentUser(): Promise<CurrentUserDto> {
-    const user = await this.ensureStubUser();
+  async getCurrentUser(userId = stubUserId): Promise<CurrentUserDto> {
+    const user = await this.ensureStubUser(userId);
     return currentUserSchema.parse({
       id: user.id,
-      email: user.email ?? stubEmail,
+      email: user.email ?? (user.id === stubUserId ? stubEmail : null),
       status: 'active',
       role: 'player',
       createdAt: dateToIso(user.createdAt),
@@ -55,22 +55,22 @@ export class ProfileService {
     });
   }
 
-  async getPublicProfile(): Promise<PublicProfileDto> {
-    const user = await this.ensureStubUser();
+  async getPublicProfile(userId = stubUserId): Promise<PublicProfileDto> {
+    const user = await this.ensureStubUser(userId);
     return this.toPublicProfile(user);
   }
 
-  async updateProfile(input: UpdateProfileRequest): Promise<PublicProfileDto> {
+  async updateProfile(input: UpdateProfileRequest, userId = stubUserId): Promise<PublicProfileDto> {
     await this.prisma.client.userAccount.upsert({
-      where: { id: stubUserId },
-      create: { id: stubUserId, email: stubEmail, displayName: input.displayName ?? defaultDisplayName, status: 'active' },
+      where: { id: userId },
+      create: { id: userId, email: userId === stubUserId ? stubEmail : null, displayName: input.displayName ?? defaultDisplayName, status: 'active' },
       update: { displayName: input.displayName ?? defaultDisplayName },
     });
 
     const profile = await this.prisma.client.userProfile.upsert({
-      where: { userId: stubUserId },
+      where: { userId },
       create: {
-        userId: stubUserId,
+        userId,
         publicHandle: input.handle ?? defaultHandle,
         avatarUrl: input.avatarUrl ?? null,
       },
@@ -81,7 +81,7 @@ export class ProfileService {
     }) as UserProfileRecord;
 
     return publicProfileSchema.parse({
-      userId: stubUserId,
+      userId,
       handle: profile.publicHandle ?? input.handle ?? defaultHandle,
       displayName: input.displayName ?? defaultDisplayName,
       avatarUrl: profile.avatarUrl ?? input.avatarUrl ?? null,
@@ -97,15 +97,16 @@ export class ProfileService {
     return handleAvailabilityResponseSchema.parse({ handle, normalizedHandle, available: count === 0 || normalizedHandle === defaultHandle });
   }
 
-  private async ensureStubUser(): Promise<UserRecord> {
+  private async ensureStubUser(userId = stubUserId): Promise<UserRecord> {
+    const isDefaultUser = userId === stubUserId;
     const user = await this.prisma.client.userAccount.upsert({
-      where: { id: stubUserId },
+      where: { id: userId },
       create: {
-        id: stubUserId,
-        email: stubEmail,
-        displayName: defaultDisplayName,
+        id: userId,
+        email: isDefaultUser ? stubEmail : null,
+        displayName: isDefaultUser ? defaultDisplayName : 'Fixture Player',
         status: 'active',
-        profile: { create: { publicHandle: defaultHandle, avatarUrl: null } },
+        profile: { create: { publicHandle: isDefaultUser ? defaultHandle : `fixture_${userId.slice(0, 8)}`, avatarUrl: null } },
       },
       update: {},
       include: { profile: true },
@@ -113,8 +114,8 @@ export class ProfileService {
 
     if (!user.profile) {
       const profile = await this.prisma.client.userProfile.upsert({
-        where: { userId: stubUserId },
-        create: { userId: stubUserId, publicHandle: defaultHandle, avatarUrl: null },
+        where: { userId },
+        create: { userId, publicHandle: isDefaultUser ? defaultHandle : `fixture_${userId.slice(0, 8)}`, avatarUrl: null },
         update: {},
       }) as UserProfileRecord;
       return { ...user, profile };

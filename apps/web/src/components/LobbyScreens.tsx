@@ -80,6 +80,12 @@ function actionCopy(actionState: LobbyActionState): string | null {
   return 'Action completed.';
 }
 
+function lobbyInviteText(lobby: DisplayLobby): string {
+  const base = process.env.NEXT_PUBLIC_WEB_URL?.trim().replace(/\/$/, '') ?? '';
+  const path = `/lobbies?code=${encodeURIComponent(lobby.code)}`;
+  return `Join my Wordle Royale room ${lobby.code}: ${base}${path}`;
+}
+
 export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction, joinLobbyByCodeAction, joinLobbyAction, startRankedMatchAction }: LobbyBrowserProps): ReactElement {
   const fixtureLobbies = lobbyEnvelopes.listOpen.data ?? [];
   const apiLobbyData = apiLobbies.status === 'connected' ? apiLobbies.data : null;
@@ -142,6 +148,12 @@ export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction,
                 <h3>{lobby.code}</h3>
                 <p>{lobby.membersCount}/{lobby.maxPlayers} players · {lobby.roundsCount} rounds · {lobby.roundTimeSeconds}s</p>
                 <p className={styles.muted}>{lobby.rated ? 'Rated' : 'Casual'} · {lobby.rankedCompatible ? 'Ranked-compatible' : 'Casual settings'}</p>
+                <details className={styles.shareDetails}>
+                  <summary>Invite / share</summary>
+                  <label htmlFor={`invite-${lobby.id}`}>Safe invite copy</label>
+                  <textarea id={`invite-${lobby.id}`} className={styles.shareTextArea} readOnly value={lobbyInviteText(lobby)} />
+                  <p>Contains only the room code and lobby link; no account data or answers.</p>
+                </details>
                 {usingApiLobbies ? (
                   <div className={styles.actionRow}>
                     <form action={joinLobbyAction}>

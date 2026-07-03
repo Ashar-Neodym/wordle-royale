@@ -268,6 +268,9 @@ describe('ranked gameplay REST endpoints', () => {
     const result = await request(app.getHttpServer()).get(`/matches/${matchId}/result`).expect(400);
     assert.equal(result.body.error.code, 'match_result_not_ready');
     assert.equal(prisma.created.ratingEvent.length, 0);
+    const state = await request(app.getHttpServer()).get(`/matches/${matchId}/state`).expect(200);
+    assert.equal('resultActions' in state.body.data, false);
+    assert.doesNotMatch(JSON.stringify(state.body.data), /answer|answerWordHash|answerWordSaltRef/i);
   });
 
   it('exposes guest fixture state through the local dev user switch header', async () => {
@@ -284,7 +287,9 @@ describe('ranked gameplay REST endpoints', () => {
 
   it('rejects dev helper use outside local/dev/test mode', async () => {
     const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
     process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'production';
     try {
       const response = await request(app.getHttpServer())
         .post(`/matches/dev/${matchId}/users/${guestUserId}/terminalize`)
@@ -299,6 +304,48 @@ describe('ranked gameplay REST endpoints', () => {
       } else {
         process.env.NODE_ENV = priorNodeEnv;
       }
+      if (priorAppEnv === undefined) {
+        delete process.env.APP_ENV;
+      } else {
+        process.env.APP_ENV = priorAppEnv;
+      }
+    }
+  });
+
+  it('requires an authenticated session for ranked current-user gameplay actions in preview mode', async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
+    const priorAuthMode = process.env.AUTH_MODE;
+    const priorEnableDevAuth = process.env.ENABLE_DEV_AUTH;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'preview';
+    process.env.AUTH_MODE = 'session_required';
+    process.env.ENABLE_DEV_AUTH = 'false';
+    try {
+      const start = await request(app.getHttpServer())
+        .post('/matches/ranked/start')
+        .set('x-wordle-dev-user-id', guestUserId)
+        .send({ clientRequestId: '82345678-1234-4234-8234-123456789abc', lobbyId, source: 'lobby' })
+        .expect(401);
+      assert.equal(start.body.error.code, 'not_authenticated');
+
+      const state = await request(app.getHttpServer())
+        .get(`/matches/${matchId}/state`)
+        .set('x-wordle-dev-user-id', guestUserId)
+        .expect(401);
+      assert.equal(state.body.error.code, 'not_authenticated');
+
+      const guess = await request(app.getHttpServer())
+        .post(`/matches/${matchId}/rounds/${roundId}/guesses`)
+        .set('x-wordle-dev-user-id', guestUserId)
+        .send({ clientRequestId: '92345678-1234-4234-8234-123456789abc', matchId, roundId, guess: 'slate' })
+        .expect(401);
+      assert.equal(guess.body.error.code, 'not_authenticated');
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = priorNodeEnv;
+      if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
+      if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
+      if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
     }
   });
 
@@ -325,6 +372,12 @@ describe('ranked gameplay REST endpoints', () => {
     const result = await request(app.getHttpServer()).get(`/matches/${matchId}/result`).expect(200);
     assert.equal(result.body.error, null);
     assert.deepEqual(result.body.data.ratingEvent, first.body.data.ratingEvent);
+    assert.equal(result.body.data.resultActions.share.spoilerSafe, true);
+    assert.equal(result.body.data.resultActions.rematch.available, false);
+    assert.equal(result.body.data.resultActions.links.matchHref, `/matches/${matchId}`);
+    assert.equal(result.body.data.resultActions.links.historyHref, '/history');
+    assert.equal(result.body.data.resultActions.links.nextRankedHref, '/lobbies?mode=ranked&status=waiting');
+    assert.doesNotMatch(JSON.stringify(result.body.data.resultActions), /answer|answerWordHash|answerWordSaltRef|crane/i);
 
     const second = await request(app.getHttpServer())
       .post(`/matches/${matchId}/complete`)

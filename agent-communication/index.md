@@ -2,11 +2,11 @@
 
 ## Current status
 
-Responses reviewed through Ticket 71. Athena wrote current Wave J review:
+Wave K merged to `main` via PR #1 and post-merge CI passed.
 
-`docs/2026-07-01-athena-review-after-tickets-65-71.md`
+Current review doc:
 
-Wave J is PASS after Athena fixed Jasmine's whitespace finding in `apps/mobile/README.md` and reran the verification gates.
+`docs/2026-07-01-athena-review-after-wave-k-merge.md`
 
 ## Product direction
 
@@ -14,36 +14,38 @@ Ashar's vision: Wordle Royale should be for Wordle what chess.com / lichess are 
 
 ## Visual/product correction
 
-UI should stay human, calm, functional, minimal, game-first, rating/community oriented — closer to lichess than a glossy AI/SaaS dashboard. Ashar likes the improvement but wants more real page depth, dropdowns, product navigation, and safe responsive behavior across web and mobile.
+UI should stay human, calm, functional, minimal, game-first, rating/community oriented — closer to lichess than a glossy AI/SaaS dashboard. Continue adding real product depth, not decorative pages.
 
-## Completed responses
+## Completed checkpoint
 
-Tickets 01–71 responses are present in `agent-communication/responses/`.
+Tickets 01–79 are complete through Wave K. PR #1 merged to `main` and GitHub Actions passed on the merge commit.
 
-## Wave K — GitHub checkpoint and product depth
+## Wave L — Public-preview readiness
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 72 | Yuna | GitHub Checkpoint Branch/PR and CI Monitor | Done with caveat: branch pushed; PR/CI needs manual PR/auth |
-| 73 | Elisa | Product Navigation and Route Contracts v2 | Done; route contracts saved |
-| 74 | Freya | Profile and Match History API Read Model Slice | New; K.1 |
-| 75 | Luna | Web Route Depth: Profile, History, and Match Detail UI | New; K.2 |
-| 76 | Ruby | Lobby Discovery and Matchmaking UX Slice | New; K.1/K.2 |
-| 77 | Luna | Mobile Navigation and Bounds Follow-Up | New; K.2 optional phone smoke |
-| 78 | Elisa | Privacy-Safe Product Analytics and Event Taxonomy Plan | New; K.1 planning |
-| 79 | Jasmine | QA Review Wave K GitHub Checkpoint and Product Depth | New; K.3 last |
+| 80 | Elisa | Preview MVP Auth, Account, and Deployment Boundary | New; L.0 critical planning |
+| 81 | Yuna | Preview Deployment, CI, and Environment Plan | New; L.0 critical planning |
+| 82 | Freya | Preview Session and Current User Slice | New; L.1 after 80 |
+| 83 | Ruby | Player-Facing Ranked Loop Polish: Rematch, Share, and Result Actions | New; L.1 |
+| 84 | Luna | Web Preview Polish: Result Actions, Invite/Share, and Auth-Aware Empty States | New; L.2 |
+| 85 | Luna | Mobile Expo Real-Device Smoke Closure and Preview UX Polish | New; L.2 optional device smoke |
+| 86 | Yuna | Wave L Checkpoint PR and Main CI Monitor | New; L.3 after implementation |
+| 87 | Jasmine | QA Review Wave L Preview Readiness | New; L.4 final |
 
 ## Recommended order
 
-1. Wave K.0 parallel: Tickets 72 and 73.
-2. Wave K.1: Tickets 74, 76, and 78 after/with Ticket 73 direction.
-3. Wave K.2: Tickets 75 and 77 after route/API shape is clear.
-4. Wave K.3: Ticket 79 last.
+1. L.0 parallel: Tickets 80 and 81.
+2. L.1: Tickets 82 and 83 after/with Ticket 80 direction.
+3. L.2: Ticket 84, then Ticket 85 if Luna has capacity / phone smoke available.
+4. L.3: Ticket 86 checkpoint PR.
+5. L.4: Ticket 87 QA last.
 
 ## Persistent constraints
 
 - Prefer free/open-source/local-first tooling.
 - Do not add paid SaaS, paid cloud resources, proprietary datasets, or subscription dependencies without Ashar approval.
 - Do not commit secrets or create real `.env` files.
+- Do not deploy, create external services, or configure production secrets without explicit Ashar approval.
 - Preserve spoiler safety and server authority for gameplay/rating logic.
-- GitHub checkpoint is now desired; prefer branch/PR unless Ashar explicitly wants direct `main` push.
+- Use branch + PR + GitHub Actions for checkpoints.

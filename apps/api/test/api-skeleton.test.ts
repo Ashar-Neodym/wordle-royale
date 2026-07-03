@@ -207,6 +207,65 @@ describe('api skeleton', () => {
     assert.equal(availability.body.data.available, false);
   });
 
+  it('requires an authenticated session for current-user auth/profile endpoints in preview mode', async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
+    const priorAuthMode = process.env.AUTH_MODE;
+    const priorEnableDevAuth = process.env.ENABLE_DEV_AUTH;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'preview';
+    process.env.AUTH_MODE = 'session_required';
+    process.env.ENABLE_DEV_AUTH = 'false';
+    try {
+      const me = await request(app.getHttpServer()).get('/auth/me').expect(401);
+      assert.equal(me.body.data, null);
+      assert.equal(me.body.error.code, 'not_authenticated');
+      assert.equal(me.body.error.details.authMode, 'session_required');
+
+      const register = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email: 'preview@example.com', password: 'password123', displayName: 'Preview Player' })
+        .expect(401);
+      assert.equal(register.body.error.code, 'not_authenticated');
+      assert.doesNotMatch(JSON.stringify(register.body), /stub-access-token-not-for-production|stub-refresh-token-not-for-production/i);
+
+      const profile = await request(app.getHttpServer()).get('/profile/me').set('x-wordle-dev-user-id', guestUserId).expect(401);
+      assert.equal(profile.body.error.code, 'not_authenticated');
+
+      const update = await request(app.getHttpServer())
+        .patch('/profile/me')
+        .set('x-wordle-dev-user-id', guestUserId)
+        .send({ handle: 'preview_blocked' })
+        .expect(401);
+      assert.equal(update.body.error.code, 'not_authenticated');
+
+      const lobby = await request(app.getHttpServer())
+        .post('/lobbies')
+        .set('x-wordle-dev-user-id', guestUserId)
+        .send({
+          clientRequestId: '77777777-7777-4777-8777-777777777777',
+          visibility: 'public',
+          rated: false,
+          mode: 'standard',
+          language: 'en',
+          wordLength: 5,
+          difficulty: 'medium',
+          minPlayers: 2,
+          maxPlayers: 4,
+          roundsCount: 3,
+          roundTimeSeconds: 120,
+          scoringPreset: 'standard_v1',
+        })
+        .expect(401);
+      assert.equal(lobby.body.error.code, 'not_authenticated');
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = priorNodeEnv;
+      if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
+      if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
+      if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
+    }
+  });
+
   it('rejects malformed lobby creation with the shared error envelope', async () => {
     const response = await request(app.getHttpServer())
       .post('/lobbies')

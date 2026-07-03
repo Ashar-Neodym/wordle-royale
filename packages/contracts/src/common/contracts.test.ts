@@ -163,7 +163,7 @@ test('rating event contract defaults V1 placement MMR baseline to 1200', () => {
   assert.equal(event.participants[0]!.ratingDelta, 16);
 });
 
-test('ranked match result summary includes final standings and nullable rating event', () => {
+test('ranked match result summary includes spoiler-safe post-match action affordances', () => {
   const summary = rankedMatchResultSummarySchema.parse({
     matchId,
     state: 'completed',
@@ -174,10 +174,19 @@ test('ranked match result summary includes final standings and nullable rating e
       { userId: userB, placement: 2, totalScore: 120, roundsSolved: 1, totalValidGuesses: 5, totalSolveMs: 90000, ratingBefore: 1200, ratingAfter: 1184, ratingDelta: -16 },
     ],
     ratingEvent: null,
+    resultActions: {
+      rematch: { available: false, reason: 'not_implemented', label: 'Create rematch lobby' },
+      share: { spoilerSafe: true, text: 'I finished a ranked Wordle Royale match: #1 171 pts, #2 120 pts.', path: `/matches/${matchId}` },
+      links: { matchHref: `/matches/${matchId}`, historyHref: '/history', leaderboardHref: '/leaderboard', nextRankedHref: '/lobbies?mode=ranked&status=waiting', profileHrefTemplate: '/profile/{handle}' },
+    },
   });
 
   assert.equal(summary.state, 'completed');
   assert.equal(summary.finalStandings.length, 2);
+  assert.equal(summary.resultActions.share.spoilerSafe, true);
+  assert.equal(summary.resultActions.rematch.available, false);
+  assert.equal(summary.resultActions.links.nextRankedHref, '/lobbies?mode=ranked&status=waiting');
+  assert.doesNotMatch(JSON.stringify(summary.resultActions), /answer|answerWordHash|answerWordSaltRef|crane/i);
 });
 
 test('server event names are exported string literals', () => {

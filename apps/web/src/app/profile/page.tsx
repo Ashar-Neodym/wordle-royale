@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { getCurrentProfileSummary, getWebApiSnapshot } from '../../lib/api-client';
-import { MatchHistoryRows, ProfileSummaryCard } from '../../components/ProfileHistory';
+import { AuthRequiredPanel, isAuthLimited, MatchHistoryRows, ProfileSummaryCard } from '../../components/ProfileHistory';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
@@ -10,14 +10,16 @@ export const dynamic = 'force-dynamic';
 export default async function ProfilePage(): Promise<ReactElement> {
   const [api, profileSummary] = await Promise.all([getWebApiSnapshot(), getCurrentProfileSummary()]);
   const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
+  const authLimited = isAuthLimited(profileSummary.error);
   const ratedFallback = api.ratedProfile.status === 'connected' ? api.ratedProfile.data : null;
-  const title = profile?.displayName ?? ratedFallback?.displayName ?? 'Local player';
+  const title = profile?.displayName ?? ratedFallback?.displayName ?? (authLimited ? 'Preview profile' : 'Local player');
 
   return (
     <PageFrame>
       <PageHeader eyebrow="Profile" title={title}>
-        <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : 'Live profile summary appears here when the API read model is available.'}</p>
+        <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : authLimited ? 'Current-player profile requires a real session in preview; fixture sign-in is not silently assumed.' : 'Live profile summary appears here when the API read model is available.'}</p>
       </PageHeader>
+      {authLimited ? <AuthRequiredPanel title="Profile requires a session" message="Preview mode does not impersonate the local stub user. Public ratings and lobbies remain visible, but current-player profile data waits for real login." /> : null}
       <section className={styles.section} aria-labelledby="profile-summary-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Rated identity</p>

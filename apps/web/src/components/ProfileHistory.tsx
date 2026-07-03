@@ -24,6 +24,26 @@ function outcomeLabel(match: MatchHistorySummary): string {
   return `${placement} · ${viewer.outcome} · ${viewer.finalScore} pts`;
 }
 
+export function isAuthLimited(error: string | null | undefined): boolean {
+  return /not[_\s-]?authenticated|session required|auth/i.test(error ?? '');
+}
+
+export function AuthRequiredPanel({ title = 'Sign in required', message }: { title?: string; message?: string }): ReactElement {
+  return (
+    <article className={styles.authPanel} aria-live="polite">
+      <div>
+        <p className={styles.eyebrow}>Preview auth</p>
+        <h2>{title}</h2>
+        <p>{message ?? 'Public preview does not silently sign you in as a fixture player. Until real sessions are enabled, this current-player view stays limited instead of showing fake account data.'}</p>
+      </div>
+      <div className={styles.actionRow}>
+        <a className={styles.primaryButton} href="/lobbies">Browse lobbies</a>
+        <a className={styles.secondaryButton} href="/leaderboard">View ratings</a>
+      </div>
+    </article>
+  );
+}
+
 function ratingBadge(delta: number | null): ReactElement {
   if (delta === null) return <TokenBadge label="No rating" bg={rank.color.provisional.bg} border={rank.color.provisional.border} text={rank.color.provisional.text} />;
   const token = delta > 0 ? score.delta.positive : delta < 0 ? score.delta.negative : score.delta.neutral;

@@ -150,6 +150,26 @@ export const ratingEventContractSchema = z.object({
   appliedAt: timestampSchema.nullable().optional(),
 });
 
+export const rankedMatchResultActionSchema = z.object({
+  rematch: z.object({
+    available: z.boolean(),
+    reason: z.enum(['not_implemented', 'match_not_completed', 'unsupported_match_type']).nullable().optional(),
+    label: z.string().min(1).max(80),
+  }),
+  share: z.object({
+    spoilerSafe: z.literal(true),
+    text: z.string().min(1).max(280),
+    path: z.string().regex(/^\/matches\/[0-9a-f-]{36}$/),
+  }),
+  links: z.object({
+    matchHref: z.string().regex(/^\/matches\/[0-9a-f-]{36}$/),
+    historyHref: z.literal('/history'),
+    leaderboardHref: z.literal('/leaderboard'),
+    nextRankedHref: z.literal('/lobbies?mode=ranked&status=waiting'),
+    profileHrefTemplate: z.literal('/profile/{handle}'),
+  }),
+});
+
 export const rankedMatchResultSummarySchema = z.object({
   matchId: idSchema,
   state: z.literal('completed'),
@@ -157,6 +177,7 @@ export const rankedMatchResultSummarySchema = z.object({
   completionReason: rankedMatchCompletionReasonSchema,
   finalStandings: z.array(participantStandingSchema).min(2),
   ratingEvent: ratingEventContractSchema.nullable(),
+  resultActions: rankedMatchResultActionSchema,
 });
 
 export const matchHistoryParticipantSchema = z.object({

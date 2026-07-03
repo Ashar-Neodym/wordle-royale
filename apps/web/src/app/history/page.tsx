@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { getMatchHistory } from '../../lib/api-client';
-import { HistoryStatusPanel, MatchHistoryRows } from '../../components/ProfileHistory';
+import { AuthRequiredPanel, HistoryStatusPanel, isAuthLimited, MatchHistoryRows } from '../../components/ProfileHistory';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
 
@@ -9,11 +9,13 @@ export const dynamic = 'force-dynamic';
 export default async function HistoryPage(): Promise<ReactElement> {
   const history = await getMatchHistory(20);
   const matches = history.status === 'connected' ? history.data?.items ?? [] : [];
+  const authLimited = isAuthLimited(history.error);
   return (
     <PageFrame>
       <PageHeader eyebrow="History" title="Match history">
-        <p>Recent ranked matches for the local player. Active answers, hashes, salts, and hidden guesses stay out of this route.</p>
+        <p>{authLimited ? 'Your history requires a real session in preview. Public match detail links remain spoiler-safe when shared.' : 'Recent ranked matches for the local player. Active answers, hashes, salts, and hidden guesses stay out of this route.'}</p>
       </PageHeader>
+      {authLimited ? <AuthRequiredPanel title="History requires a session" message="Preview mode does not show fixture-user history as if it were your account. Sign-in is deferred, so this page stays honest and empty for current-player data." /> : null}
       <section className={styles.section} aria-labelledby="history-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>{history.status === 'connected' ? 'Live read model' : 'Offline'}</p>
