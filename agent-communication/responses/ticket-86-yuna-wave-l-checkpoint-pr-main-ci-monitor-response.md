@@ -51,24 +51,26 @@ Branch:
 wave-l/preview-readiness
 ```
 
-Checkpoint commit pushed:
+Wave L checkpoint commit:
 
 ```text
 b953b97 feat: checkpoint wave l preview readiness
 ```
 
-Full checkpoint SHA:
+Full Wave L checkpoint SHA:
 
 ```text
 b953b97e7e0aee38ffd607b281f6e155a9b10648
 ```
 
-Remote read-back evidence:
+Checkpoint push read-back evidence:
 
 ```text
 b953b97e7e0aee38ffd607b281f6e155a9b10648 refs/heads/wave-l/preview-readiness
 branch_api_sha=b953b97e7e0aee38ffd607b281f6e155a9b10648
 ```
+
+Additional docs commits were pushed afterward to add/update this Ticket 86 response file; use `git ls-remote --heads origin wave-l/preview-readiness` for the current branch head.
 
 GitHub PR creation URL:
 
