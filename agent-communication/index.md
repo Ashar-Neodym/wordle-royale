@@ -2,11 +2,11 @@
 
 ## Current status
 
-Wave K merged to `main` via PR #1 and post-merge CI passed.
+Wave L is locally verified through Ticket 87, but it is **not merged to `main`** and no GitHub PR currently exists for `wave-l/preview-readiness`.
 
 Current review doc:
 
-`docs/2026-07-01-athena-review-after-wave-k-merge.md`
+`docs/2026-07-03-athena-review-after-ticket-87.md`
 
 ## Product direction
 
@@ -24,22 +24,36 @@ Tickets 01–79 are complete through Wave K. PR #1 merged to `main` and GitHub A
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 80 | Elisa | Preview MVP Auth, Account, and Deployment Boundary | New; L.0 critical planning |
-| 81 | Yuna | Preview Deployment, CI, and Environment Plan | New; L.0 critical planning |
-| 82 | Freya | Preview Session and Current User Slice | New; L.1 after 80 |
-| 83 | Ruby | Player-Facing Ranked Loop Polish: Rematch, Share, and Result Actions | New; L.1 |
-| 84 | Luna | Web Preview Polish: Result Actions, Invite/Share, and Auth-Aware Empty States | New; L.2 |
-| 85 | Luna | Mobile Expo Real-Device Smoke Closure and Preview UX Polish | New; L.2 optional device smoke |
-| 86 | Yuna | Wave L Checkpoint PR and Main CI Monitor | New; L.3 after implementation |
-| 87 | Jasmine | QA Review Wave L Preview Readiness | New; L.4 final |
+| 80 | Elisa | Preview MVP Auth, Account, and Deployment Boundary | Complete |
+| 81 | Yuna | Preview Deployment, CI, and Environment Plan | Complete |
+| 82 | Freya | Preview Session and Current User Slice | Complete |
+| 83 | Ruby | Player-Facing Ranked Loop Polish: Rematch, Share, and Result Actions | Complete |
+| 84 | Luna | Web Preview Polish: Result Actions, Invite/Share, and Auth-Aware Empty States | Complete |
+| 85 | Luna | Mobile Expo Real-Device Smoke Closure and Preview UX Polish | Complete with physical-device caveat |
+| 86 | Yuna | Wave L Checkpoint PR and Main CI Monitor | Branch pushed; PR creation blocked/not completed |
+| 87 | Jasmine | QA Review Wave L Preview Readiness | Complete; FAIL/BLOCKED for preview checkpoint due no PR/remote CI and API deploy-start gap |
+
+## Wave M — Preview deploy-shape and checkpoint unblock
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 88 | Yuna | Wave L PR/CI Unblock and Remote Checkpoint | New; M.0 critical checkpoint unblock |
+| 89 | Elisa | Preview MVP Account/Session Decision Lock | New; M.0 architecture decision |
+| 90 | Freya | API Production Build/Start Shape and Smoke | New; M.1 deploy-shape implementation |
+| 91 | Yuna | Preview Deploy-Shape CI Gate | New; M.1 after/with 90 |
+| 92 | Freya | Minimal Preview Session Slice — Conditional Implementation | New; M.2 after 89 |
+| 93 | Luna | Web Preview Session UX and Deploy-Ready States | New; M.2 after 89/92 |
+| 94 | Luna | Mobile Expo Physical Smoke and Preview Config Closure | New; M.2 optional phone smoke |
+| 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | New; M.3 after implementation |
+| 96 | Jasmine | QA Review Wave M Preview Deploy Approval | New; M.4 final |
 
 ## Recommended order
 
-1. L.0 parallel: Tickets 80 and 81.
-2. L.1: Tickets 82 and 83 after/with Ticket 80 direction.
-3. L.2: Ticket 84, then Ticket 85 if Luna has capacity / phone smoke available.
-4. L.3: Ticket 86 checkpoint PR.
-5. L.4: Ticket 87 QA last.
+1. M.0 first: Ticket 88, and Ticket 89 in parallel if available.
+2. M.1: Ticket 90, then Ticket 91 after Ticket 90 exposes a deploy-shape smoke command.
+3. M.2: Ticket 92 only after Ticket 89; Ticket 93 after Ticket 89/92; Ticket 94 can run in parallel if phone observation is available.
+4. M.3: Ticket 95 checkpoint PR/CI.
+5. M.4: Ticket 96 QA last.
 
 ## Persistent constraints
 
