@@ -1,42 +1,13 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { completeRankedMatchRequestSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from '@wordle-royale/contracts';
 import type { CompleteRankedMatchRequest, StartRankedMatchRequest, SubmitGuessRequest } from '@wordle-royale/contracts';
 import { ok } from '../shared/envelope.ts';
 import { ZodValidationPipe } from '../shared/zod-validation.pipe.ts';
+import { CurrentUserService, localFixtureUsers } from '../auth/current-user.service.ts';
 import { ProfileReadService } from '../profile/profile-read.service.ts';
 import { GameplayPersistenceService } from './gameplay-persistence.service.ts';
 
-const stubCurrentUserId = '11111111-1111-4111-8111-111111111111';
-const stubGuestUserId = '22222222-2222-4222-8222-222222222222';
-const stubEmptyUserId = '33333333-3333-4333-8333-333333333333';
-const localFixtureUserIds = new Set([stubCurrentUserId, stubGuestUserId, stubEmptyUserId]);
-
-function devHelpersEnabled(): boolean {
-  return process.env.NODE_ENV !== 'production';
-}
-
-function requireDevHelpersEnabled(): void {
-  if (!devHelpersEnabled()) {
-    throw new ForbiddenException({
-      code: 'dev_helper_disabled',
-      message: 'Local ranked smoke helpers are disabled outside local/dev/test environments.',
-    });
-  }
-}
-
-function resolveFixtureUser(headerValue: string | string[] | undefined): string {
-  const userId = Array.isArray(headerValue) ? headerValue[0] : headerValue;
-  if (!userId) return stubCurrentUserId;
-  requireDevHelpersEnabled();
-  if (!localFixtureUserIds.has(userId)) {
-    throw new BadRequestException({
-      code: 'unknown_dev_fixture_user',
-      message: 'Only local ranked smoke fixture users can be selected with x-wordle-dev-user-id.',
-      details: { allowedUserIds: [...localFixtureUserIds] },
-    });
-  }
-  return userId;
-}
+const localFixtureUserIds = new Set<string>(Object.values(localFixtureUsers));
 
 type DevTerminalizeBody = {
   outcome?: unknown;
@@ -48,11 +19,13 @@ export class GameplayController {
   constructor(
     @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
     @Inject(ProfileReadService) private readonly profileRead: ProfileReadService,
+    @Inject(CurrentUserService) private readonly currentUsers: CurrentUserService,
   ) {}
 
   @Post('ranked/start')
   async startRankedMatch(
     @Body(new ZodValidationPipe(startRankedMatchRequestSchema)) body: StartRankedMatchRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
     if (body.source !== 'lobby') {
@@ -63,10 +36,11 @@ export class GameplayController {
       });
     }
 
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId);
     const startInput = {
       lobbyId: body.lobbyId!,
       clientRequestId: body.clientRequestId,
-      currentUserId: stubCurrentUserId,
+      currentUserId: currentUser.userId,
       ...(body.dictionaryReleaseId ? { dictionaryReleaseId: body.dictionaryReleaseId } : {}),
     };
     const result = await this.gameplay.startRankedMatchFromLobby(startInput);
@@ -82,7 +56,8 @@ export class GameplayController {
     @Req() request: unknown,
   ) {
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
-    const historyInput: { userId: string; limit?: number; cursor?: string } = { userId: resolveFixtureUser(devUserId) };
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId);
+    const historyInput: { userId: string; limit?: number; cursor?: string } = { userId: currentUser.userId };
     if (parsedLimit) historyInput.limit = parsedLimit;
     if (cursor) historyInput.cursor = cursor;
     return ok(await this.profileRead.listCurrentUserMatchHistory(historyInput), request as never);
@@ -94,13 +69,15 @@ export class GameplayController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    return ok(await this.gameplay.getMatchSnapshot(matchId, resolveFixtureUser(devUserId)), request as never);
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId);
+    return ok(await this.gameplay.getMatchSnapshot(matchId, currentUser.userId), request as never);
   }
 
   @Post(':matchId/complete')
   async completeRankedMatch(
     @Param('matchId') matchId: string,
     @Body(new ZodValidationPipe(completeRankedMatchRequestSchema)) body: CompleteRankedMatchRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
     if (body.matchId !== matchId) {
@@ -111,6 +88,7 @@ export class GameplayController {
       });
     }
 
+    this.currentUsers.resolveCurrentUser(devUserId);
     return ok(await this.gameplay.completeRankedMatch({ matchId, ...(body.reason ? { reason: body.reason } : {}) }), request as never);
   }
 
@@ -135,7 +113,8 @@ export class GameplayController {
       });
     }
 
-    const participant = await this.gameplay.getParticipantForUser(matchId, resolveFixtureUser(devUserId));
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId);
+    const participant = await this.gameplay.getParticipantForUser(matchId, currentUser.userId);
     return ok(await this.gameplay.submitGuess({
       matchId,
       roundId,
@@ -152,7 +131,7 @@ export class GameplayController {
     @Body() body: DevTerminalizeBody,
     @Req() request: unknown,
   ) {
-    requireDevHelpersEnabled();
+    this.currentUsers.requireDevRoutesEnabled();
     if (!localFixtureUserIds.has(userId)) {
       throw new BadRequestException({
         code: 'unknown_dev_fixture_user',

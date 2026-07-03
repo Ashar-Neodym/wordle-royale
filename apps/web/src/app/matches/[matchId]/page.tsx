@@ -13,6 +13,11 @@ function formatSigned(value: number): string {
   return `${value >= 0 ? '+' : ''}${value}`;
 }
 
+function absoluteShareUrl(path: string): string {
+  const siteUrl = process.env.NEXT_PUBLIC_WEB_URL?.trim().replace(/\/$/, '');
+  return siteUrl ? `${siteUrl}${path}` : path;
+}
+
 export default async function MatchDetailPage({ params }: MatchDetailPageProps): Promise<ReactElement> {
   const { matchId } = await params;
   const [result, state] = await Promise.all([getRankedMatchResult(matchId), getRankedMatchState(matchId)]);
@@ -20,6 +25,8 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
   const liveState = state.status === 'connected' ? state.data : null;
   const status = liveResult ? 'completed' : liveState ? liveState.state : 'unavailable';
   const deltas = new Map(liveResult?.ratingEvent?.participants.map((participant) => [participant.userId, participant]) ?? []);
+  const resultActions = liveResult?.resultActions ?? null;
+  const shareSummary = resultActions ? `${resultActions.share.text} ${absoluteShareUrl(resultActions.share.path)}` : '';
 
   return (
     <PageFrame>
@@ -55,6 +62,44 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
                 </div>
               );
             })}
+          </article>
+        ) : null}
+        {resultActions ? (
+          <section className={styles.resultActionsPanel} aria-labelledby="result-actions-heading">
+            <div>
+              <p className={styles.eyebrow}>Next</p>
+              <h2 id="result-actions-heading">What now?</h2>
+              <p className={styles.muted}>Spoiler-safe result actions from the server. Rematch is shown honestly as disabled until the backend supports creating same-settings rematch lobbies.</p>
+            </div>
+            <div className={styles.actionCardGrid}>
+              <article className={styles.actionCard}>
+                <h3>{resultActions.rematch.label}</h3>
+                <p>{resultActions.rematch.available ? 'Rematch is ready.' : `Not available yet${resultActions.rematch.reason ? `: ${resultActions.rematch.reason.replace(/_/g, ' ')}` : ''}.`}</p>
+                <a className={resultActions.rematch.available ? styles.primaryButton : styles.secondaryButton} aria-disabled={!resultActions.rematch.available} href={resultActions.links.nextRankedHref}>Play again</a>
+              </article>
+              <article className={styles.actionCard}>
+                <h3>Share result</h3>
+                <p>This text is generated from final placement and score only; no answer, hash, salt, or hidden guesses.</p>
+                <textarea className={styles.shareTextArea} readOnly value={shareSummary} aria-label="Spoiler-safe share summary" />
+              </article>
+              <article className={styles.actionCard}>
+                <h3>Review</h3>
+                <div className={styles.actionRow}>
+                  <a className={styles.secondaryButton} href={resultActions.links.historyHref}>History</a>
+                  <a className={styles.secondaryButton} href={resultActions.links.leaderboardHref}>Leaderboard</a>
+                  <a className={styles.secondaryButton} href="/profile">Profile</a>
+                </div>
+              </article>
+            </div>
+          </section>
+        ) : liveResult ? (
+          <article className={styles.errorPanel} aria-live="polite">
+            <strong>Result actions unavailable</strong>
+            <p>The completed result loaded, but the server did not include post-match actions. Use the fallback links below.</p>
+            <div className={styles.actionRow}>
+              <a className={styles.primaryButton} href="/lobbies?mode=ranked&status=waiting">Play again</a>
+              <a className={styles.secondaryButton} href="/history">History</a>
+            </div>
           </article>
         ) : null}
         {liveState && !liveResult ? (

@@ -137,6 +137,16 @@ Ranked/MMR finalization slice:
 
 Public low-risk endpoints are exposed as `GET /leaderboard?limit=20` and `GET /profiles/:handle/rating`. They do not read match rounds, guesses, dictionary words, or answer hashes, so the lichess/chess.com-style competitive loop can show stable ratings, provisional identity, and post-match progression without any spoiler surface.
 
+## Ranked result actions
+
+Completed ranked results from `GET /matches/:matchId/result` include `resultActions` alongside final standings and rating events:
+
+- `share` — spoiler-safe text plus `/matches/:matchId` path for copy/share UI.
+- `links` — stable product routes for match detail, history, leaderboard, next ranked lobby discovery, and profile-by-handle template.
+- `rematch` — a present but disabled affordance (`available: false`, `reason: not_implemented`) so Luna can render honest post-match copy now while a future backend helper creates a same-settings lobby from the completed match.
+
+The result-action payload is generated from match id and final standings only. It does not expose hidden answers, answer hashes, salts, dictionary words, or raw opponent guesses, and active match state responses do not include result actions before completion.
+
 ## Repeatable ranked smoke reset
 
 Use the repo-level reset script when local ranked smoke data has accumulated noisy lobbies/matches:

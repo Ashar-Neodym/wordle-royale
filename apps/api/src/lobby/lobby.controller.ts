@@ -1,13 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { clientRequestSchema, createLobbyRequestSchema, joinLobbyByCodeRequestSchema } from '@wordle-royale/contracts';
 import type { CreateLobbyRequest, JoinLobbyByCodeRequest } from '@wordle-royale/contracts';
+import { CurrentUserService } from '../auth/current-user.service.ts';
 import { ok } from '../shared/envelope.ts';
 import { ZodValidationPipe } from '../shared/zod-validation.pipe.ts';
 import { LobbyService } from './lobby.service.ts';
 
 @Controller('lobbies')
 export class LobbyController {
-  constructor(@Inject(LobbyService) private readonly lobbies: LobbyService) {}
+  constructor(
+    @Inject(LobbyService) private readonly lobbies: LobbyService,
+    @Inject(CurrentUserService) private readonly currentUsers: CurrentUserService,
+  ) {}
 
   @Get()
   async listPublicLobbies(@Query() query: Record<string, string | undefined>, @Req() request: unknown) {
@@ -15,17 +19,33 @@ export class LobbyController {
   }
 
   @Post()
-  async createLobby(@Body(new ZodValidationPipe(createLobbyRequestSchema)) body: CreateLobbyRequest, @Req() request: unknown) {
+  async createLobby(
+    @Body(new ZodValidationPipe(createLobbyRequestSchema)) body: CreateLobbyRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Req() request: unknown,
+  ) {
+    this.currentUsers.resolveCurrentUser(devUserId);
     return ok(await this.lobbies.createLobby(body), request as never);
   }
 
   @Post('join-code')
-  async joinByCode(@Body(new ZodValidationPipe(joinLobbyByCodeRequestSchema)) body: JoinLobbyByCodeRequest, @Req() request: unknown) {
+  async joinByCode(
+    @Body(new ZodValidationPipe(joinLobbyByCodeRequestSchema)) body: JoinLobbyByCodeRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Req() request: unknown,
+  ) {
+    this.currentUsers.resolveCurrentUser(devUserId);
     return ok(await this.lobbies.joinByCode(body), request as never);
   }
 
   @Post(':lobbyId/join')
-  async joinLobby(@Param('lobbyId') lobbyId: string, @Body(new ZodValidationPipe(clientRequestSchema)) _body: unknown, @Req() request: unknown) {
+  async joinLobby(
+    @Param('lobbyId') lobbyId: string,
+    @Body(new ZodValidationPipe(clientRequestSchema)) _body: unknown,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Req() request: unknown,
+  ) {
+    this.currentUsers.resolveCurrentUser(devUserId);
     return ok(await this.lobbies.joinLobby(lobbyId), request as never);
   }
 }

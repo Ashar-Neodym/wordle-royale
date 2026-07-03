@@ -176,6 +176,38 @@ describe('profile and match history REST read models', () => {
     assert.doesNotMatch(JSON.stringify(response.body), /answerWordHash|answerWordSaltRef|should-never-leak/i);
   });
 
+  it('requires authentication for current-user profile summary and match history in preview mode', async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
+    const priorAuthMode = process.env.AUTH_MODE;
+    const priorEnableDevAuth = process.env.ENABLE_DEV_AUTH;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'preview';
+    process.env.AUTH_MODE = 'session_required';
+    process.env.ENABLE_DEV_AUTH = 'false';
+    try {
+      const profile = await request(app.getHttpServer())
+        .get('/profiles/me/summary')
+        .set('x-wordle-dev-user-id', emptyUserId)
+        .expect(401);
+      assert.equal(profile.body.data, null);
+      assert.equal(profile.body.error.code, 'not_authenticated');
+      assert.equal(profile.body.error.details.authMode, 'session_required');
+
+      const history = await request(app.getHttpServer())
+        .get('/matches/history/me')
+        .set('x-wordle-dev-user-id', emptyUserId)
+        .expect(401);
+      assert.equal(history.body.data, null);
+      assert.equal(history.body.error.code, 'not_authenticated');
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = priorNodeEnv;
+      if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
+      if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
+      if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
+    }
+  });
+
   it('serves public profile summary by handle', async () => {
     const response = await request(app.getHttpServer()).get('/profiles/guest_player/summary').expect(200);
 

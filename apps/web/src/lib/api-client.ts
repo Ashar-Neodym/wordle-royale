@@ -133,7 +133,8 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
 
     const envelope = (await response.json()) as ApiEnvelope<T>;
     if (!response.ok || envelope.error) {
-      throw new Error(envelope.error?.message ?? `API request failed with HTTP ${response.status}`);
+      const code = envelope.error?.code ? `${envelope.error.code}: ` : '';
+      throw new Error(`${code}${envelope.error?.message ?? `API request failed with HTTP ${response.status}`}`);
     }
 
     return { status: 'connected', apiUrl, data: envelope.data, requestId: envelope.requestId, error: null };
