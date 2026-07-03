@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Wordle Royale",
+    "slug": "wordle-royale",
+    "scheme": "wordleroyale",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true },
+    "android": { "edgeToEdgeEnabled": true },
+    "web": { "bundler": "metro" }
+  }
+}

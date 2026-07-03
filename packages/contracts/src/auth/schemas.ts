@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { idSchema, timestampSchema } from '../common/schemas.ts';
+import { defaultRating } from '../gameplay/constants.ts';
+import { matchHistorySummarySchema } from '../gameplay/schemas.ts';
 import { authProviders, consentScopes, profileVisibilities, userRoles, userStatuses } from './constants.ts';
 
 export const consentScopeSchema = z.enum(consentScopes);
@@ -31,6 +33,30 @@ export const publicProfileSchema = z.object({
   rating: z.number().int().nullable(),
   rank: z.number().int().positive().nullable(),
 });
+
+export const profileRatingSummarySchema = z.object({
+  mode: z.literal('ranked'),
+  rating: z.number().int().default(defaultRating),
+  matchesPlayed: z.number().int().nonnegative(),
+  provisional: z.boolean(),
+  provisionalRemaining: z.number().int().nonnegative(),
+  algorithm: z.literal('placement_mmr_v1'),
+  algorithmConfigVersion: z.string().min(1),
+  rank: z.number().int().positive().nullable(),
+  unrated: z.boolean().default(false),
+});
+
+export const profileSummarySchema = z.object({
+  userId: idSchema,
+  handle: z.string().regex(/^[a-z0-9_]{3,20}$/),
+  displayName: z.string().min(1).max(40),
+  avatarUrl: z.string().url().nullable(),
+  rating: profileRatingSummarySchema,
+  recentMatches: z.array(matchHistorySummarySchema),
+});
+
+export const currentProfileSummarySchema = profileSummarySchema;
+export const publicProfileSummarySchema = profileSummarySchema;
 
 export const currentUserSchema = userSchema.extend({
   profile: publicProfileSchema.pick({ handle: true, displayName: true, avatarUrl: true, profileVisibility: true }).nullable(),

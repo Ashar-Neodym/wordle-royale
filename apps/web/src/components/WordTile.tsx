@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { tileStates, type TileFeedbackState } from '../lib/tokens';
 import styles from './web-shell.module.css';
 
@@ -14,7 +15,7 @@ const markerByState: Record<TileFeedbackState, string> = {
   disabled: '',
 };
 
-export function WordTile({ letter, state }: { letter: string; state: TileFeedbackState }) {
+export function WordTile({ letter, state }: { letter: string; state: TileFeedbackState }): ReactElement {
   const token = tileStates[state];
   return (
     <span
@@ -29,6 +30,6 @@ export function WordTile({ letter, state }: { letter: string; state: TileFeedbac
   );
 }
 
-export function EmptyTileRow({ count }: { count: number }) {
+export function EmptyTileRow({ count }: { count: number }): ReactElement[] {
   return Array.from({ length: count }, (_, index) => <WordTile key={index} letter="" state="empty" />);
 }

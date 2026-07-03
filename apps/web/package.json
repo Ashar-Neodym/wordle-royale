@@ -10,6 +10,7 @@
     "build": "next build"
   },
   "dependencies": {
+    "@wordle-royale/contracts": "workspace:*",
     "@wordle-royale/design-tokens": "workspace:*",
     "@wordle-royale/fixtures": "workspace:*",
     "next": "^16.2.9",

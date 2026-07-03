@@ -1,10 +1,14 @@
 import { z } from 'zod';
-import { analyticsConsentEventSchema, authTokenResponseSchema, consentScopeSchema, consentStateSchema, currentUserSchema, handleAvailabilityResponseSchema, loginRequestSchema, publicProfileSchema, registerRequestSchema, sessionSchema, updateConsentRequestSchema, updateProfileRequestSchema, userSchema } from './schemas.ts';
+import { analyticsConsentEventSchema, authTokenResponseSchema, consentScopeSchema, consentStateSchema, currentProfileSummarySchema, currentUserSchema, handleAvailabilityResponseSchema, loginRequestSchema, profileRatingSummarySchema, profileSummarySchema, publicProfileSchema, publicProfileSummarySchema, registerRequestSchema, sessionSchema, updateConsentRequestSchema, updateProfileRequestSchema, userSchema } from './schemas.ts';
 
 export type ConsentScope = z.infer<typeof consentScopeSchema>;
 export type UserDto = z.infer<typeof userSchema>;
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type PublicProfileDto = z.infer<typeof publicProfileSchema>;
+export type ProfileRatingSummary = z.infer<typeof profileRatingSummarySchema>;
+export type ProfileSummary = z.infer<typeof profileSummarySchema>;
+export type CurrentProfileSummary = z.infer<typeof currentProfileSummarySchema>;
+export type PublicProfileSummary = z.infer<typeof publicProfileSummarySchema>;
 export type CurrentUserDto = z.infer<typeof currentUserSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;

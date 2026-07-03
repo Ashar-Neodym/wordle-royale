@@ -1,0 +1,45 @@
+import type { ReactElement } from 'react';
+import { getCurrentProfileSummary, getWebApiSnapshot } from '../../lib/api-client';
+import { MatchHistoryRows, ProfileSummaryCard } from '../../components/ProfileHistory';
+import { ProfileLeaderboard } from '../../components/ReportAndProfile';
+import { PageFrame, PageHeader } from '../../components/PageFrame';
+import styles from '../../components/web-shell.module.css';
+
+export const dynamic = 'force-dynamic';
+
+export default async function ProfilePage(): Promise<ReactElement> {
+  const [api, profileSummary] = await Promise.all([getWebApiSnapshot(), getCurrentProfileSummary()]);
+  const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
+  const ratedFallback = api.ratedProfile.status === 'connected' ? api.ratedProfile.data : null;
+  const title = profile?.displayName ?? ratedFallback?.displayName ?? 'Local player';
+
+  return (
+    <PageFrame>
+      <PageHeader eyebrow="Profile" title={title}>
+        <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : 'Live profile summary appears here when the API read model is available.'}</p>
+      </PageHeader>
+      <section className={styles.section} aria-labelledby="profile-summary-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Rated identity</p>
+          <h2 id="profile-summary-heading">Profile summary</h2>
+          <p>Real rating and recent-match data when available; no account editing or private auth data is exposed.</p>
+        </div>
+        <ProfileSummaryCard profile={profile} fallbackMessage={profileSummary.error ?? 'Live profile summary is unavailable.'} />
+        <div className={styles.actionRow}>
+          <a className={styles.primaryButton} href="/play">Play rated</a>
+          <a className={styles.secondaryButton} href="/history">Full history</a>
+          <a className={styles.secondaryButton} href="/settings">Settings</a>
+        </div>
+      </section>
+      <section className={styles.section} aria-labelledby="recent-matches-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Recent</p>
+          <h2 id="recent-matches-heading">Recent matches</h2>
+          <p>Compact match rows link to spoiler-safe match detail pages.</p>
+        </div>
+        <MatchHistoryRows matches={profile?.recentMatches ?? []} emptyLabel={profile ? 'No rated matches for this profile yet.' : 'Profile summary unavailable, so recent matches are hidden rather than faked.'} />
+      </section>
+      <ProfileLeaderboard leaderboard={api.leaderboard} ratedProfile={api.ratedProfile} />
+    </PageFrame>
+  );
+}

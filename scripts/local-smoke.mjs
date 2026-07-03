@@ -2,6 +2,7 @@
 
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { resolveComposeEnv } from './docker-compose-env.mjs';
 
 const checks = [];
 
@@ -19,15 +20,14 @@ check('docker-compose.yml exists', existsSync('docker-compose.yml'));
 check('.env.example exists', existsSync('.env.example'));
 check('.env.local.example exists', existsSync('.env.local.example'));
 
-const dockerComposeVersion = spawnSync('docker', ['compose', 'version'], {
-  stdio: 'pipe',
-  encoding: 'utf8',
-});
+const composeResolution = resolveComposeEnv();
 
-if (dockerComposeVersion.status === 0) {
+if (composeResolution.ok) {
+  info('docker compose resolution', composeResolution.label);
   const dockerConfig = spawnSync('docker', ['compose', 'config', '--quiet'], {
     stdio: 'pipe',
     encoding: 'utf8',
+    env: composeResolution.env,
   });
 
   check(
@@ -40,7 +40,7 @@ if (dockerComposeVersion.status === 0) {
 } else {
   info(
     'docker compose config validation skipped',
-    'Docker Compose v2 is not available in this environment; install Docker Compose to validate/start local services.',
+    'Docker Compose v2 is not available in this environment and no repo-known DOCKER_CONFIG fallback was found; install Docker Compose to validate/start local services.',
   );
 }
 

@@ -30,6 +30,8 @@ Local-only PostgreSQL 16 and Redis 7 are defined in `docker-compose.yml`.
 
 ```bash
 pnpm deps:up       # start local Postgres/Redis
+pnpm deps:check    # validate Docker Compose v2 and compose config
+pnpm deps:verify   # start, health-check, readiness-check, and stop local dependencies
 pnpm smoke:local   # validate local config and workspace scaffold
 pnpm deps:down     # stop local services
 ```

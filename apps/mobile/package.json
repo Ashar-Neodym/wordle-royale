@@ -2,12 +2,25 @@
   "name": "@wordle-royale/mobile",
   "version": "0.0.0",
   "private": true,
-  "description": "Expo React Native app placeholder",
+  "description": "Expo React Native app shell for Wordle Royale.",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "index.ts",
   "scripts": {
-    "dev": "node -e \"console.log('Placeholder: implement app dev script in a follow-up ticket.')\"",
-    "typecheck": "node -e \"console.log('Placeholder typecheck for @wordle-royale/mobile')\"",
-    "build": "node -e \"console.log('Placeholder build for @wordle-royale/mobile')\""
+    "dev": "expo start --localhost",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "validate": "expo config --type public >/dev/null && tsc --noEmit -p tsconfig.json",
+    "build": "pnpm run validate"
+  },
+  "dependencies": {
+    "@wordle-royale/design-tokens": "workspace:*",
+    "@wordle-royale/fixtures": "workspace:*",
+    "expo": "^54.0.28",
+    "react": "^19.1.0",
+    "react-native": "^0.81.5",
+    "react-native-safe-area-context": "~5.6.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.17",
+    "typescript": "^5.9.3"
   }
 }
