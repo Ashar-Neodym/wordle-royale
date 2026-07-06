@@ -5,7 +5,7 @@ import { LobbyBrowser } from '../../components/LobbyScreens';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame } from '../../components/PageFrame';
-import { completeRankedMatchAction, createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startRankedMatchAction, submitRankedGuessAction } from '../actions';
+import { completeRankedMatchAction, createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction, submitRankedGuessAction } from '../actions';
 import { rankedActionState, resolveSearchParams, searchValue, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
 
@@ -53,6 +53,8 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           <LobbyBrowser
             apiLobbies={api.lobbies}
             actionState={actionState}
+            previewSessionActive={api.currentUser.status === 'connected'}
+            startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}
             joinLobbyAction={joinLobbyAction}

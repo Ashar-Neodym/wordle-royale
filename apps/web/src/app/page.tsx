@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { getWebApiSnapshot } from '../lib/api-client';
 import { gameplayFixtures } from '../lib/fixtures';
+import { startPreviewDemoSessionAction } from './actions';
 import { PageFrame } from '../components/PageFrame';
 import { StatusStrip } from '../components/StatusPanels';
 import styles from '../components/web-shell.module.css';
@@ -10,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function HomePage(): Promise<ReactElement> {
   const api = await getWebApiSnapshot();
   const localPlayer = gameplayFixtures.solvedRound.players[0];
+  const currentUser = api.currentUser.status === 'connected' ? api.currentUser.data : null;
   return (
     <PageFrame>
       <section className={styles.hero} aria-labelledby="home-heading">
@@ -23,10 +25,20 @@ export default async function HomePage(): Promise<ReactElement> {
             <a className={styles.secondaryButton} href="/learn/rules">Rules</a>
           </div>
         </div>
-        <aside className={styles.heroPreview} aria-label="Current player snapshot">
-          <p className={styles.eyebrow}>Local profile</p>
-          <strong>{localPlayer ? 'Player One' : 'Guest'}</strong>
-          <p className={styles.muted}>1200 provisional · local demo profile</p>
+        <aside className={styles.heroPreview} aria-label="Preview session snapshot">
+          <p className={styles.eyebrow}>{currentUser ? 'Preview demo session' : 'Preview access'}</p>
+          <strong>{currentUser?.profile?.displayName ?? currentUser?.email ?? 'No current user yet'}</strong>
+          <p className={styles.muted}>
+            {currentUser
+              ? 'Explicit demo session active. Current-player actions use this scoped preview user.'
+              : `${localPlayer ? 'Practice fixtures are labeled separately.' : 'Public browsing is available.'} Start demo mode before current-player writes.`}
+          </p>
+          {!currentUser ? (
+            <form action={startPreviewDemoSessionAction}>
+              <input type="hidden" name="redirectTo" value="/" />
+              <button className={styles.primaryButton} type="submit">Start preview demo</button>
+            </form>
+          ) : null}
         </aside>
       </section>
       <section className={styles.section} aria-labelledby="home-routes-heading">

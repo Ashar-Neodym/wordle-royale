@@ -52,6 +52,7 @@ function createMockPrismaService(databaseStatus: ReadinessDependency = { status:
   }
 
   const client = {
+    $transaction: async (callback: (tx: any) => Promise<any>) => callback(client),
     userAccount: {
       upsert: async (args: any) => {
         const id = args.where.id;
@@ -263,6 +264,101 @@ describe('api skeleton', () => {
       if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
       if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
       if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
+    }
+  });
+
+  it('starts an explicit preview demo session and uses it for current-user writes without dev fallback', async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
+    const priorAuthMode = process.env.AUTH_MODE;
+    const priorEnableDevAuth = process.env.ENABLE_DEV_AUTH;
+    const priorEnableDevRoutes = process.env.ENABLE_DEV_ROUTES;
+    const priorCookieSecure = process.env.COOKIE_SECURE;
+    const priorTtl = process.env.PREVIEW_DEMO_SESSION_TTL_SECONDS;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'preview';
+    process.env.AUTH_MODE = 'preview_demo_session';
+    process.env.ENABLE_DEV_AUTH = 'false';
+    process.env.ENABLE_DEV_ROUTES = 'false';
+    process.env.COOKIE_SECURE = 'false';
+    delete process.env.PREVIEW_DEMO_SESSION_TTL_SECONDS;
+    try {
+      const unauthenticated = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('x-wordle-dev-user-id', guestUserId)
+        .expect(401);
+      assert.equal(unauthenticated.body.error.code, 'not_authenticated');
+      assert.equal(unauthenticated.body.error.details.authMode, 'preview_demo_session');
+
+      const blockedRegister = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ email: 'preview@example.com', password: 'password123', displayName: 'Preview Player' })
+        .expect(401);
+      assert.equal(blockedRegister.body.error.code, 'not_authenticated');
+      assert.doesNotMatch(JSON.stringify(blockedRegister.body), /stub-access-token-not-for-production|stub-refresh-token-not-for-production/i);
+
+      const started = await request(app.getHttpServer()).post('/auth/preview-demo/start').expect(201);
+      assert.equal(started.body.error, null);
+      assert.equal(started.body.data.mode, 'preview_demo_session');
+      assert.match(started.body.data.user.profile.handle, /^demo_[a-f0-9]{8}$/);
+      assert.equal(started.body.data.user.email, null);
+      assert.equal(started.body.data.session.cookieName, 'wr_preview_demo_session');
+      assert.doesNotMatch(JSON.stringify(started.body), /stub-access-token-not-for-production|stub-refresh-token-not-for-production|wr_preview_demo_session=/i);
+
+      const cookies = started.headers['set-cookie'];
+      assert.ok(Array.isArray(cookies));
+      assert.match(cookies[0], /wr_preview_demo_session=/);
+      assert.match(cookies[0], /HttpOnly/);
+      assert.match(cookies[0], /SameSite=Lax/);
+      const cookie = cookies[0].split(';')[0];
+
+      const me = await request(app.getHttpServer()).get('/auth/me').set('Cookie', cookie).expect(200);
+      assert.equal(me.body.data.id, started.body.data.user.id);
+      assert.equal(me.body.data.email, null);
+      assert.equal(me.body.data.profile.handle, started.body.data.user.profile.handle);
+
+      const lobby = await request(app.getHttpServer())
+        .post('/lobbies')
+        .set('Cookie', cookie)
+        .set('x-wordle-dev-user-id', guestUserId)
+        .send({
+          clientRequestId: '12121212-1212-4212-8212-121212121212',
+          visibility: 'public',
+          rated: false,
+          mode: 'standard',
+          language: 'en',
+          wordLength: 5,
+          difficulty: 'medium',
+          minPlayers: 2,
+          maxPlayers: 4,
+          roundsCount: 3,
+          roundTimeSeconds: 120,
+          scoringPreset: 'standard_v1',
+        })
+        .expect(201);
+      assert.equal(lobby.body.data.hostUserId, started.body.data.user.id);
+      assert.notEqual(lobby.body.data.hostUserId, hostUserId);
+      assert.notEqual(lobby.body.data.hostUserId, guestUserId);
+      assert.equal(lobby.body.data.members[0].handle, started.body.data.user.profile.handle);
+
+      const invalid = await request(app.getHttpServer()).get('/auth/me').set('Cookie', 'wr_preview_demo_session=invalid').expect(401);
+      assert.equal(invalid.body.error.code, 'not_authenticated');
+
+      process.env.PREVIEW_DEMO_SESSION_TTL_SECONDS = '-1';
+      const expiredStart = await request(app.getHttpServer()).post('/auth/preview-demo/start').expect(201);
+      const expiredCookies = expiredStart.headers['set-cookie'];
+      if (!Array.isArray(expiredCookies)) assert.fail('Expected preview demo start to set a session cookie.');
+      const expiredCookie = expiredCookies[0]!.split(';')[0]!;
+      const expired = await request(app.getHttpServer()).get('/auth/me').set('Cookie', expiredCookie).expect(401);
+      assert.equal(expired.body.error.code, 'not_authenticated');
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = priorNodeEnv;
+      if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
+      if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
+      if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
+      if (priorEnableDevRoutes === undefined) delete process.env.ENABLE_DEV_ROUTES; else process.env.ENABLE_DEV_ROUTES = priorEnableDevRoutes;
+      if (priorCookieSecure === undefined) delete process.env.COOKIE_SECURE; else process.env.COOKIE_SECURE = priorCookieSecure;
+      if (priorTtl === undefined) delete process.env.PREVIEW_DEMO_SESSION_TTL_SECONDS; else process.env.PREVIEW_DEMO_SESSION_TTL_SECONDS = priorTtl;
     }
   });
 

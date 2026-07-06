@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthController } from './auth/auth.controller.ts';
 import { CurrentUserService } from './auth/current-user.service.ts';
+import { PreviewDemoSessionService } from './auth/preview-demo-session.service.ts';
 import { GameplayController } from './gameplay/gameplay.controller.ts';
 import { GameplayPersistenceService } from './gameplay/gameplay-persistence.service.ts';
 import { HealthController } from './health/health.controller.ts';
@@ -24,6 +25,7 @@ import { ProfileService } from './profile/profile.service.ts';
         NODE_ENV: config.NODE_ENV ?? 'development',
         APP_ENV: config.APP_ENV ?? (config.NODE_ENV === 'production' ? 'production' : 'local'),
         AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
+        PREVIEW_DEMO_SESSION_TTL_SECONDS: config.PREVIEW_DEMO_SESSION_TTL_SECONDS ?? '7200',
         ENABLE_DEV_AUTH: config.ENABLE_DEV_AUTH ?? 'true',
         ENABLE_DEV_ROUTES: config.ENABLE_DEV_ROUTES ?? 'true',
         PORT: config.PORT ?? '3001',
@@ -33,6 +35,6 @@ import { ProfileService } from './profile/profile.service.ts';
     }),
   ],
   controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController],
-  providers: [PrismaService, RedisReadinessService, ReadinessService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService],
+  providers: [PrismaService, RedisReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService],
 })
 export class AppModule {}

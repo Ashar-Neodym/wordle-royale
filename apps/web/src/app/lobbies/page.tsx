@@ -3,7 +3,7 @@ import { getWebApiSnapshot } from '../../lib/api-client';
 import { LobbyBrowser, WaitingRoom } from '../../components/LobbyScreens';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
-import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startRankedMatchAction } from '../actions';
+import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction } from '../actions';
 import { rankedActionState, resolveSearchParams, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
 
@@ -27,6 +27,8 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
           <LobbyBrowser
             apiLobbies={api.lobbies}
             actionState={actionState}
+            previewSessionActive={api.currentUser.status === 'connected'}
+            startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}
             joinLobbyAction={joinLobbyAction}

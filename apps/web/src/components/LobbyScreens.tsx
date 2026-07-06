@@ -35,6 +35,8 @@ type ButtonAction = () => Promise<void>;
 type LobbyBrowserProps = {
   apiLobbies: ApiClientResult<LobbyListPayload>;
   actionState: LobbyActionState;
+  previewSessionActive: boolean;
+  startPreviewDemoSessionAction: FormAction;
   createRankedLobbyAction: ButtonAction;
   joinLobbyByCodeAction: FormAction;
   joinLobbyAction: FormAction;
@@ -86,13 +88,23 @@ function lobbyInviteText(lobby: DisplayLobby): string {
   return `Join my Wordle Royale room ${lobby.code}: ${base}${path}`;
 }
 
-export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction, joinLobbyByCodeAction, joinLobbyAction, startRankedMatchAction }: LobbyBrowserProps): ReactElement {
+export function LobbyBrowser({
+  apiLobbies,
+  actionState,
+  previewSessionActive,
+  startPreviewDemoSessionAction,
+  createRankedLobbyAction,
+  joinLobbyByCodeAction,
+  joinLobbyAction,
+  startRankedMatchAction,
+}: LobbyBrowserProps): ReactElement {
   const fixtureLobbies = lobbyEnvelopes.listOpen.data ?? [];
   const apiLobbyData = apiLobbies.status === 'connected' ? apiLobbies.data : null;
   const usingApiLobbies = apiLobbyData !== null;
   const lobbies = apiLobbyData ? apiLobbyData.items.map(apiLobbyToDisplay) : fixtureLobbies.map(fixtureLobbyToDisplay);
   const sourceLabel = apiLobbies.status === 'connected' ? 'Local API route' : 'Fixture fallback';
   const feedback = actionCopy(actionState);
+  const writeActionsEnabled = usingApiLobbies && previewSessionActive;
 
   return (
     <section id="lobbies" className={styles.section} aria-labelledby="lobby-browser-heading">
@@ -111,19 +123,33 @@ export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction,
           <p>{feedback}</p>
         </article>
       ) : null}
+      {usingApiLobbies && !previewSessionActive ? (
+        <article className={styles.authPanel} aria-live="polite">
+          <div>
+            <p className={styles.eyebrow}>Preview demo session</p>
+            <h2>Start demo mode before lobby writes</h2>
+            <p>Public lobbies stay visible, but creating, joining, and starting ranked rooms require an explicit preview demo session. No fixture player is silently used.</p>
+          </div>
+          <form action={startPreviewDemoSessionAction}>
+            <input type="hidden" name="redirectTo" value="/lobbies" />
+            <button className={styles.primaryButton} type="submit">Start preview demo</button>
+          </form>
+        </article>
+      ) : null}
       <div className={styles.splitGrid}>
         <article className={styles.panel}>
           <h3>Play rated</h3>
-          <p className={styles.muted}>Create a public rated room. For the local smoke flow, join the room once to add the guest before starting.</p>
+          <p className={styles.muted}>{previewSessionActive ? 'Create a public rated room. For the local smoke flow, join the room once to add the guest before starting.' : 'Start preview demo mode first; public rooms remain browseable without a current user.'}</p>
           <form action={createRankedLobbyAction}>
-            <button className={styles.primaryButton} type="submit" disabled={!usingApiLobbies}>Create rated room</button>
+            <button className={styles.primaryButton} type="submit" disabled={!writeActionsEnabled}>Create rated room</button>
           </form>
           <form action={joinLobbyByCodeAction} className={styles.inlineForm}>
             <label htmlFor="join-code">Join by code</label>
             <input id="join-code" name="code" placeholder="ABC123" maxLength={12} />
-            <button className={styles.secondaryButton} type="submit" disabled={!usingApiLobbies}>Join live code</button>
+            <button className={styles.secondaryButton} type="submit" disabled={!writeActionsEnabled}>Join live code</button>
           </form>
           {!usingApiLobbies ? <p className={styles.warningText}>Server offline. Fixture rooms are view-only.</p> : null}
+          {usingApiLobbies && !previewSessionActive ? <p className={styles.warningText}>Preview demo session required for write actions.</p> : null}
         </article>
         <div className={styles.cardGrid}>
           {usingApiLobbies && lobbies.length === 0 ? (
@@ -138,7 +164,7 @@ export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction,
           ) : null}
           {lobbies.map((lobby) => {
             const token = lobbyStates[lobby.state];
-            const canStartRanked = usingApiLobbies && lobby.rankedCompatible && lobby.membersCount >= 2;
+            const canStartRanked = writeActionsEnabled && lobby.rankedCompatible && lobby.membersCount >= 2;
             return (
               <article className={styles.panel} key={lobby.id}>
                 <div className={styles.cardTopline}>
@@ -158,7 +184,7 @@ export function LobbyBrowser({ apiLobbies, actionState, createRankedLobbyAction,
                   <div className={styles.actionRow}>
                     <form action={joinLobbyAction}>
                       <input type="hidden" name="lobbyId" value={lobby.id} />
-                      <button className={styles.secondaryButton} type="submit">Join</button>
+                      <button className={styles.secondaryButton} type="submit" disabled={!writeActionsEnabled}>Join</button>
                     </form>
                     <form action={startRankedMatchAction}>
                       <input type="hidden" name="lobbyId" value={lobby.id} />
