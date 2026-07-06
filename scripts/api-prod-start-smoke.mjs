@@ -100,6 +100,7 @@ if (!composeResolution.ok) {
 
 console.log(`INFO docker compose — ${composeResolution.label}`);
 run('docker', ['compose', 'up', '-d', 'postgres', 'redis'], { env: composeResolution.env });
+run('pnpm', ['--filter', apiPackage, 'db:generate']);
 run('pnpm', ['--filter', apiPackage, 'build']);
 
 const port = await getFreePort();
