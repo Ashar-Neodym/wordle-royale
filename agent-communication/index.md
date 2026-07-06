@@ -6,7 +6,7 @@ Wave L / PR #2 is merged to `main` and post-merge GitHub Actions passed. Wave M 
 
 Current review doc:
 
-`docs/2026-07-03-athena-review-after-tickets-92-94.md`
+`docs/2026-07-06-athena-review-after-ticket-95.md`
 
 ## Product direction
 
@@ -44,7 +44,7 @@ Tickets 01–88 are complete through Wave L. PR #2 merged to `main` and GitHub A
 | 92 | Freya | Minimal Preview Session Slice — Conditional Implementation | Complete; explicit preview demo session implemented |
 | 93 | Luna | Web Preview Session UX and Deploy-Ready States | Complete; explicit preview demo UX wired |
 | 94 | Luna | Mobile Expo Physical Smoke and Preview Config Closure | Complete with physical-device caveat deferred |
-| 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | New; M.3 after implementation |
+| 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | Complete; PR #3 open and remote CI passed after Athena fix |
 | 96 | Jasmine | QA Review Wave M Preview Deploy Approval | New; M.4 final |
 
 ## Recommended order
