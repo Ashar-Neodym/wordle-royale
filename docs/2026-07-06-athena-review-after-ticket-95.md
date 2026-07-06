@@ -14,8 +14,8 @@ Yuna created and pushed the Wave M checkpoint branch, but PR creation was blocke
 
 - PR: https://github.com/Ashar-Neodym/wordle-royale/pull/3
 - Branch: `wave-m/preview-deploy-shape` → `main`
-- Current PR head: `fbccbb9913502bbf1cdea6d49531959d3f64f9fd`
-- Merge state: `CLEAN`
+- Current PR head: verify live with `gh pr view 3 --json headRefOid,statusCheckRollup`
+- Merge state at Athena check: `CLEAN`
 - State: `OPEN`
 
 ## CI
@@ -47,7 +47,7 @@ pnpm deps:down
 
 Result: all passed.
 
-Remote CI rerun:
+Remote CI rerun after Athena fix passed. Jasmine should verify the latest live PR #3 check status before recommending merge.
 
 - Run: https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28790198598
 - Job: https://github.com/Ashar-Neodym/wordle-royale/actions/runs/28790198598/job/85366614277
