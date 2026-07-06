@@ -58,6 +58,12 @@ jobs:
       - name: Build all packages and apps
         run: pnpm build
 
+      # Preview deploy-shape smoke. This starts only local Docker Compose
+      # PostgreSQL/Redis services, runs the built API against /readyz, and does
+      # not use cloud providers, deploy credentials, or production secrets.
+      - name: API production-start smoke
+        run: pnpm smoke:api:prod-start
+
       - name: Local config smoke
         run: pnpm smoke:local
 
@@ -65,6 +71,10 @@ jobs:
       # contract without starting PostgreSQL/Redis or requiring deploy secrets.
       - name: Dependency config check
         run: pnpm deps:check
+
+      - name: Stop local dependency services
+        if: always()
+        run: pnpm deps:down
 
       - name: Secret scan
         run: pnpm secret-scan

@@ -1,11 +1,14 @@
-import { BadRequestException, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { PreviewDemoSessionService } from './preview-demo-session.service.ts';
 
 export type AppEnv = 'local' | 'test' | 'preview' | 'production';
-export type AuthMode = 'dev_stub' | 'session_required';
+export type AuthMode = 'dev_stub' | 'session_required' | 'preview_demo_session';
+
+type RequestLike = { headers?: Record<string, string | string[] | undefined> } | undefined;
 
 export type CurrentUserContext = {
   userId: string;
-  source: 'dev_stub';
+  source: 'dev_stub' | 'preview_demo_session';
 };
 
 export const localFixtureUsers = {
@@ -23,6 +26,8 @@ function envFlagEnabled(value: string | undefined, defaultValue: boolean): boole
 
 @Injectable()
 export class CurrentUserService {
+  constructor(@Inject(PreviewDemoSessionService) private readonly previewSessions: PreviewDemoSessionService) {}
+
   appEnv(): AppEnv {
     const appEnv = process.env.APP_ENV;
     if (appEnv === 'local' || appEnv === 'test' || appEnv === 'preview' || appEnv === 'production') return appEnv;
@@ -33,7 +38,7 @@ export class CurrentUserService {
 
   authMode(): AuthMode {
     const authMode = process.env.AUTH_MODE;
-    if (authMode === 'dev_stub' || authMode === 'session_required') return authMode;
+    if (authMode === 'dev_stub' || authMode === 'session_required' || authMode === 'preview_demo_session') return authMode;
     return this.appEnv() === 'local' || this.appEnv() === 'test' ? 'dev_stub' : 'session_required';
   }
 
@@ -51,7 +56,13 @@ export class CurrentUserService {
       && envFlagEnabled(process.env.ENABLE_DEV_ROUTES, true);
   }
 
-  resolveCurrentUser(headerValue: string | string[] | undefined): CurrentUserContext {
+  resolveCurrentUser(headerValue: string | string[] | undefined, request?: RequestLike): CurrentUserContext {
+    if (this.authMode() === 'preview_demo_session') {
+      const userId = this.previewSessions.resolveUserId(request);
+      if (!userId) throw this.notAuthenticated();
+      return { userId, source: 'preview_demo_session' };
+    }
+
     if (!this.devAuthAllowed()) {
       throw this.notAuthenticated();
     }
@@ -68,6 +79,18 @@ export class CurrentUserService {
     }
 
     return { userId, source: 'dev_stub' };
+  }
+
+  requireDevAuthEnabled(): void {
+    if (!this.devAuthAllowed()) {
+      throw this.notAuthenticated();
+    }
+  }
+
+  requirePreviewDemoSessionsEnabled(): void {
+    if (this.authMode() !== 'preview_demo_session') {
+      throw this.notAuthenticated();
+    }
   }
 
   requireDevRoutesEnabled(): void {

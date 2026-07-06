@@ -2,8 +2,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { completeRankedMatch, createLobby, joinLobby, joinLobbyByCode, startRankedMatch, submitGuess } from '../lib/api-client';
+import { completeRankedMatch, createLobby, getApiBaseUrl, joinLobby, joinLobbyByCode, startRankedMatch, submitGuess } from '../lib/api-client';
 import type { CreateLobbyRequest } from '@wordle-royale/contracts';
 
 const rankedLobbyDefaults: CreateLobbyRequest = {
@@ -23,13 +24,91 @@ const rankedLobbyDefaults: CreateLobbyRequest = {
 
 function resultRedirect(params: Record<string, string>, hash = 'lobbies'): never {
   const search = new URLSearchParams(params);
+  const path = hash === 'lobbies' ? '/lobbies' : '/play';
   revalidatePath('/');
-  redirect(`/?${search.toString()}#${hash}`);
+  revalidatePath(path);
+  redirect(`${path}?${search.toString()}#${hash}`);
+}
+
+function safeRedirectPath(value: string): string {
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  return value;
+}
+
+function redirectWithParams(path: string, params: Record<string, string>, hash?: string): never {
+  const target = new URL(safeRedirectPath(path), 'http://wordle-royale.local');
+  for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value);
+  revalidatePath('/');
+  revalidatePath(target.pathname);
+  redirect(`${target.pathname}${target.search}${hash ? `#${hash}` : target.hash}`);
+}
+
+function parseCookiePart(setCookie: string, name: string): string | undefined {
+  const firstPart = setCookie.split(';')[0] ?? '';
+  const [rawName, ...rawValue] = firstPart.split('=');
+  return rawName === name ? decodeURIComponent(rawValue.join('=')) : undefined;
+}
+
+function parseMaxAge(setCookie: string): number | undefined {
+  const match = /(?:^|;)\s*Max-Age=(\d+)/i.exec(setCookie);
+  return match ? Number.parseInt(match[1] ?? '', 10) : undefined;
+}
+
+function parseExpires(setCookie: string): Date | undefined {
+  const match = /(?:^|;)\s*Expires=([^;]+)/i.exec(setCookie);
+  if (!match?.[1]) return undefined;
+  const parsed = new Date(match[1]);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function formValue(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === 'string' ? value.trim() : '';
+}
+
+export async function startPreviewDemoSessionAction(formData: FormData): Promise<void> {
+  const redirectTo = formValue(formData, 'redirectTo') || '/profile';
+  const apiUrl = getApiBaseUrl();
+  let status: 'success' | 'error' = 'success';
+  let message = 'Preview demo session started.';
+
+  try {
+    const response = await fetch(`${apiUrl}/auth/preview-demo/start`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+    });
+    const envelope = await response.json() as { data: { session?: { cookieName?: string } } | null; error?: { code?: string; message?: string } | null };
+    if (!response.ok || envelope.error || !envelope.data?.session?.cookieName) {
+      status = 'error';
+      message = envelope.error?.message ?? `Preview demo start failed with HTTP ${response.status}.`;
+    } else {
+      const cookieName = envelope.data.session.cookieName;
+      const setCookie = response.headers.get('set-cookie') ?? '';
+      const cookieValue = parseCookiePart(setCookie, cookieName);
+      if (!cookieValue) {
+        status = 'error';
+        message = 'Preview demo session started, but no session cookie was returned.';
+      } else {
+        const store = await cookies();
+        store.set({
+          name: cookieName,
+          value: cookieValue,
+          httpOnly: true,
+          sameSite: 'lax',
+          path: '/',
+          secure: /(?:^|;)\s*Secure(?:;|$)/i.test(setCookie),
+          maxAge: parseMaxAge(setCookie),
+          expires: parseExpires(setCookie),
+        });
+      }
+    }
+  } catch (error) {
+    status = 'error';
+    message = error instanceof Error ? error.message : 'Preview demo session could not start.';
+  }
+
+  redirectWithParams(redirectTo, { action: 'preview_demo', status, message });
 }
 
 export async function createRankedLobbyAction(): Promise<void> {

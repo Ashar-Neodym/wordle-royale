@@ -16,6 +16,7 @@ import type {
   PublicProfileSummary,
   MatchHistoryList,
 } from '@wordle-royale/contracts';
+import { cookies } from 'next/headers';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
 
@@ -91,6 +92,16 @@ type ApiEnvelope<T> = SuccessEnvelope<T> | { data: null; error: { code: string; 
 
 type RequestOptions = RequestInit & { timeoutMs?: number };
 
+async function forwardedCookieHeader(): Promise<string | undefined> {
+  try {
+    const store = await cookies();
+    const serialized = store.getAll().map(({ name, value }) => `${name}=${encodeURIComponent(value)}`).join('; ');
+    return serialized || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL?.trim() || defaultApiUrl).replace(/\/$/, '');
 }
@@ -110,6 +121,7 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 1200;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cookie = await forwardedCookieHeader();
 
   try {
     const response = await Promise.race([
@@ -119,6 +131,7 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
         headers: {
           accept: 'application/json',
           ...(options.body ? { 'content-type': 'application/json' } : {}),
+          ...(cookie ? { cookie } : {}),
           ...options.headers,
         },
         signal: controller.signal,

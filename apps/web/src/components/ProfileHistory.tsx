@@ -24,11 +24,23 @@ function outcomeLabel(match: MatchHistorySummary): string {
   return `${placement} · ${viewer.outcome} · ${viewer.finalScore} pts`;
 }
 
+type PreviewDemoSessionAction = (formData: FormData) => Promise<void>;
+
 export function isAuthLimited(error: string | null | undefined): boolean {
   return /not[_\s-]?authenticated|session required|auth/i.test(error ?? '');
 }
 
-export function AuthRequiredPanel({ title = 'Sign in required', message }: { title?: string; message?: string }): ReactElement {
+export function AuthRequiredPanel({
+  title = 'Sign in required',
+  message,
+  previewDemoSessionAction,
+  redirectTo = '/profile',
+}: {
+  title?: string;
+  message?: string;
+  previewDemoSessionAction?: PreviewDemoSessionAction;
+  redirectTo?: string;
+}): ReactElement {
   return (
     <article className={styles.authPanel} aria-live="polite">
       <div>
@@ -37,7 +49,13 @@ export function AuthRequiredPanel({ title = 'Sign in required', message }: { tit
         <p>{message ?? 'Public preview does not silently sign you in as a fixture player. Until real sessions are enabled, this current-player view stays limited instead of showing fake account data.'}</p>
       </div>
       <div className={styles.actionRow}>
-        <a className={styles.primaryButton} href="/lobbies">Browse lobbies</a>
+        {previewDemoSessionAction ? (
+          <form action={previewDemoSessionAction}>
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <button className={styles.primaryButton} type="submit">Start preview demo</button>
+          </form>
+        ) : null}
+        <a className={previewDemoSessionAction ? styles.secondaryButton : styles.primaryButton} href="/lobbies">Browse lobbies</a>
         <a className={styles.secondaryButton} href="/leaderboard">View ratings</a>
       </div>
     </article>

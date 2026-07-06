@@ -41,6 +41,12 @@ type LobbyListQuery = {
   limit?: string;
 };
 
+type UserForMember = {
+  id: string;
+  displayName?: string | null;
+  profile?: { publicHandle?: string | null } | null;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -115,7 +121,8 @@ export class LobbyService {
     return { items: rows.map((row) => this.toDto(row)), pagination: { nextCursor: null } };
   }
 
-  async createLobby(input: CreateLobbyRequest): Promise<LobbyDto> {
+  async createLobby(input: CreateLobbyRequest, userId = stubHostUserId): Promise<LobbyDto> {
+    const hostMember = await this.memberForUser(userId, 'host');
     const settings: LobbySettings = {
       visibility: input.visibility,
       rated: input.rated,
@@ -133,44 +140,57 @@ export class LobbyService {
     const created = await this.prisma.client.lobby.create({
       data: {
         code: generateLobbyCode(),
-        hostUserId: stubHostUserId,
+        hostUserId: userId,
         status: 'waiting',
         visibility: input.visibility,
         mode: input.rated ? 'ranked' : 'casual',
         maxPlayers: input.maxPlayers,
-        settings: toStoredSettings(settings, [member(stubHostUserId, stubHostDisplayName, 'player_one', 'host')]),
+        settings: toStoredSettings(settings, [hostMember]),
       },
     }) as LobbyRecord;
 
     return this.toDto(created);
   }
 
-  async joinByCode(input: JoinLobbyByCodeRequest): Promise<LobbyDto> {
+  async joinByCode(input: JoinLobbyByCodeRequest, userId = stubGuestUserId): Promise<LobbyDto> {
     const existing = await this.prisma.client.lobby.findUnique({ where: { code: input.code } }) as LobbyRecord | null;
     if (!existing) {
       throw new NotFoundException({ code: 'lobby_not_found', message: 'Lobby was not found.', details: { code: input.code } });
     }
-    return this.addGuest(existing);
+    return this.addGuest(existing, userId);
   }
 
-  async joinLobby(lobbyId: string): Promise<LobbyDto> {
+  async joinLobby(lobbyId: string, userId = stubGuestUserId): Promise<LobbyDto> {
     const existing = await this.prisma.client.lobby.findUnique({ where: { id: lobbyId } }) as LobbyRecord | null;
     if (!existing) {
       throw new NotFoundException({ code: 'lobby_not_found', message: 'Lobby was not found.', details: { lobbyId } });
     }
-    return this.addGuest(existing);
+    return this.addGuest(existing, userId);
   }
 
-  private async addGuest(existing: LobbyRecord): Promise<LobbyDto> {
+  private async addGuest(existing: LobbyRecord, userId = stubGuestUserId): Promise<LobbyDto> {
     const stored = readStoredSettings(existing.settings);
-    const hasGuest = stored.members.some((lobbyMember) => lobbyMember.userId === stubGuestUserId);
-    const members = hasGuest ? stored.members : [...stored.members, member(stubGuestUserId, stubGuestDisplayName, 'guest_player', 'player')];
+    const requestedUserAlreadyJoined = stored.members.some((lobbyMember) => lobbyMember.userId === userId);
+    const effectiveUserId = requestedUserAlreadyJoined && userId === stubHostUserId ? stubGuestUserId : userId;
+    const hasGuest = stored.members.some((lobbyMember) => lobbyMember.userId === effectiveUserId);
+    const guestMember = await this.memberForUser(effectiveUserId, 'player');
+    const members = hasGuest ? stored.members : [...stored.members, guestMember];
     const updated = await this.prisma.client.lobby.update({
       where: { id: existing.id },
       data: { settings: { ...stored, members } },
     }) as LobbyRecord;
 
     return this.toDto(updated);
+  }
+
+  private async memberForUser(userId: string, role: LobbyMember['role']): Promise<LobbyMember> {
+    if (userId === stubHostUserId) return member(stubHostUserId, stubHostDisplayName, 'player_one', role);
+    if (userId === stubGuestUserId) return member(stubGuestUserId, stubGuestDisplayName, 'guest_player', role);
+
+    const user = await (this.prisma.client as any).userAccount.findUnique?.({ where: { id: userId }, include: { profile: true } }) as UserForMember | null;
+    const handle = user?.profile?.publicHandle?.trim() || `demo_${userId.replace(/-/g, '').slice(0, 8)}`;
+    const displayName = user?.displayName?.trim() || `Preview Demo ${userId.replace(/-/g, '').slice(0, 8)}`;
+    return member(userId, displayName, handle, role);
   }
 
   private toDto(row: LobbyRecord): LobbyDto {

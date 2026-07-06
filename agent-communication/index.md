@@ -2,11 +2,11 @@
 
 ## Current status
 
-Wave L is locally verified through Ticket 87, but it is **not merged to `main`** and no GitHub PR currently exists for `wave-l/preview-readiness`.
+Wave L / PR #2 is merged to `main` and post-merge GitHub Actions passed. Wave M is QA-approved with warnings; PR #3 is open and awaiting Ashar merge approval.
 
 Current review doc:
 
-`docs/2026-07-03-athena-review-after-ticket-87.md`
+`docs/2026-07-06-athena-final-wave-m-review.md`
 
 ## Product direction
 
@@ -18,7 +18,7 @@ UI should stay human, calm, functional, minimal, game-first, rating/community or
 
 ## Completed checkpoint
 
-Tickets 01–79 are complete through Wave K. PR #1 merged to `main` and GitHub Actions passed on the merge commit.
+Tickets 01–88 are complete through Wave L. PR #2 merged to `main` and GitHub Actions passed on the merge commit.
 
 ## Wave L — Public-preview readiness
 
@@ -37,15 +37,15 @@ Tickets 01–79 are complete through Wave K. PR #1 merged to `main` and GitHub A
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 88 | Yuna | Wave L PR/CI Unblock and Remote Checkpoint | New; M.0 critical checkpoint unblock |
-| 89 | Elisa | Preview MVP Account/Session Decision Lock | New; M.0 architecture decision |
-| 90 | Freya | API Production Build/Start Shape and Smoke | New; M.1 deploy-shape implementation |
-| 91 | Yuna | Preview Deploy-Shape CI Gate | New; M.1 after/with 90 |
-| 92 | Freya | Minimal Preview Session Slice — Conditional Implementation | New; M.2 after 89 |
-| 93 | Luna | Web Preview Session UX and Deploy-Ready States | New; M.2 after 89/92 |
-| 94 | Luna | Mobile Expo Physical Smoke and Preview Config Closure | New; M.2 optional phone smoke |
-| 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | New; M.3 after implementation |
-| 96 | Jasmine | QA Review Wave M Preview Deploy Approval | New; M.4 final |
+| 88 | Yuna | Wave L PR/CI Unblock and Remote Checkpoint | Complete; PR #2 merged and post-merge CI passed |
+| 89 | Elisa | Preview MVP Account/Session Decision Lock | Complete; explicit preview demo-session recommended |
+| 90 | Freya | API Production Build/Start Shape and Smoke | Complete; Athena verified prod-start smoke |
+| 91 | Yuna | Preview Deploy-Shape CI Gate | Complete; Athena verified local prod-start smoke |
+| 92 | Freya | Minimal Preview Session Slice — Conditional Implementation | Complete; explicit preview demo session implemented |
+| 93 | Luna | Web Preview Session UX and Deploy-Ready States | Complete; explicit preview demo UX wired |
+| 94 | Luna | Mobile Expo Physical Smoke and Preview Config Closure | Complete with physical-device caveat deferred |
+| 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | Complete; PR #3 open and remote CI passed after Athena fix |
+| 96 | Jasmine | QA Review Wave M Preview Deploy Approval | Complete; PASS WITH WARNINGS; approves controlled Wave N setup after Ashar approval |
 
 ## Recommended order
 

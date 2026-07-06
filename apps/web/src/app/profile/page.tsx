@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { getCurrentProfileSummary, getWebApiSnapshot } from '../../lib/api-client';
 import { AuthRequiredPanel, isAuthLimited, MatchHistoryRows, ProfileSummaryCard } from '../../components/ProfileHistory';
+import { startPreviewDemoSessionAction } from '../actions';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
@@ -19,7 +20,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
       <PageHeader eyebrow="Profile" title={title}>
         <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : authLimited ? 'Current-player profile requires a real session in preview; fixture sign-in is not silently assumed.' : 'Live profile summary appears here when the API read model is available.'}</p>
       </PageHeader>
-      {authLimited ? <AuthRequiredPanel title="Profile requires a session" message="Preview mode does not impersonate the local stub user. Public ratings and lobbies remain visible, but current-player profile data waits for real login." /> : null}
+      {authLimited ? <AuthRequiredPanel title="Profile requires a session" message="Preview mode does not impersonate the local stub user. Start an explicit preview demo session to create scoped demo profile data, or keep browsing public ratings and lobbies without signing in." previewDemoSessionAction={startPreviewDemoSessionAction} redirectTo="/profile" /> : null}
       <section className={styles.section} aria-labelledby="profile-summary-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Rated identity</p>

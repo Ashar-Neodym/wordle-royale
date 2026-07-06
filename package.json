@@ -26,6 +26,7 @@
     "ranked:smoke:bootstrap": "node scripts/ranked-smoke-bootstrap.mjs",
     "ranked:demo:e2e": "node scripts/ranked-demo-e2e.mjs",
     "smoke:local": "node scripts/local-smoke.mjs",
+    "smoke:api:prod-start": "node scripts/api-prod-start-smoke.mjs",
     "secret-scan": "node scripts/secret-scan.mjs",
     "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
     "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"
