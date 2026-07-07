@@ -6,8 +6,18 @@ export function PageFrame({ children }: { children: ReactNode }): ReactElement {
   return (
     <main className={styles.shell}>
       <SiteNav />
+      <PreviewNotice />
       {children}
     </main>
+  );
+}
+
+function PreviewNotice(): ReactElement {
+  return (
+    <aside className={styles.previewNotice} aria-label="Public preview limitations">
+      <strong>Public preview</strong>
+      <span>Demo sessions only — no durable accounts yet. Sessions, ratings, lobbies, match history, and demo profiles may reset. Mobile remains experimental until physical Expo Go smoke is complete.</span>
+    </aside>
   );
 }
 

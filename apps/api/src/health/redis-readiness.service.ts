@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { ReadinessDependency } from '@wordle-royale/contracts';
 import net from 'node:net';
+import { envFlagEnabled } from '../config/runtime-config.ts';
 
 const redisCheckTimeoutMs = 250;
 
@@ -24,8 +25,16 @@ function parseRedisUrl(rawUrl: string | undefined): RedisLocation | null {
 
 @Injectable()
 export class RedisReadinessService {
-  checkRedis(redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'): Promise<ReadinessDependency> {
+  checkRedis(redisUrl = process.env.REDIS_URL): Promise<ReadinessDependency> {
     const checkedAt = new Date().toISOString();
+    const redisRequired = envFlagEnabled(process.env.REDIS_REQUIRED, false);
+    if (!redisUrl && !redisRequired) {
+      return Promise.resolve({
+        status: 'not_checked_stub',
+        checkedAt,
+        message: 'REDIS_URL is not configured; Redis readiness is optional for this environment.',
+      });
+    }
     const startedAt = Date.now();
     const location = parseRedisUrl(redisUrl);
 

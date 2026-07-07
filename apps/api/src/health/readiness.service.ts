@@ -16,10 +16,10 @@ export class ReadinessService {
       this.redis.checkRedis(),
     ]);
 
-    const statuses = [database.status, redis.status];
-    const status = statuses.every((value) => value === 'ok')
+    const blockingStatuses = [database.status, redis.status].filter((value) => value !== 'not_checked_stub');
+    const status = blockingStatuses.every((value) => value === 'ok')
       ? 'ok'
-      : statuses.some((value) => value === 'unavailable')
+      : blockingStatuses.some((value) => value === 'unavailable')
         ? 'unavailable'
         : 'degraded';
 

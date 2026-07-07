@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthController } from './auth/auth.controller.ts';
 import { CurrentUserService } from './auth/current-user.service.ts';
 import { PreviewDemoSessionService } from './auth/preview-demo-session.service.ts';
+import { validateRuntimeConfig } from './config/runtime-config.ts';
 import { GameplayController } from './gameplay/gameplay.controller.ts';
 import { GameplayPersistenceService } from './gameplay/gameplay-persistence.service.ts';
 import { HealthController } from './health/health.controller.ts';
@@ -21,17 +22,7 @@ import { ProfileService } from './profile/profile.service.ts';
     ConfigModule.forRoot({
       isGlobal: true,
       ignoreEnvFile: true,
-      validate: (config) => ({
-        NODE_ENV: config.NODE_ENV ?? 'development',
-        APP_ENV: config.APP_ENV ?? (config.NODE_ENV === 'production' ? 'production' : 'local'),
-        AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
-        PREVIEW_DEMO_SESSION_TTL_SECONDS: config.PREVIEW_DEMO_SESSION_TTL_SECONDS ?? '7200',
-        ENABLE_DEV_AUTH: config.ENABLE_DEV_AUTH ?? 'true',
-        ENABLE_DEV_ROUTES: config.ENABLE_DEV_ROUTES ?? 'true',
-        PORT: config.PORT ?? '3001',
-        DATABASE_URL: config.DATABASE_URL ?? 'postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public',
-        REDIS_URL: config.REDIS_URL ?? 'redis://localhost:6379',
-      }),
+      validate: validateRuntimeConfig,
     }),
   ],
   controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController],
