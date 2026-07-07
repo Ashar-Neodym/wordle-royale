@@ -2,6 +2,9 @@
 .shell { width: min(1160px, calc(100vw - 28px)); margin: 0 auto; padding: 18px 0 40px; color: var(--wr-human-text); }
 .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0 18px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .01em; }
+.previewNotice { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 16px; padding: 10px 12px; border: 1px solid #6f654a; border-radius: 4px; background: #2d2a22; color: var(--wr-human-muted); font-size: 13px; line-height: 1.4; }
+.previewNotice strong { flex: 0 0 auto; color: var(--wr-human-text); }
+.previewNotice span { min-width: 0; overflow-wrap: anywhere; }
 .logoMark { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--wr-human-border); border-radius: 4px; background: var(--wr-human-surface); color: var(--wr-human-muted); font-size: 12px; text-transform: uppercase; }
 .navLinks { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; color: var(--wr-human-muted); font-size: 14px; }
 .navLinks a, .navMenu summary, .mobileMenu summary { padding: 7px 10px; border-radius: 3px; }

@@ -30,8 +30,8 @@ export default async function HomePage(): Promise<ReactElement> {
           <strong>{currentUser?.profile?.displayName ?? currentUser?.email ?? 'No current user yet'}</strong>
           <p className={styles.muted}>
             {currentUser
-              ? 'Explicit demo session active. Current-player actions use this scoped preview user.'
-              : `${localPlayer ? 'Practice fixtures are labeled separately.' : 'Public browsing is available.'} Start demo mode before current-player writes.`}
+              ? 'Explicit demo session active. This is not a durable account; session and preview data may reset on restart or redeploy.'
+              : `${localPlayer ? 'Practice fixtures are labeled separately.' : 'Public browsing is available.'} Start demo mode before current-player writes. No password or email is required.`}
           </p>
           {!currentUser ? (
             <form action={startPreviewDemoSessionAction}>
@@ -51,7 +51,7 @@ export default async function HomePage(): Promise<ReactElement> {
           <a className={styles.routeCard} href="/play"><strong>Play</strong><span>Board-first match workspace</span></a>
           <a className={styles.routeCard} href="/lobbies"><strong>Lobbies</strong><span>Create, join, and start rated rooms</span></a>
           <a className={styles.routeCard} href="/leaderboard"><strong>Leaderboard</strong><span>Ratings and provisional status</span></a>
-          <a className={styles.routeCard} href="/profile"><strong>Profile</strong><span>Current local player identity</span></a>
+          <a className={styles.routeCard} href="/profile"><strong>Profile</strong><span>Preview demo identity</span></a>
         </div>
       </section>
       <StatusStrip api={api} />

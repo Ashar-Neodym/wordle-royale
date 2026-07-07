@@ -6,6 +6,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { ReadinessDependency } from '@wordle-royale/contracts';
 import { AppModule } from '../src/app.module.ts';
+import { validateRuntimeConfig } from '../src/config/runtime-config.ts';
 import { RedisReadinessService } from '../src/health/redis-readiness.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import { ApiExceptionFilter } from '../src/shared/api-exception.filter.ts';
@@ -186,6 +187,113 @@ describe('api skeleton', () => {
       assert.equal(ready.body.data.dependencies.database.message, 'db down');
     } finally {
       await unhealthy.close();
+    }
+  });
+
+  it('keeps readiness ok when Redis is optional and not configured', async () => {
+    const optionalRedis = await createApp({ redis: { status: 'not_checked_stub', checkedAt: new Date().toISOString(), message: 'REDIS_URL is not configured; Redis readiness is optional for this environment.' } });
+    try {
+      const ready = await request(optionalRedis.getHttpServer()).get('/readyz').expect(200);
+      assert.equal(ready.body.error, null);
+      assert.equal(ready.body.data.status, 'ok');
+      assert.equal(ready.body.data.dependencies.database.status, 'ok');
+      assert.equal(ready.body.data.dependencies.redis.status, 'not_checked_stub');
+    } finally {
+      await optionalRedis.close();
+    }
+  });
+
+  it('rejects unsafe hosted preview runtime configuration before startup', () => {
+    assert.throws(
+      () => validateRuntimeConfig({ NODE_ENV: 'production', APP_ENV: 'preview' }),
+      /DATABASE_URL is required/,
+    );
+    assert.throws(
+      () => validateRuntimeConfig({
+        NODE_ENV: 'production',
+        APP_ENV: 'preview',
+        DATABASE_URL: 'postgresql://preview-db.example/wordle',
+        PUBLIC_WEB_URL: 'https://preview.example.com',
+        CORS_ALLOWED_ORIGINS: '*',
+        AUTH_MODE: 'preview_demo_session',
+        ENABLE_DEV_AUTH: 'false',
+        ENABLE_DEV_ROUTES: 'false',
+        COOKIE_SECURE: 'true',
+      }),
+      /must not use \*/,
+    );
+    assert.throws(
+      () => validateRuntimeConfig({
+        NODE_ENV: 'production',
+        APP_ENV: 'preview',
+        DATABASE_URL: 'postgresql://preview-db.example/wordle',
+        PUBLIC_WEB_URL: 'https://preview.example.com',
+        CORS_ALLOWED_ORIGINS: 'https://preview.example.com',
+        AUTH_MODE: 'dev_stub',
+        ENABLE_DEV_AUTH: 'false',
+        ENABLE_DEV_ROUTES: 'false',
+        COOKIE_SECURE: 'true',
+      }),
+      /AUTH_MODE=preview_demo_session/,
+    );
+    assert.throws(
+      () => validateRuntimeConfig({
+        NODE_ENV: 'production',
+        APP_ENV: 'preview',
+        DATABASE_URL: 'postgresql://preview-db.example/wordle',
+        PUBLIC_WEB_URL: 'https://preview.example.com',
+        CORS_ALLOWED_ORIGINS: 'https://preview.example.com',
+        AUTH_MODE: 'preview_demo_session',
+        ENABLE_DEV_AUTH: 'true',
+        ENABLE_DEV_ROUTES: 'false',
+        COOKIE_SECURE: 'true',
+      }),
+      /ENABLE_DEV_AUTH must be false/,
+    );
+
+    const hostedPreview = validateRuntimeConfig({
+      NODE_ENV: 'production',
+      APP_ENV: 'preview',
+      DATABASE_URL: 'postgresql://preview-db.example/wordle',
+      PUBLIC_WEB_URL: 'https://preview.example.com',
+      CORS_ALLOWED_ORIGINS: 'https://preview.example.com',
+      AUTH_MODE: 'preview_demo_session',
+      ENABLE_DEV_AUTH: 'false',
+      ENABLE_DEV_ROUTES: 'false',
+      COOKIE_SECURE: 'true',
+    });
+    assert.equal(hostedPreview.AUTH_MODE, 'preview_demo_session');
+    assert.equal(hostedPreview.REDIS_URL, '');
+    assert.equal(hostedPreview.REDIS_REQUIRED, 'false');
+  });
+
+  it('uses secure preview demo cookies in hosted preview mode', async () => {
+    const priorNodeEnv = process.env.NODE_ENV;
+    const priorAppEnv = process.env.APP_ENV;
+    const priorAuthMode = process.env.AUTH_MODE;
+    const priorEnableDevAuth = process.env.ENABLE_DEV_AUTH;
+    const priorEnableDevRoutes = process.env.ENABLE_DEV_ROUTES;
+    const priorCookieSecure = process.env.COOKIE_SECURE;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_ENV = 'preview';
+    process.env.AUTH_MODE = 'preview_demo_session';
+    process.env.ENABLE_DEV_AUTH = 'false';
+    process.env.ENABLE_DEV_ROUTES = 'false';
+    process.env.COOKIE_SECURE = 'true';
+    try {
+      const started = await request(app.getHttpServer()).post('/auth/preview-demo/start').expect(201);
+      const cookies = started.headers['set-cookie'];
+      if (!Array.isArray(cookies)) assert.fail('Expected preview demo start to set a session cookie.');
+      assert.match(cookies[0]!, /Secure/);
+      assert.match(cookies[0]!, /HttpOnly/);
+      assert.match(cookies[0]!, /SameSite=Lax/);
+    } finally {
+      if (priorNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = priorNodeEnv;
+      if (priorAppEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = priorAppEnv;
+      if (priorAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = priorAuthMode;
+      if (priorEnableDevAuth === undefined) delete process.env.ENABLE_DEV_AUTH; else process.env.ENABLE_DEV_AUTH = priorEnableDevAuth;
+      if (priorEnableDevRoutes === undefined) delete process.env.ENABLE_DEV_ROUTES; else process.env.ENABLE_DEV_ROUTES = priorEnableDevRoutes;
+      if (priorCookieSecure === undefined) delete process.env.COOKIE_SECURE; else process.env.COOKIE_SECURE = priorCookieSecure;
     }
   });
 

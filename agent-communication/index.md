@@ -2,11 +2,11 @@
 
 ## Current status
 
-Wave L / PR #2 is merged to `main` and post-merge GitHub Actions passed. Wave M is QA-approved with warnings; PR #3 is open and awaiting Ashar merge approval.
+Wave M / PR #3 is merged to `main` and post-merge GitHub Actions passed. Wave N ticket wave is ready for controlled public-preview deployment setup.
 
 Current review doc:
 
-`docs/2026-07-06-athena-final-wave-m-review.md`
+`docs/2026-07-07-athena-review-after-tickets-97-100.md`
 
 ## Product direction
 
@@ -18,7 +18,7 @@ UI should stay human, calm, functional, minimal, game-first, rating/community or
 
 ## Completed checkpoint
 
-Tickets 01–88 are complete through Wave L. PR #2 merged to `main` and GitHub Actions passed on the merge commit.
+Tickets 01–96 are complete through Wave M. PR #3 merged to `main` and GitHub Actions passed on the merge commit.
 
 ## Wave L — Public-preview readiness
 
@@ -47,13 +47,23 @@ Tickets 01–88 are complete through Wave L. PR #2 merged to `main` and GitHub A
 | 95 | Yuna | Wave M Checkpoint Branch, PR, and CI Monitor | Complete; PR #3 open and remote CI passed after Athena fix |
 | 96 | Jasmine | QA Review Wave M Preview Deploy Approval | Complete; PASS WITH WARNINGS; approves controlled Wave N setup after Ashar approval |
 
+## Wave N — Controlled public-preview deployment setup
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 97 | Elisa | Controlled Preview Deployment Scope Decision Lock | Complete; web + hosted API demo-only preview scope locked |
+| 98 | Yuna | Preview Infrastructure and Environment Runbook | Complete; plan-only env/runbook produced |
+| 99 | Freya | Hosted API Preview Hardening | Complete; Athena verified hosted config/CORS/cookie/readiness hardening |
+| 100 | Luna | Preview Release Copy and Mobile Physical-Smoke Closure | Complete with physical-device caveat deferred |
+| 101 | Yuna | Wave N Checkpoint Branch, PR, and CI Monitor | In progress; sent to Yuna |
+| 102 | Jasmine | QA Review Wave N Preview Deploy Setup | New; N.3 QA after 101 |
+
 ## Recommended order
 
-1. M.0 first: Ticket 88, and Ticket 89 in parallel if available.
-2. M.1: Ticket 90, then Ticket 91 after Ticket 90 exposes a deploy-shape smoke command.
-3. M.2: Ticket 92 only after Ticket 89; Ticket 93 after Ticket 89/92; Ticket 94 can run in parallel if phone observation is available.
-4. M.3: Ticket 95 checkpoint PR/CI.
-5. M.4: Ticket 96 QA last.
+1. N.0: Ticket 97 and Ticket 98 can start together; 98 should mark assumptions until 97 lands.
+2. N.1: Ticket 99 and Ticket 100 can run after/alongside 97's decision, with no deployment or secrets.
+3. N.2: Ticket 101 checkpoint PR/CI after 97–100.
+4. N.3: Ticket 102 QA last, then Athena asks Ashar before any real provider provisioning/deployment.
 
 ## Persistent constraints
 
