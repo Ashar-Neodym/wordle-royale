@@ -6,7 +6,7 @@ Wave M / PR #3 is merged to `main` and post-merge GitHub Actions passed. Wave N 
 
 Current review doc:
 
-`docs/2026-07-07-athena-review-after-tickets-97-100.md`
+`docs/2026-07-07-athena-review-after-ticket-101.md`
 
 ## Product direction
 
@@ -55,7 +55,7 @@ Tickets 01–96 are complete through Wave M. PR #3 merged to `main` and GitHub A
 | 98 | Yuna | Preview Infrastructure and Environment Runbook | Complete; plan-only env/runbook produced |
 | 99 | Freya | Hosted API Preview Hardening | Complete; Athena verified hosted config/CORS/cookie/readiness hardening |
 | 100 | Luna | Preview Release Copy and Mobile Physical-Smoke Closure | Complete with physical-device caveat deferred |
-| 101 | Yuna | Wave N Checkpoint Branch, PR, and CI Monitor | In progress; sent to Yuna |
+| 101 | Yuna | Wave N Checkpoint Branch, PR, and CI Monitor | Complete; PR #4 open and remote CI passed after Athena PR creation |
 | 102 | Jasmine | QA Review Wave N Preview Deploy Setup | New; N.3 QA after 101 |
 
 ## Recommended order
