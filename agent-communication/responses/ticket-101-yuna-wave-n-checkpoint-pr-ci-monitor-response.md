@@ -71,20 +71,22 @@ wave-n/controlled-preview-setup
 Checkpoint commit:
 
 ```text
-205b401 feat: checkpoint wave n controlled preview setup
+5ce0180 feat: checkpoint wave n controlled preview setup
 ```
 
-Full checkpoint SHA before response evidence amend:
+Full checkpoint SHA:
 
 ```text
-205b401dfb3e6528c1bf3ee4c8500c65222c2d52
+5ce0180f1c6b48da6ec8fa4bfe39aab82fc4cc83
 ```
 
-Remote read-back evidence:
+Remote read-back evidence after initial checkpoint push:
 
 ```text
-PENDING PUSH
+5ce0180f1c6b48da6ec8fa4bfe39aab82fc4cc83 refs/heads/wave-n/controlled-preview-setup
 ```
+
+Note: a follow-up docs-only response-evidence commit may advance branch head after this checkpoint SHA.
 
 ## PR / CI status
 
