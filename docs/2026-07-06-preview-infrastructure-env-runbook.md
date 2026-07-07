@@ -147,7 +147,7 @@ Classification legend:
 | `PORT` | provider-provided or e.g. `4000` | internal | Yes | Many providers inject this; do not hard-code if provider supplies it. |
 | `LOG_LEVEL` | `info` | internal | No | Avoid debug logs in public preview. |
 | `PUBLIC_WEB_URL` | `https://<preview-web-host>` | public | Yes | Canonical web origin. |
-| `API_BASE_URL` | `https://<preview-api-host>/api/v1` | public-ish/internal | Yes | API base URL for server-side integrations. |
+| `API_BASE_URL` | `https://<preview-api-host>` | public-ish/internal | Yes | API origin for server-side smoke/integration scripts. Current API routes are rooted at the origin; do not append `/api/v1` unless a tested global prefix is added later. |
 | `WS_BASE_URL` | `https://<preview-api-host>` | public-ish/internal | Maybe | Required only if WebSocket path is active. |
 | `CORS_ALLOWED_ORIGINS` | `https://<preview-web-host>` | internal | Yes | Include only approved web origins, comma-separated if needed. |
 | `DATABASE_URL` | managed Postgres pooled URL | secret | Yes | Runtime DB connection. Must point to preview DB only. |
@@ -174,12 +174,12 @@ Classification legend:
 
 | Name | Preview value shape | Class | Required | Notes |
 |---|---|---:|---:|---|
-| `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_API_BASE_URL` | `https://<preview-api-host>/api/v1` | public | Yes | Use whichever name the web app reads after Ticket 99/100 verification. Current templates use `EXPO_PUBLIC_API_BASE_URL`; web code should be verified before provisioning. |
+| `NEXT_PUBLIC_API_URL` | `https://<preview-api-host>` | public | Yes | Exact web client env name. Current web code appends root-level routes such as `/healthz`, `/auth/me`, and `/lobbies`; do not include `/api/v1`. |
 | `NEXT_PUBLIC_WS_URL` / `NEXT_PUBLIC_WS_BASE_URL` | `https://<preview-api-host>` | public | Maybe | Only if active web socket features need it. |
 | `NEXT_PUBLIC_APP_ENV` | `preview` | public | Recommended | Enables honest preview copy if web reads it. |
 | `PUBLIC_WEB_URL` | `https://<preview-web-host>` | public/internal | Recommended | Useful for server actions and canonical URLs if read by web. |
 
-Ticket 99/100 should verify exact web variable names before provisioning. If the web currently uses `API_BASE_URL` server-side rather than `NEXT_PUBLIC_*`, set both only if the code actually reads both; do not create unused provider secrets.
+Ticket 99/100 verification found the current web client reads `NEXT_PUBLIC_API_URL` only. Set only env names that current code reads; do not create unused provider secrets or obsolete `NEXT_PUBLIC_API_BASE_URL` values.
 
 ### Mobile/Expo variables
 
@@ -188,7 +188,7 @@ These are for manual Expo Go smoke only, not public mobile deployment:
 | Name | Preview value shape | Class | Required | Notes |
 |---|---|---:|---:|---|
 | `EXPO_PUBLIC_APP_ENV` | `preview` | public | For manual smoke | Public config. |
-| `EXPO_PUBLIC_API_BASE_URL` | `https://<preview-api-host>/api/v1` | public | For manual smoke | Points Expo Go to preview API if Ashar tests phone. |
+| `EXPO_PUBLIC_API_URL` | `https://<preview-api-host>` | public | For manual smoke | Exact mobile client env name. Points Expo Go to the preview API origin if Ashar tests phone; do not include `/api/v1`. |
 | `EXPO_PUBLIC_WS_BASE_URL` | `https://<preview-api-host>` | public | Maybe | Only if mobile socket flow is active. |
 | `EXPO_TOKEN` | provider token | secret | No | Do not set unless EAS is explicitly approved; out of scope now. |
 

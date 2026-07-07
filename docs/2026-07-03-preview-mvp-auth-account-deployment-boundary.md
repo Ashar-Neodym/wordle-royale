@@ -263,7 +263,7 @@ APP_ENV=local
 NODE_ENV=development
 PORT=4000
 PUBLIC_WEB_URL=http://localhost:3000
-API_BASE_URL=http://localhost:4000/api/v1
+API_BASE_URL=http://localhost:4000
 NEXT_PUBLIC_API_URL=http://127.0.0.1:4000
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:19006
 DATABASE_URL=postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public
@@ -284,7 +284,7 @@ APP_ENV=preview
 NODE_ENV=production
 PORT=<provided-by-host-or-4000>
 PUBLIC_WEB_URL=https://<preview-web-host>
-API_BASE_URL=https://<preview-api-host>/api/v1
+API_BASE_URL=https://<preview-api-host>
 NEXT_PUBLIC_API_URL=https://<preview-api-host>
 CORS_ALLOWED_ORIGINS=https://<preview-web-host>
 DATABASE_URL=<preview-pooled-postgres-url>
