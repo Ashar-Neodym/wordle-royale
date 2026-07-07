@@ -1,5 +1,7 @@
 # Preview Deployment, CI, and Environment Plan
 
+> Supersession note (Wave N): this older planning document contains historical `/api/v1` and `EXPO_PUBLIC_API_BASE_URL` examples. For current controlled public-preview setup, use `docs/2026-07-06-preview-infrastructure-env-runbook.md`, which sets API origins without `/api/v1` and uses the current client env names `NEXT_PUBLIC_API_URL` and `EXPO_PUBLIC_API_URL`.
+
 Date: 2026-07-01
 Owner: Yuna
 Wave: L — Public-preview readiness

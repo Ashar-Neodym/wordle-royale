@@ -56,7 +56,7 @@ Tickets 01–96 are complete through Wave M. PR #3 merged to `main` and GitHub A
 | 99 | Freya | Hosted API Preview Hardening | Complete; Athena verified hosted config/CORS/cookie/readiness hardening |
 | 100 | Luna | Preview Release Copy and Mobile Physical-Smoke Closure | Complete with physical-device caveat deferred |
 | 101 | Yuna | Wave N Checkpoint Branch, PR, and CI Monitor | Complete; PR #4 open and remote CI passed after Athena PR creation |
-| 102 | Jasmine | QA Review Wave N Preview Deploy Setup | Complete; FAIL found `/api/v1` runbook/env mismatch; Athena fix pushed, needs Jasmine re-check |
+| 102 | Jasmine | QA Review Wave N Preview Deploy Setup | Complete; initial FAIL fixed; 102b PASS WITH WARNINGS; PR #4 may proceed to merge approval |
 
 ## Recommended order
 
