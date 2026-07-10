@@ -9,7 +9,7 @@ const repoRoot = new URL('..', import.meta.url).pathname;
 const apiRoot = new URL('../apps/api/', import.meta.url).pathname;
 const apiPackage = '@wordle-royale/api';
 const localDbPassword = ['wordle', 'local', 'password'].join('_');
-const localDatabaseUrl = `postgresql://wordle:${encodeURIComponent(localDbPassword)}@localhost:5432/wordle_royale_local?schema=public`;
+const localDatabaseUrl = `postgresql://wordle:${encodeURIComponent(localDbPassword)}@localhost:5432/wordle_royale_local?schema=prod_start_smoke`;
 const localRedisUrl = 'redis://localhost:6379';
 
 function run(command, args, options = {}) {
@@ -102,6 +102,13 @@ console.log(`INFO docker compose — ${composeResolution.label}`);
 run('docker', ['compose', 'up', '-d', 'postgres', 'redis'], { env: composeResolution.env });
 run('pnpm', ['--filter', apiPackage, 'db:generate']);
 run('pnpm', ['--filter', apiPackage, 'build']);
+run('pnpm', ['--filter', apiPackage, 'db:migrate:deploy'], {
+  env: {
+    ...process.env,
+    DATABASE_URL: localDatabaseUrl,
+    DATABASE_DIRECT_URL: localDatabaseUrl,
+  },
+});
 
 const port = await getFreePort();
 console.log(`INFO api smoke port — ${port}`);
