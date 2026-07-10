@@ -68,6 +68,136 @@ function ratingBadge(delta: number | null): ReactElement {
   return <TokenBadge label={`${formatSigned(delta)} MMR`} bg={token.bg} border={token.text} text={token.text} title={token.label} />;
 }
 
+type ModeCard = {
+  id: 'standard_1v1' | 'speed_1v1' | 'classic_1v1' | 'multiplayer_lobby';
+  label: string;
+  subtitle: string;
+  status: 'live' | 'prepared' | 'unavailable';
+  rating: number | null;
+  provisionalGamesPlayed: number | null;
+  provisionalGamesTotal: number;
+  gamesPlayed: number | null;
+  wins: number | null;
+  losses: number | null;
+  draws: number | null;
+  abandons: number | null;
+  recentDelta: number | null;
+  graph: number[] | null;
+};
+
+type ModeDefinition = Pick<ModeCard, 'id' | 'label' | 'subtitle' | 'status' | 'provisionalGamesTotal'>;
+
+const modeFallbacks: ModeDefinition[] = [
+  { id: 'standard_1v1', label: 'Standard', subtitle: '1v1 · fewer guesses wins; same guesses draw', status: 'unavailable', provisionalGamesTotal: 10 },
+  { id: 'speed_1v1', label: 'Speed / Blitz', subtitle: '1v1 · same guesses use server solve time', status: 'prepared', provisionalGamesTotal: 10 },
+  { id: 'classic_1v1', label: 'Classic', subtitle: '1v1 · calmer clock; draw on same guesses', status: 'prepared', provisionalGamesTotal: 10 },
+  { id: 'multiplayer_lobby', label: 'Multiplayer', subtitle: '2–4 player lobby ladder; pairwise placement rating', status: 'prepared', provisionalGamesTotal: 10 },
+];
+
+function summarizeStandardMode(profile: ProfileSummary): Pick<ModeCard, 'wins' | 'losses' | 'draws' | 'abandons' | 'recentDelta' | 'graph'> {
+  const recent = profile.recentMatches.slice(0, 8);
+  const recentDelta = recent.find((match) => match.viewer?.ratingDelta !== null && match.viewer?.ratingDelta !== undefined)?.viewer?.ratingDelta ?? null;
+  const deltas = recent.map((match) => match.viewer?.ratingDelta ?? 0).reverse();
+  const graph = deltas.length > 0 ? deltas.reduce<number[]>((points, delta) => [...points, points[points.length - 1]! + delta], [profile.rating.rating - deltas.reduce((sum, delta) => sum + delta, 0)]).slice(-6) : [profile.rating.rating, profile.rating.rating, profile.rating.rating];
+  return {
+    wins: profile.rating.wins,
+    losses: profile.rating.losses,
+    draws: profile.rating.draws,
+    abandons: profile.rating.abandons,
+    recentDelta,
+    graph,
+  };
+}
+
+function emptyModeCard(mode: ModeDefinition): ModeCard {
+  return {
+    ...mode,
+    rating: null,
+    provisionalGamesPlayed: null,
+    gamesPlayed: null,
+    wins: null,
+    losses: null,
+    draws: null,
+    abandons: null,
+    recentDelta: null,
+    graph: null,
+  };
+}
+
+function modeCards(profile: ProfileSummary | null): ModeCard[] {
+  return modeFallbacks.map((mode) => {
+    if (profile && mode.id === 'standard_1v1') {
+      const summary = summarizeStandardMode(profile);
+      return {
+        ...mode,
+        rating: profile.rating.rating,
+        gamesPlayed: profile.rating.matchesPlayed,
+        provisionalGamesPlayed: Math.max(0, mode.provisionalGamesTotal - profile.rating.provisionalRemaining),
+        status: 'live',
+        ...summary,
+      };
+    }
+    return emptyModeCard(mode);
+  });
+}
+
+function graphBars(points: number[]): ReactElement {
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  return (
+    <div className={styles.ratingSparkline} aria-label="Rating history from live Standard read model">
+      {points.map((point, index) => {
+        const height = max === min ? 45 : 22 + ((point - min) / (max - min)) * 46;
+        return <span key={`${point}-${index}`} style={{ height: `${height}px` }} title={`${point}`} />;
+      })}
+    </div>
+  );
+}
+
+export function ModeRatingCards({ profile }: { profile: ProfileSummary | null }): ReactElement {
+  return (
+    <div className={styles.modeGrid}>
+      {modeCards(profile).map((mode) => {
+        const isLive = mode.status === 'live';
+        const badgeLabel = isLive ? 'Live read model' : mode.status === 'prepared' ? 'Prepared' : 'Awaiting profile';
+        const provisionalLabel = isLive && mode.provisionalGamesPlayed !== null
+          ? `Provisional: ${mode.provisionalGamesPlayed}/${mode.provisionalGamesTotal} games complete`
+          : null;
+        return (
+          <article className={styles.modeCard} key={mode.id}>
+            <div className={styles.cardTopline}>
+              <div>
+                <p className={styles.eyebrow}>{mode.id}</p>
+                <h3>{mode.label}</h3>
+              </div>
+              <TokenBadge
+                label={badgeLabel}
+                bg={isLive ? rank.color.rated.bg : rank.color.provisional.bg}
+                border={isLive ? rank.color.rated.border : rank.color.provisional.border}
+                text={isLive ? rank.color.rated.text : rank.color.provisional.text}
+              />
+            </div>
+            <p className={styles.muted}>{mode.subtitle}</p>
+            <div className={isLive ? styles.modeRatingRow : styles.modePlaceholderRow}>
+              <strong>{isLive ? mode.rating : 'Not live yet'}</strong>
+              <span>{isLive ? (mode.recentDelta === null ? 'No recent change' : `${formatSigned(mode.recentDelta)} recent`) : 'Prepared UI only'}</span>
+            </div>
+            <div className={styles.miniStats} aria-label={`${mode.label} rating counters`}>
+              <span>W {isLive ? mode.wins : '—'}</span>
+              <span>L {isLive ? mode.losses : '—'}</span>
+              <span>D {isLive ? mode.draws : '—'}</span>
+              <span>A {isLive ? mode.abandons : '—'}</span>
+              <span>{isLive ? mode.gamesPlayed : '—'} games</span>
+            </div>
+            <p className={styles.warningText}>{provisionalLabel ?? (mode.status === 'prepared' ? 'Mode-specific backend data is not live yet; this card intentionally avoids placeholder ratings or fake charts.' : 'Start a preview demo session or open a public profile to load live Standard rating counters.')}</p>
+            {isLive && mode.graph !== null ? graphBars(mode.graph) : <div className={styles.ratingPlaceholder} aria-label={`${mode.label} has no live rating chart`}>No live rating chart yet</div>}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ProfileSummaryCard({ profile, fallbackMessage }: { profile: ProfileSummary | null; fallbackMessage?: string }): ReactElement {
   if (!profile) {
     return (

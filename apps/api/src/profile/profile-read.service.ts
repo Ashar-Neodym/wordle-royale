@@ -1,10 +1,10 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { currentProfileSummarySchema, defaultRating, matchHistoryListSchema, matchHistorySummarySchema, publicProfileSummarySchema } from '@wordle-royale/contracts';
+import { currentProfileSummarySchema, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, matchHistoryListSchema, matchHistorySummarySchema, publicProfileSummarySchema, rankedModes } from '@wordle-royale/contracts';
+import type { RankedMode } from '@wordle-royale/contracts';
 import type { CurrentProfileSummary, MatchHistoryList, MatchHistorySummary, PublicProfileSummary } from '@wordle-royale/contracts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
 const DEFAULT_ALGORITHM_CONFIG_VERSION = 'placement_mmr_v1';
-const DEFAULT_PROVISIONAL_REMAINING = 10;
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 50;
 const stubCurrentUserId = '11111111-1111-4111-8111-111111111111';
@@ -24,6 +24,14 @@ type RatingProfileRow = {
   rating: number;
   matchesPlayed: number;
   provisionalRemaining: number;
+  wins?: number;
+  losses?: number;
+  draws?: number;
+  abandons?: number;
+  peakRating?: number;
+  ratingDeviation?: number;
+  ratingVolatility?: number | null;
+  lastRatedAt?: Date | string | null;
   algorithm: string;
   algorithmConfigVersion: string;
   status?: string;
@@ -91,6 +99,12 @@ function normalizeStatus(status: string): MatchHistorySummary['status'] {
 
 function normalizeMode(mode: string): MatchHistorySummary['mode'] {
   return mode === 'casual' ? 'casual' : 'ranked';
+}
+
+function normalizeRankedMode(mode: string | undefined): RankedMode {
+  if (!mode || mode === 'ranked') return defaultRankedMode;
+  if ((rankedModes as readonly string[]).includes(mode)) return mode as RankedMode;
+  return defaultRankedMode;
 }
 
 function normalizeOutcome(outcome: string): MatchParticipantWithUser['outcome'] {
@@ -205,38 +219,47 @@ export class ProfileReadService {
 
   private async baseProfileSummary(user: UserWithProfile): Promise<Omit<CurrentProfileSummary, 'recentMatches'>> {
     const handle = handleFor(user) ?? defaultHandle;
-    const ratingProfile = await (this.prisma.client as any).ratingProfile.findUnique?.({
-      where: {
-        userId_mode_algorithmConfigVersion: {
-          userId: user.id,
-          mode: 'ranked',
-          algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION,
-        },
-      },
-    }) as RatingProfileRow | null;
+    const ratingProfiles = await (this.prisma.client as any).ratingProfile.findMany?.({
+      where: { userId: user.id, algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION, status: 'active' },
+      orderBy: [{ mode: 'asc' }],
+    }) as RatingProfileRow[] | undefined;
+    const profilesByMode = new Map((ratingProfiles ?? []).map((row) => [normalizeRankedMode(row.mode), row]));
+    const ratingProfile = profilesByMode.get(defaultRankedMode) ?? null;
     const rank = await this.rankFor(user.id);
+    const toRatingSummary = (profile: RatingProfileRow | null, mode: RankedMode, modeRank: number | null) => ({
+      mode: 'ranked' as const,
+      rankedMode: mode,
+      rating: profile?.rating ?? defaultRating,
+      matchesPlayed: profile?.matchesPlayed ?? 0,
+      provisional: (profile?.provisionalRemaining ?? defaultProvisionalGames) > 0,
+      provisionalRemaining: profile?.provisionalRemaining ?? defaultProvisionalGames,
+      wins: profile?.wins ?? 0,
+      losses: profile?.losses ?? 0,
+      draws: profile?.draws ?? 0,
+      abandons: profile?.abandons ?? 0,
+      peakRating: profile?.peakRating ?? profile?.rating ?? defaultRating,
+      ratingDeviation: profile?.ratingDeviation ?? defaultRatingDeviation,
+      ratingVolatility: profile?.ratingVolatility ?? null,
+      lastRatedAt: isoOrNull(profile?.lastRatedAt),
+      algorithm: 'placement_mmr_v1' as const,
+      algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION,
+      rank: modeRank,
+      unrated: !profile,
+    });
+    const rating = toRatingSummary(ratingProfile, defaultRankedMode, rank);
     return {
       userId: user.id,
       handle,
       displayName: displayNameFor(user, handle, user.id),
       avatarUrl: user.profile?.avatarUrl ?? null,
-      rating: {
-        mode: 'ranked',
-        rating: ratingProfile?.rating ?? defaultRating,
-        matchesPlayed: ratingProfile?.matchesPlayed ?? 0,
-        provisional: (ratingProfile?.provisionalRemaining ?? DEFAULT_PROVISIONAL_REMAINING) > 0,
-        provisionalRemaining: ratingProfile?.provisionalRemaining ?? DEFAULT_PROVISIONAL_REMAINING,
-        algorithm: 'placement_mmr_v1',
-        algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION,
-        rank,
-        unrated: !ratingProfile,
-      },
+      rating,
+      ratings: rankedModes.map((mode) => toRatingSummary(profilesByMode.get(mode) ?? null, mode, mode === defaultRankedMode ? rank : null)),
     };
   }
 
   private async rankFor(userId: string): Promise<number | null> {
     const rows = await (this.prisma.client as any).ratingProfile.findMany?.({
-      where: { mode: 'ranked', algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION, status: 'active' },
+      where: { mode: defaultRankedMode, algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION, status: 'active' },
       orderBy: [{ rating: 'desc' }, { matchesPlayed: 'desc' }, { userId: 'asc' }],
       take: 500,
     }) as RatingProfileRow[] | undefined;

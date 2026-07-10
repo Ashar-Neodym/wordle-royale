@@ -24,11 +24,25 @@ export function renderMarkdownFromReport(report: ComparisonReport): string {
   lines.push('');
   lines.push('## Parameter Sets');
   lines.push('');
-  lines.push(tableRow(['Config', 'Established K', 'Provisional K', 'Established cap', 'Provisional cap', 'Use']));
-  lines.push(tableRow(['---', '---:', '---:', '---:', '---:', '---']));
+  lines.push(tableRow(['Config', 'Algorithm', 'Initial', 'Established K', 'Provisional K', 'Established cap', 'Provisional cap', 'Use']));
+  lines.push(tableRow(['---', '---', '---:', '---:', '---:', '---:', '---:', '---']));
   for (const config of report.parameterSets) {
-    lines.push(tableRow([config.name, config.establishedK, config.provisionalK, config.establishedDeltaCap, config.provisionalDeltaCap, config.displayName]));
+    lines.push(tableRow([config.name, config.algorithm, config.initialRating, config.establishedK, config.provisionalK, config.establishedDeltaCap, config.provisionalDeltaCap, config.displayName]));
   }
+  lines.push('');
+  lines.push('## Mode Ladders');
+  lines.push('');
+  lines.push(tableRow(['Mode', 'Label', 'Players', 'Config', 'Start', 'Provisional games', 'Adjudication']));
+  lines.push(tableRow(['---', '---', '---', '---', '---:', '---:', '---']));
+  for (const ladder of report.modeLadders) {
+    lines.push(tableRow([ladder.mode, ladder.label, ladder.players, ladder.ratingConfigName, ladder.startingRating, ladder.provisionalMatches, ladder.adjudication]));
+  }
+  lines.push('');
+  lines.push('## Glicko-style Internal Model Notes');
+  lines.push('');
+  lines.push('- User-facing rating remains a simple integer rating.');
+  lines.push('- Internal RD/confidence lets provisional and inactive players move faster without granting unlimited opponent windfalls.');
+  lines.push('- MVP can ship Elo-compatible deltas while storing RD/volatility-ready fields for migration.');
   lines.push('');
   lines.push('## Scenario Comparison');
   lines.push('');

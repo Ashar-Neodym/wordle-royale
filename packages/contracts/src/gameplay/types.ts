@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, guessResultSchema, matchDetailSummarySchema, matchHistoryListSchema, matchHistoryParticipantSchema, matchHistorySummarySchema, matchHistoryViewerSchema, matchSnapshotSchema, participantStandingSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
+import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, guessResultSchema, matchDetailSummarySchema, matchHistoryListSchema, matchHistoryParticipantSchema, matchHistorySummarySchema, matchHistoryViewerSchema, matchSnapshotSchema, participantStandingSchema, rankedModeSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
 
+export type RankedMode = z.infer<typeof rankedModeSchema>;
 export type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
 export type ParticipantStanding = z.infer<typeof participantStandingSchema>;
 export type RoundSnapshot = z.infer<typeof roundSnapshotSchema>;

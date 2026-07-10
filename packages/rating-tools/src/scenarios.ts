@@ -41,6 +41,32 @@ export const DEFAULT_SCENARIOS: PlacementScenario[] = [
     tags: ['1v1', 'provisional'],
   },
   {
+    id: '1v1_draw_equal_guesses',
+    title: '1v1 draw equal guesses',
+    description: 'Two established equal-rating standard/classic players tie on solve quality.',
+    mode: '1v1',
+    playerCount: 2,
+    players: [
+      { id: 'A', rating: 1500, matchesPlayed: 20 },
+      { id: 'B', rating: 1500, matchesPlayed: 20 },
+    ],
+    placements: [['A', 'B']],
+    tags: ['1v1', 'draw'],
+  },
+  {
+    id: '1v1_inactive_return_win',
+    title: '1v1 inactive return win',
+    description: 'A long-inactive established player beats an active equal-rated opponent; Glicko-style RD inflation makes A move faster.',
+    mode: '1v1',
+    playerCount: 2,
+    players: [
+      { id: 'A', rating: 1500, matchesPlayed: 20, ratingDeviation: 80, inactiveDays: 120 },
+      { id: 'B', rating: 1500, matchesPlayed: 20, ratingDeviation: 80 },
+    ],
+    placements: [['A'], ['B']],
+    tags: ['1v1', 'inactive'],
+  },
+  {
     id: '3p_mixed_skill',
     title: '3-player mixed skill placements',
     description: 'A 1600 player wins, 1500 middle, 1400 last.',

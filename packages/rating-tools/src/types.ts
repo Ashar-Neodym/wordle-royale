@@ -1,8 +1,12 @@
 export type PlayerId = string;
 
+export type RatingAlgorithm = 'elo_pairwise' | 'glicko_style_internal';
+export type RankedModeId = 'standard_1v1' | 'speed_1v1' | 'classic_1v1' | 'multiplayer_lobby';
+
 export interface RatingConfig {
   name: string;
   displayName: string;
+  algorithm: RatingAlgorithm;
   ratingScale: number;
   establishedK: number;
   provisionalK: number;
@@ -10,12 +14,31 @@ export interface RatingConfig {
   establishedDeltaCap: number;
   provisionalDeltaCap: number;
   ratingFloor: number;
+  initialRating: number;
+  initialRatingDeviation?: number;
+  establishedRatingDeviation?: number;
+  minimumRatingDeviation?: number;
+  maximumRatingDeviation?: number;
+  inactivityRdPer30Days?: number;
+}
+
+export interface ModeLadderConfig {
+  mode: RankedModeId;
+  label: string;
+  players: '1v1' | '2-4';
+  ratingConfigName: string;
+  startingRating: number;
+  provisionalMatches: number;
+  adjudication: string;
+  notes: string;
 }
 
 export interface RatingPlayerInput {
   id: PlayerId;
   rating: number;
   matchesPlayed: number;
+  ratingDeviation?: number;
+  inactiveDays?: number;
 }
 
 export type PlacementGroups = PlayerId[][];
@@ -45,6 +68,8 @@ export interface PlayerDeltaResult {
   provisionalApplied: boolean;
   matchesPlayedBefore: number;
   matchesPlayedAfter: number;
+  ratingDeviationBefore?: number;
+  ratingDeviationAfter?: number;
   expectedByOpponent: Record<PlayerId, number>;
   actualByOpponent: Record<PlayerId, number>;
 }
@@ -83,9 +108,10 @@ export interface PolicyPlaceholder {
 }
 
 export interface ComparisonReport {
-  reportVersion: 1;
+  reportVersion: 2;
   generatedAt: string;
   algorithm: 'placement_mmr_v1_candidate';
+  modeLadders: ModeLadderConfig[];
   parameterSets: RatingConfig[];
   scenarios: ScenarioComparisonResult[];
   policyPlaceholders: PolicyPlaceholder[];

@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { getPublicProfileSummary } from '../../../lib/api-client';
-import { MatchHistoryRows, ProfileSummaryCard } from '../../../components/ProfileHistory';
+import { MatchHistoryRows, ModeRatingCards, ProfileSummaryCard } from '../../../components/ProfileHistory';
 import { PageFrame, PageHeader } from '../../../components/PageFrame';
 import styles from '../../../components/web-shell.module.css';
 
@@ -26,6 +26,14 @@ export default async function PublicProfilePage({ params }: PublicProfilePagePro
           <p>Public profile data is rating and match-summary only. Private account fields are not shown.</p>
         </div>
         <ProfileSummaryCard profile={profile} fallbackMessage={profileResult.error ?? 'Profile summary API is offline.'} />
+      </section>
+      <section className={styles.section} aria-labelledby="public-mode-ratings-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Mode ratings</p>
+          <h2 id="public-mode-ratings-heading">Per-mode rating cards</h2>
+          <p>Public profiles present separate mode ladders. Non-Standard modes are marked as prepared UI until live mode-aware backend data is available.</p>
+        </div>
+        <ModeRatingCards profile={profile} />
       </section>
       <section className={styles.section} aria-labelledby="public-recent-heading">
         <div className={styles.sectionHeader}>

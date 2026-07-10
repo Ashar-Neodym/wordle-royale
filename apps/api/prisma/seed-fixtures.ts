@@ -55,7 +55,7 @@ export interface SeedUser {
   ratingProfile: {
     id: string;
     userId: string;
-    mode: 'ranked';
+    mode: 'standard_1v1';
     rating: number;
     matchesPlayed: number;
     provisionalRemaining: number;
@@ -86,8 +86,8 @@ const localStubSmokeUsers: SeedUser[] = [
     ratingProfile: {
       id: 'rating_11111111_1111_4111_8111_111111111111_ranked_fixture',
       userId: '11111111-1111-4111-8111-111111111111',
-      mode: 'ranked',
-      rating: 1200,
+      mode: 'standard_1v1',
+      rating: 1500,
       matchesPlayed: 0,
       provisionalRemaining: 10,
       algorithmConfigVersion: 'placement_mmr_v1',
@@ -109,8 +109,8 @@ const localStubSmokeUsers: SeedUser[] = [
     ratingProfile: {
       id: 'rating_22222222_2222_4222_8222_222222222222_ranked_fixture',
       userId: '22222222-2222-4222-8222-222222222222',
-      mode: 'ranked',
-      rating: 1200,
+      mode: 'standard_1v1',
+      rating: 1500,
       matchesPlayed: 0,
       provisionalRemaining: 10,
       algorithmConfigVersion: 'placement_mmr_v1',
@@ -213,7 +213,7 @@ export function buildLocalFixtureSeedPlan(): LocalFixtureSeedPlan {
       ratingProfile: {
         id: `rating_${user.id}_ranked_fixture`,
         userId: user.id,
-        mode: 'ranked',
+        mode: 'standard_1v1',
         rating: user.rating,
         matchesPlayed: user.provisional ? 0 : 12,
         provisionalRemaining: user.provisional ? 10 : 0,

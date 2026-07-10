@@ -42,7 +42,10 @@ type LobbyRecord = {
   createdAt: Date;
 };
 
-function createMockPrismaService(databaseStatus: ReadinessDependency = { status: 'ok', checkedAt: new Date().toISOString(), latencyMs: 1 }) {
+function createMockPrismaService(
+  databaseStatus: ReadinessDependency = { status: 'ok', checkedAt: new Date().toISOString(), latencyMs: 1 },
+  applicationSchemaStatus: ReadinessDependency = { status: 'ok', checkedAt: new Date().toISOString(), latencyMs: 1, message: 'Application schema contains required tables.' },
+) {
   let lobbySequence = 0;
   const users = new Map<string, UserRecord>();
   const profiles = new Map<string, ProfileRecord>();
@@ -134,14 +137,15 @@ function createMockPrismaService(databaseStatus: ReadinessDependency = { status:
   return {
     client,
     checkDatabase: async () => databaseStatus,
+    checkApplicationSchema: async () => applicationSchemaStatus,
     onModuleDestroy: async () => {},
   };
 }
 
-async function createApp(options: { database?: ReadinessDependency; redis?: ReadinessDependency } = {}) {
+async function createApp(options: { database?: ReadinessDependency; applicationSchema?: ReadinessDependency; redis?: ReadinessDependency } = {}) {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)
-    .useValue(createMockPrismaService(options.database))
+    .useValue(createMockPrismaService(options.database, options.applicationSchema))
     .overrideProvider(RedisReadinessService)
     .useValue({ checkRedis: async () => options.redis ?? { status: 'ok', checkedAt: new Date().toISOString(), latencyMs: 1 } })
     .compile();
@@ -174,6 +178,7 @@ describe('api skeleton', () => {
     assert.equal(ready.body.error, null);
     assert.equal(ready.body.data.status, 'ok');
     assert.equal(ready.body.data.dependencies.database.status, 'ok');
+    assert.equal(ready.body.data.dependencies.applicationSchema.status, 'ok');
     assert.equal(ready.body.data.dependencies.redis.status, 'ok');
   });
 
@@ -190,6 +195,29 @@ describe('api skeleton', () => {
     }
   });
 
+  it('reports unavailable readiness when the database is reachable but required app schema is missing', async () => {
+    const schemaMissing = await createApp({
+      applicationSchema: {
+        status: 'unavailable',
+        checkedAt: new Date().toISOString(),
+        latencyMs: 1,
+        message: 'Application schema is missing required table(s): RatingProfile. Run database migrations before serving traffic.',
+      },
+      redis: { status: 'not_checked_stub', checkedAt: new Date().toISOString(), message: 'REDIS_URL is not configured; Redis readiness is optional for this environment.' },
+    });
+    try {
+      const ready = await request(schemaMissing.getHttpServer()).get('/readyz').expect(200);
+      assert.equal(ready.body.error, null);
+      assert.equal(ready.body.data.status, 'unavailable');
+      assert.equal(ready.body.data.dependencies.database.status, 'ok');
+      assert.equal(ready.body.data.dependencies.applicationSchema.status, 'unavailable');
+      assert.match(ready.body.data.dependencies.applicationSchema.message, /missing required table\(s\): RatingProfile/);
+      assert.equal(ready.body.data.dependencies.redis.status, 'not_checked_stub');
+    } finally {
+      await schemaMissing.close();
+    }
+  });
+
   it('keeps readiness ok when Redis is optional and not configured', async () => {
     const optionalRedis = await createApp({ redis: { status: 'not_checked_stub', checkedAt: new Date().toISOString(), message: 'REDIS_URL is not configured; Redis readiness is optional for this environment.' } });
     try {
@@ -197,6 +225,7 @@ describe('api skeleton', () => {
       assert.equal(ready.body.error, null);
       assert.equal(ready.body.data.status, 'ok');
       assert.equal(ready.body.data.dependencies.database.status, 'ok');
+      assert.equal(ready.body.data.dependencies.applicationSchema.status, 'ok');
       assert.equal(ready.body.data.dependencies.redis.status, 'not_checked_stub');
     } finally {
       await optionalRedis.close();
