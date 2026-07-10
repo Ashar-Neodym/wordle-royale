@@ -11,6 +11,13 @@ import styles from '../../components/web-shell.module.css';
 
 export const dynamic = 'force-dynamic';
 
+const rankedModeChoices = [
+  { label: 'Quick', mode: 'standard_1v1', detail: 'Queue-style 1v1 target. Uses Standard rating when backend queue lands.', availability: 'UI only for now' },
+  { label: 'Speed / Blitz', mode: 'speed_1v1', detail: 'Fewer guesses first; same guesses break by server solve time.', availability: 'Mode prepared' },
+  { label: 'Classic', mode: 'classic_1v1', detail: 'Lower-pressure 1v1. Same-guess solves draw.', availability: 'Mode prepared' },
+  { label: 'Multiplayer', mode: 'multiplayer_lobby', detail: '2–4 player lobby ladder; rating separate from 1v1 modes.', availability: 'Lobby UI prepared' },
+] as const;
+
 type PlayPageProps = {
   searchParams?: SearchParamsInput;
 };
@@ -46,6 +53,33 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           <a className={styles.primaryButton} href="/lobbies">Open lobbies</a>
         </section>
       )}
+
+      <section className={styles.section} aria-labelledby="ranked-mode-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Ranked modes</p>
+          <h2 id="ranked-mode-heading">Choose a format before the room</h2>
+          <p>Wordle Royale is moving toward chess-style queues and separate ladders. Today only the lobby-backed Standard path is live; the other mode cards are explicit UI affordances, not a claim of finished matchmaking.</p>
+        </div>
+        <div className={styles.modeChoiceGrid}>
+          {rankedModeChoices.map((choice) => (
+            <article className={styles.modeChoiceCard} key={choice.mode}>
+              <div className={styles.cardTopline}>
+                <h3>{choice.label}</h3>
+                <span>{choice.availability}</span>
+              </div>
+              <p className={styles.eyebrow}>{choice.mode}</p>
+              <p className={styles.muted}>{choice.detail}</p>
+              <div className={styles.actionRow}>
+                <a className={choice.mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} href="/lobbies">{choice.mode === 'standard_1v1' ? 'Open live lobbies' : 'View planned mode'}</a>
+              </div>
+            </article>
+          ))}
+        </div>
+        <article className={styles.practiceNote}>
+          <strong>Ranked vs unranked</strong>
+          <p>Rated rooms affect the relevant mode ladder. Unranked/casual rooms are prepared as product language but do not have a complete live backend path yet.</p>
+        </article>
+      </section>
 
       <div className={styles.playLayout}>
         <div className={styles.leftRail}>

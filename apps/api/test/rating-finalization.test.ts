@@ -52,7 +52,7 @@ function createRatingPrismaMock() {
         && row.mode === args.where.userId_mode_algorithmConfigVersion.mode
         && row.algorithmConfigVersion === args.where.userId_mode_algorithmConfigVersion.algorithmConfigVersion) ?? null,
       create: async (args: any) => {
-        const row = { id: `44444444-4444-4444-8444-44444444444${created.ratingProfile.length + 1}`, status: 'active', ...args.data };
+        const row = { id: `44444444-4444-4444-8444-44444444444${created.ratingProfile.length + 1}`, status: 'active', wins: 0, losses: 0, draws: 0, abandons: 0, peakRating: args.data.rating, ratingDeviation: 350, ratingVolatility: null, lastRatedAt: null, ...args.data };
         created.ratingProfile.push(row);
         return row;
       },
@@ -67,6 +67,10 @@ function createRatingPrismaMock() {
           provisionalRemaining: typeof args.data.provisionalRemaining?.decrement === 'number'
             ? Math.max(0, created.ratingProfile[index].provisionalRemaining - args.data.provisionalRemaining.decrement)
             : args.data.provisionalRemaining ?? created.ratingProfile[index].provisionalRemaining,
+          wins: created.ratingProfile[index].wins + (args.data.wins?.increment ?? 0),
+          losses: created.ratingProfile[index].losses + (args.data.losses?.increment ?? 0),
+          draws: created.ratingProfile[index].draws + (args.data.draws?.increment ?? 0),
+          abandons: created.ratingProfile[index].abandons + (args.data.abandons?.increment ?? 0),
         };
         return created.ratingProfile[index];
       },
@@ -102,7 +106,7 @@ function createRatingPrismaMock() {
 }
 
 describe('GameplayPersistenceService rating finalization', () => {
-  it('creates default-1200 rating events, updates rating profiles, standings, and match report transactionally', async () => {
+  it('creates default-1500 mode-aware rating events, updates rating profiles, standings, and match report transactionally', async () => {
     const { client, created } = createRatingPrismaMock();
     const service = new GameplayPersistenceService({ client } as any);
 
@@ -123,12 +127,12 @@ describe('GameplayPersistenceService rating finalization', () => {
       delta: participant.ratingDelta,
       placement: participant.placement,
     })), [
-      { userId: userOneId, before: 1200, after: 1216, delta: 16, placement: 1 },
-      { userId: userTwoId, before: 1200, after: 1184, delta: -16, placement: 2 },
+      { userId: userOneId, before: 1500, after: 1516, delta: 16, placement: 1 },
+      { userId: userTwoId, before: 1500, after: 1484, delta: -16, placement: 2 },
     ]);
-    assert.deepEqual(created.ratingProfile.map((profile) => ({ userId: profile.userId, rating: profile.rating, matchesPlayed: profile.matchesPlayed })), [
-      { userId: userOneId, rating: 1216, matchesPlayed: 1 },
-      { userId: userTwoId, rating: 1184, matchesPlayed: 1 },
+    assert.deepEqual(created.ratingProfile.map((profile) => ({ userId: profile.userId, mode: profile.mode, rating: profile.rating, matchesPlayed: profile.matchesPlayed, wins: profile.wins, losses: profile.losses })), [
+      { userId: userOneId, mode: 'standard_1v1', rating: 1516, matchesPlayed: 1, wins: 1, losses: 0 },
+      { userId: userTwoId, mode: 'standard_1v1', rating: 1484, matchesPlayed: 1, wins: 0, losses: 1 },
     ]);
     assert.equal(created.ratingEvent.length, 2);
     assert.equal(created.ratingEvent[0].type, 'apply');
@@ -149,8 +153,8 @@ describe('GameplayPersistenceService rating finalization', () => {
     assert.deepEqual(second.ratingEvent, first.ratingEvent);
     assert.equal(created.ratingEvent.length, 2);
     assert.deepEqual(created.ratingProfile.map((profile) => ({ userId: profile.userId, rating: profile.rating, matchesPlayed: profile.matchesPlayed })), [
-      { userId: userOneId, rating: 1216, matchesPlayed: 1 },
-      { userId: userTwoId, rating: 1184, matchesPlayed: 1 },
+      { userId: userOneId, rating: 1516, matchesPlayed: 1 },
+      { userId: userTwoId, rating: 1484, matchesPlayed: 1 },
     ]);
   });
 

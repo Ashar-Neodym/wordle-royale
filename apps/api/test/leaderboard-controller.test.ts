@@ -17,13 +17,14 @@ function createLeaderboardApiPrismaMock() {
     { id: '33333333-3333-4333-8333-333333333333', displayName: 'Unrated Local', profile: { publicHandle: 'unrated' } },
   ];
   const ratingProfiles = [
-    { id: 'rating_ada', userId: users[0]!.id, mode: 'ranked', rating: 1516, matchesPlayed: 4, provisionalRemaining: 6, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[0]! },
-    { id: 'rating_zara', userId: users[1]!.id, mode: 'ranked', rating: 1484, matchesPlayed: 4, provisionalRemaining: 0, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[1]! },
+    { id: 'rating_ada', userId: users[0]!.id, mode: 'standard_1v1', rating: 1516, matchesPlayed: 4, provisionalRemaining: 6, wins: 3, losses: 1, draws: 0, abandons: 0, peakRating: 1516, ratingDeviation: 300, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[0]! },
+    { id: 'rating_zara', userId: users[1]!.id, mode: 'standard_1v1', rating: 1484, matchesPlayed: 4, provisionalRemaining: 0, wins: 1, losses: 3, draws: 0, abandons: 0, peakRating: 1500, ratingDeviation: 90, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[1]! },
   ];
 
   const client = {
     ratingProfile: {
-      findMany: async (args: any) => ratingProfiles.filter((profile) => profile.mode === args.where.mode
+      findMany: async (args: any) => ratingProfiles.filter((profile) => (!args.where.userId || profile.userId === args.where.userId)
+        && (!args.where.mode || profile.mode === args.where.mode)
         && profile.algorithmConfigVersion === args.where.algorithmConfigVersion
         && profile.status === args.where.status),
       findUnique: async (args: any) => ratingProfiles.find((profile) => profile.userId === args.where.userId_mode_algorithmConfigVersion.userId
@@ -86,9 +87,22 @@ describe('leaderboard REST read models', () => {
 
     assert.equal(response.body.error, null);
     assert.equal(response.body.data.handle, 'unrated');
-    assert.equal(response.body.data.rating, 1200);
+    assert.equal(response.body.data.mode, 'standard_1v1');
+    assert.equal(response.body.data.rating, 1500);
     assert.equal(response.body.data.matchesPlayed, 0);
     assert.equal(response.body.data.unrated, true);
     assert.equal(response.body.data.provisional, true);
+  });
+
+  it('serves ranked mode metadata and all per-mode profile ratings', async () => {
+    const modes = await request(app.getHttpServer()).get('/ranked/modes').expect(200);
+    assert.deepEqual(modes.body.data.modes.map((mode: any) => mode.id), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
+    assert.equal(modes.body.data.modes.find((mode: any) => mode.id === 'multiplayer_lobby').enabled, false);
+
+    const ratings = await request(app.getHttpServer()).get('/profiles/ada/ratings').expect(200);
+    assert.equal(ratings.body.data.handle, 'ada');
+    assert.deepEqual(ratings.body.data.ratings.map((rating: any) => rating.mode), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
+    assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'standard_1v1').unrated, false);
+    assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').unrated, true);
   });
 });

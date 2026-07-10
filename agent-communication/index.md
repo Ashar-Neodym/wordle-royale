@@ -2,11 +2,11 @@
 
 ## Current status
 
-Wave M / PR #3 is merged to `main` and post-merge GitHub Actions passed. Wave N ticket wave is ready for controlled public-preview deployment setup.
+Wave O hosted preview is live on Vercel + Railway + Supabase after Ashar-approved provider setup and Supabase migration deployment. Independent QA initially found missing-migration 500s; Athena applied the approved preview DB migration and rechecked web/API smoke successfully.
 
 Current review doc:
 
-`docs/2026-07-07-athena-review-after-ticket-102-fix.md`
+`docs/2026-07-09-athena-hosted-preview-and-chess-ranked-direction.md`
 
 ## Product direction
 
@@ -18,7 +18,7 @@ UI should stay human, calm, functional, minimal, game-first, rating/community or
 
 ## Completed checkpoint
 
-Tickets 01–96 are complete through Wave M. PR #3 merged to `main` and GitHub Actions passed on the merge commit.
+Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub Actions passed on the merge commit.
 
 ## Wave L — Public-preview readiness
 
@@ -58,12 +58,50 @@ Tickets 01–96 are complete through Wave M. PR #3 merged to `main` and GitHub A
 | 101 | Yuna | Wave N Checkpoint Branch, PR, and CI Monitor | Complete; PR #4 open and remote CI passed after Athena PR creation |
 | 102 | Jasmine | QA Review Wave N Preview Deploy Setup | Complete; initial FAIL fixed; 102b PASS WITH WARNINGS; PR #4 may proceed to merge approval |
 
+## Wave O — Controlled hosted-preview provisioning/deployment
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 103 | Elisa | Preview Provider Final Decision and Approval Gate | Complete; Vercel web, Supabase Postgres first, Neon fallback, separate long-running API server |
+| 104 | Yuna | Preview Provisioning Preflight Checklist | Complete; preflight revised around Vercel + Supabase + separate API host |
+| 105 | Yuna | Controlled Preview Provisioning | Complete; Supabase + Railway API + Vercel web live after manual provider setup |
+| 106 | Freya | Hosted API Deploy and Smoke | Complete; API URL live, `/healthz` and `/readyz` pass |
+| 107 | Luna | Hosted Web Preview Smoke | Complete; Vercel web live and demo session smoke passes after migration fix |
+| 108 | Yuna | Wave O Checkpoint PR/CI/Deploy Evidence | Complete; response written with provider/deploy evidence |
+| 109 | Jasmine | QA Review Wave O Hosted Preview | Complete; PASS WITH WARNINGS after missing migration fix |
+
+## Wave P — Chess-style ranked Wordle foundation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 110 | Elisa | Chess-Style Ranked System Contract | Complete; contract doc created |
+| 111 | Ruby | Rating Algorithm Simulation and Mode Ladders | Complete; Glicko-style baseline recommended |
+| 112 | Freya | Mode-Aware Rating Profile Foundation | Complete; schema/contracts/read models updated |
+| 113 | Luna | Chess-Style Profile and Ranked Mode UI | Complete with QA warnings |
+| 114 | Yuna | Hosted Preview Migration/Readiness Hardening | Complete; runbook/recommendation created |
+| 115 | Jasmine | QA Review Wave P Chess-Style Ranked Foundation | Complete; CONDITIONAL PASS with follow-ups |
+
+## Wave Q — Wave P QA follow-up and deploy hardening
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 116 | Luna | Profile Mode Card Accuracy Fix | Complete; Athena verified web build |
+| 117 | Freya | Schema-Aware Readiness Check | Complete; Athena verified API tests/build |
+| 118 | Yuna | Railway Pre-Deploy Migration Command | Complete by Ashar in Railway dashboard; execution evidence pending next deploy |
+| 119 | Yuna | Wave Q Checkpoint PR and CI Monitor | Branch pushed; PR creation blocked by unauthenticated GitHub API/browser |
+| 120 | Yuna | Hosted Preview Wave Q Deploy and Smoke | Blocked until PR CI + merge approval |
+| 121 | Jasmine | QA Review Wave Q Follow-Up and Hosted Preview | New after 116–120 |
+
 ## Recommended order
 
-1. N.0: Ticket 97 and Ticket 98 can start together; 98 should mark assumptions until 97 lands.
-2. N.1: Ticket 99 and Ticket 100 can run after/alongside 97's decision, with no deployment or secrets.
-3. N.2: Ticket 101 checkpoint PR/CI after 97–100.
-4. N.3: Ticket 102 QA last, then Athena asks Ashar before any real provider provisioning/deployment.
+Wave Q status: 116/117 are complete and verified; 118 is blocked from live provider change because the worker shell lacks Railway access. Proceed with checkpointing 116/117 plus the documented 118 block, unless Ashar applies the Railway dashboard setting first.
+
+Wave Q recommended execution:
+
+1. Optional manual gate: Ashar can set Railway API pre-deploy command from Ticket 118 dashboard instructions.
+2. Q.1 now: 119 (Yuna PR/CI checkpoint) — include 116/117 fixes and 118 blocked evidence.
+3. Q.2 after PR merge approval/provider migration decision: 120 (Yuna hosted deploy/migration smoke).
+4. Q.3 after deploy: 121 (Jasmine independent QA).
 
 ## Persistent constraints
 

@@ -62,6 +62,13 @@ enum MatchMode {
   ranked
 }
 
+enum RankedMode {
+  standard_1v1
+  speed_1v1
+  classic_1v1
+  multiplayer_lobby
+}
+
 enum ParticipantOutcome {
   pending
   solved
@@ -323,10 +330,18 @@ model MatchReport {
 model RatingProfile {
   id                     String              @id @default(uuid())
   userId                 String
-  mode                   MatchMode           @default(ranked)
+  mode                   RankedMode          @default(standard_1v1)
   rating                 Int                 @default(1500)
   matchesPlayed          Int                 @default(0)
   provisionalRemaining   Int                 @default(10)
+  wins                   Int                 @default(0)
+  losses                 Int                 @default(0)
+  draws                  Int                 @default(0)
+  abandons               Int                 @default(0)
+  peakRating             Int                 @default(1500)
+  ratingDeviation        Float               @default(350)
+  ratingVolatility       Float?
+  lastRatedAt            DateTime?
   algorithm              String              @default("placement_mmr_v1")
   algorithmConfigVersion String
   status                 RatingProfileStatus @default(active)
@@ -369,7 +384,7 @@ model RatingEvent {
 
 model LeaderboardSnapshot {
   id                      String    @id @default(uuid())
-  mode                    MatchMode @default(ranked)
+  mode                    RankedMode @default(standard_1v1)
   algorithmConfigVersion  String
   generatedAt             DateTime  @default(now())
   entries                 Json

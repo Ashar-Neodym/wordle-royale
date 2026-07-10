@@ -86,7 +86,7 @@ export class ProfileService {
       displayName: input.displayName ?? defaultDisplayName,
       avatarUrl: profile.avatarUrl ?? input.avatarUrl ?? null,
       profileVisibility: 'public',
-      rating: 1200,
+      rating: 1500,
       rank: null,
     });
   }
@@ -131,7 +131,7 @@ export class ProfileService {
       displayName: user.displayName,
       avatarUrl: user.profile?.avatarUrl ?? null,
       profileVisibility: 'public',
-      rating: 1200,
+      rating: 1500,
       rank: null,
     });
   }

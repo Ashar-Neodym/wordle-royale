@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { clientRequestSchema, idSchema, timestampSchema } from '../common/schemas.ts';
-import { defaultRating, guessRejectReasons, letterFeedbackStates, matchStates, playerRoundStates, rankedMatchCompletionReasons, rankedMatchStartSources, ratingEventKinds, ratingEventStatuses, roundStates, scoringPresets } from './constants.ts';
+import { defaultRating, guessRejectReasons, letterFeedbackStates, matchStates, playerRoundStates, rankedMatchCompletionReasons, rankedMatchStartSources, rankedModes, ratingEventKinds, ratingEventStatuses, roundStates, scoringPresets } from './constants.ts';
 
 export const matchStateSchema = z.enum(matchStates);
 export const roundStateSchema = z.enum(roundStates);
 export const playerRoundStateSchema = z.enum(playerRoundStates);
 export const scoringPresetSchema = z.enum(scoringPresets);
+export const rankedModeSchema = z.enum(rankedModes);
 
 export const letterFeedbackSchema = z.object({
   letter: z.string().regex(/^[a-z]$/),

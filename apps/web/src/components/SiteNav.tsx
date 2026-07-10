@@ -20,9 +20,9 @@ const learnLinks: NavLink[] = [
 ];
 
 const profileLinks: NavLink[] = [
-  { href: '/profile', label: 'My profile', note: 'rating' },
-  { href: '/history', label: 'Match history', note: 'coming soon' },
-  { href: '/settings', label: 'Settings', note: 'local account' },
+  { href: '/profile', label: 'My profile', note: 'mode ratings' },
+  { href: '/history', label: 'Match history', note: 'rated games' },
+  { href: '/settings', label: 'Settings', note: 'preview account' },
 ];
 
 function MenuLink({ href, label, note }: NavLink): ReactElement {
@@ -58,6 +58,7 @@ export function SiteNav(): ReactElement {
         <a href="/leaderboard">Leaderboard</a>
         <NavMenu label="Learn" links={learnLinks} />
         <NavMenu label="Profile" links={profileLinks} />
+        <a className={styles.profileButton} href="/profile" aria-label="Open profile and mode ratings"><span aria-hidden="true">♟</span> Profile</a>
         <a href="/server">Server</a>
       </div>
       <details className={styles.mobileMenu}>

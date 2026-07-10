@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { getCurrentProfileSummary, getWebApiSnapshot } from '../../lib/api-client';
-import { AuthRequiredPanel, isAuthLimited, MatchHistoryRows, ProfileSummaryCard } from '../../components/ProfileHistory';
+import { AuthRequiredPanel, isAuthLimited, MatchHistoryRows, ModeRatingCards, ProfileSummaryCard } from '../../components/ProfileHistory';
 import { startPreviewDemoSessionAction } from '../actions';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
@@ -13,7 +13,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
   const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
   const authLimited = isAuthLimited(profileSummary.error);
   const ratedFallback = api.ratedProfile.status === 'connected' ? api.ratedProfile.data : null;
-  const title = profile?.displayName ?? ratedFallback?.displayName ?? (authLimited ? 'Preview profile' : 'Local player');
+  const title = profile?.displayName ?? ratedFallback?.displayName ?? (authLimited ? 'Preview profile' : 'Preview player');
 
   return (
     <PageFrame>
@@ -33,6 +33,14 @@ export default async function ProfilePage(): Promise<ReactElement> {
           <a className={styles.secondaryButton} href="/history">Full history</a>
           <a className={styles.secondaryButton} href="/settings">Settings</a>
         </div>
+      </section>
+      <section className={styles.section} aria-labelledby="mode-ratings-heading">
+        <div className={styles.sectionHeader}>
+          <p className={styles.eyebrow}>Mode ratings</p>
+          <h2 id="mode-ratings-heading">Separate ladders by format</h2>
+          <p>Ratings are shown per mode like chess time controls. Only Standard uses today's live read model; Speed, Classic, and Multiplayer are clearly labeled UI-ready placeholders until backend mode data lands.</p>
+        </div>
+        <ModeRatingCards profile={profile} />
       </section>
       <section className={styles.section} aria-labelledby="recent-matches-heading">
         <div className={styles.sectionHeader}>

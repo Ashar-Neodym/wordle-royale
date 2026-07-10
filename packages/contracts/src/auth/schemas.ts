@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { idSchema, timestampSchema } from '../common/schemas.ts';
-import { defaultRating } from '../gameplay/constants.ts';
+import { defaultProvisionalGames, defaultRating, defaultRatingDeviation } from '../gameplay/constants.ts';
+import { rankedModeSchema } from '../gameplay/schemas.ts';
 import { matchHistorySummarySchema } from '../gameplay/schemas.ts';
 import { authProviders, consentScopes, profileVisibilities, userRoles, userStatuses } from './constants.ts';
 
@@ -36,10 +37,19 @@ export const publicProfileSchema = z.object({
 
 export const profileRatingSummarySchema = z.object({
   mode: z.literal('ranked'),
+  rankedMode: rankedModeSchema.default('standard_1v1'),
   rating: z.number().int().default(defaultRating),
   matchesPlayed: z.number().int().nonnegative(),
   provisional: z.boolean(),
-  provisionalRemaining: z.number().int().nonnegative(),
+  provisionalRemaining: z.number().int().nonnegative().default(defaultProvisionalGames),
+  wins: z.number().int().nonnegative().default(0),
+  losses: z.number().int().nonnegative().default(0),
+  draws: z.number().int().nonnegative().default(0),
+  abandons: z.number().int().nonnegative().default(0),
+  peakRating: z.number().int().default(defaultRating),
+  ratingDeviation: z.number().nonnegative().default(defaultRatingDeviation),
+  ratingVolatility: z.number().nonnegative().nullable().default(null),
+  lastRatedAt: timestampSchema.nullable().default(null),
   algorithm: z.literal('placement_mmr_v1'),
   algorithmConfigVersion: z.string().min(1),
   rank: z.number().int().positive().nullable(),
@@ -52,6 +62,7 @@ export const profileSummarySchema = z.object({
   displayName: z.string().min(1).max(40),
   avatarUrl: z.string().url().nullable(),
   rating: profileRatingSummarySchema,
+  ratings: z.array(profileRatingSummarySchema).default([]),
   recentMatches: z.array(matchHistorySummarySchema),
 });
 

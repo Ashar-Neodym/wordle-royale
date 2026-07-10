@@ -110,11 +110,11 @@ export function LobbyBrowser({
     <section id="lobbies" className={styles.section} aria-labelledby="lobby-browser-heading">
       <div className={styles.sectionHeader}>
         <p className={styles.eyebrow}>{sourceLabel}</p>
-        <h2 id="lobby-browser-heading">Lobbies</h2>
+        <h2 id="lobby-browser-heading">Ranked and casual lobbies</h2>
         <p>
           {usingApiLobbies
-            ? `${lobbies.length} open room(s) on the local server. Create a rated room, join it once for the local guest, then start.`
-            : `Server offline at ${apiLobbies.apiUrl}. Showing fixture rooms; live actions are disabled.`}
+            ? `${lobbies.length} open room(s) on the local server. Rated rooms currently map to Standard 1v1; unranked/casual lobby language is prepared but not fully live yet.`
+            : `Server offline at ${apiLobbies.apiUrl}. Showing fixture rooms; live ranked/unranked actions are disabled.`}
         </p>
       </div>
       {feedback ? (
@@ -138,8 +138,8 @@ export function LobbyBrowser({
       ) : null}
       <div className={styles.splitGrid}>
         <article className={styles.panel}>
-          <h3>Play rated</h3>
-          <p className={styles.muted}>{previewSessionActive ? 'Create a public rated room. For the local smoke flow, join the room once to add the guest before starting.' : 'Start preview demo mode first; public rooms remain browseable without a current user.'}</p>
+          <h3>Standard rated</h3>
+          <p className={styles.muted}>{previewSessionActive ? 'Create a public Standard 1v1 rated room. Quick queue, Speed, Classic, and casual lobby choices are visible as product structure but only this Standard lobby path is live today.' : 'Start preview demo mode first; public rooms remain browseable without a current user.'}</p>
           <form action={createRankedLobbyAction}>
             <button className={styles.primaryButton} type="submit" disabled={!writeActionsEnabled}>Create rated room</button>
           </form>

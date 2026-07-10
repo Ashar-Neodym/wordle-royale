@@ -139,7 +139,7 @@ function createGameplayRestPrismaMock() {
         && row.mode === args.where.userId_mode_algorithmConfigVersion.mode
         && row.algorithmConfigVersion === args.where.userId_mode_algorithmConfigVersion.algorithmConfigVersion) ?? null,
       create: async (args: any) => {
-        const row = { id: `rating_profile_${created.ratingProfile.length + 1}`, status: 'active', ...args.data };
+        const row = { id: `rating_profile_${created.ratingProfile.length + 1}`, status: 'active', wins: 0, losses: 0, draws: 0, abandons: 0, peakRating: args.data.rating, ratingDeviation: 350, ratingVolatility: null, lastRatedAt: null, ...args.data };
         created.ratingProfile.push(row);
         return row;
       },
@@ -149,6 +149,10 @@ function createGameplayRestPrismaMock() {
           ...args.data,
           matchesPlayed: row.matchesPlayed + (args.data.matchesPlayed?.increment ?? 0),
           provisionalRemaining: Math.max(0, row.provisionalRemaining - (args.data.provisionalRemaining?.decrement ?? 0)),
+          wins: row.wins + (args.data.wins?.increment ?? 0),
+          losses: row.losses + (args.data.losses?.increment ?? 0),
+          draws: row.draws + (args.data.draws?.increment ?? 0),
+          abandons: row.abandons + (args.data.abandons?.increment ?? 0),
         });
         return row;
       },
@@ -386,9 +390,9 @@ describe('ranked gameplay REST endpoints', () => {
 
     assert.deepEqual(second.body.data.ratingEvent, first.body.data.ratingEvent);
     assert.equal(prisma.created.ratingEvent.filter((event) => event.matchId === matchId).length, 2);
-    assert.deepEqual(prisma.created.ratingProfile.map((profile) => ({ userId: profile.userId, rating: profile.rating, matchesPlayed: profile.matchesPlayed })), [
-      { userId: hostUserId, rating: 1216, matchesPlayed: 1 },
-      { userId: guestUserId, rating: 1184, matchesPlayed: 1 },
+    assert.deepEqual(prisma.created.ratingProfile.map((profile) => ({ userId: profile.userId, mode: profile.mode, rating: profile.rating, matchesPlayed: profile.matchesPlayed })), [
+      { userId: hostUserId, mode: 'standard_1v1', rating: 1516, matchesPlayed: 1 },
+      { userId: guestUserId, mode: 'standard_1v1', rating: 1484, matchesPlayed: 1 },
     ]);
   });
 

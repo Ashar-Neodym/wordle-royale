@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { calculateRoundScore, isSolved, scoreGuess, validateGuess } from '@wordle-royale/game-engine';
-import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, defaultRating, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, rejectedGuessResultSchema } from '@wordle-royale/contracts';
+import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, defaultProvisionalGames, defaultRankedMode, defaultRating, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, rejectedGuessResultSchema } from '@wordle-royale/contracts';
 import type { AcceptedGuessResult, CurrentRankedMatchStateResponseData, GuessResult, RankedMatchResultSummary, RankedMatchStartResponseData, RatingEventContract, RejectedGuessResult } from '@wordle-royale/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.ts';
@@ -102,6 +102,7 @@ type RatingProfileRecord = {
   rating: number;
   matchesPlayed: number;
   provisionalRemaining: number;
+  peakRating?: number;
   algorithm: string;
   algorithmConfigVersion: string;
 };
@@ -206,17 +207,17 @@ function isTerminalParticipantOutcome(outcome: string): boolean {
 
 async function upsertRatingProfile(tx: any, userId: string, algorithmVersion: string): Promise<RatingProfileRecord> {
   const existing = await tx.ratingProfile.findUnique({
-    where: { userId_mode_algorithmConfigVersion: { userId, mode: 'ranked', algorithmConfigVersion: algorithmVersion } },
+    where: { userId_mode_algorithmConfigVersion: { userId, mode: defaultRankedMode, algorithmConfigVersion: algorithmVersion } },
   }) as RatingProfileRecord | null;
   if (existing) return existing;
 
   return await tx.ratingProfile.create({
     data: {
       userId,
-      mode: 'ranked',
+      mode: defaultRankedMode,
       rating: defaultRating,
       matchesPlayed: 0,
-      provisionalRemaining: 10,
+      provisionalRemaining: defaultProvisionalGames,
       algorithm: 'placement_mmr_v1',
       algorithmConfigVersion: algorithmVersion,
       status: 'active',
@@ -613,12 +614,22 @@ export class GameplayPersistenceService {
         },
       }) as RatingEventRecord;
 
+      const isAbandon = standing.participant.outcome === 'abandoned';
+      const isDraw = standings.length > 1 && standings.every((candidate) => candidate.placementGroup === standing.placementGroup);
+      const isWin = !isAbandon && !isDraw && standing.placement === 1;
+      const isLoss = !isAbandon && !isDraw && standing.placement !== 1;
       await tx.ratingProfile.update({
         where: { id: profile.id },
         data: {
           rating: ratingAfter,
           matchesPlayed: { increment: 1 },
           provisionalRemaining: { decrement: profile.provisionalRemaining > 0 ? 1 : 0 },
+          wins: { increment: isWin ? 1 : 0 },
+          losses: { increment: isLoss ? 1 : 0 },
+          draws: { increment: isDraw ? 1 : 0 },
+          abandons: { increment: isAbandon ? 1 : 0 },
+          peakRating: Math.max(profile.rating, ratingAfter),
+          lastRatedAt: now,
         },
       });
 

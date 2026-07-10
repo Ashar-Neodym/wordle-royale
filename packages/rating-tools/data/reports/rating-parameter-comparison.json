@@ -1,40 +1,106 @@
 {
-  "reportVersion": 1,
+  "reportVersion": 2,
   "generatedAt": "2026-06-22T00:00:00.000Z",
   "algorithm": "placement_mmr_v1_candidate",
+  "modeLadders": [
+    {
+      "mode": "standard_1v1",
+      "label": "Standard 1v1",
+      "players": "1v1",
+      "ratingConfigName": "baseline_glicko",
+      "startingRating": 1500,
+      "provisionalMatches": 10,
+      "adjudication": "Solver beats non-solver; fewer guesses wins; same guesses draw.",
+      "notes": "Primary competitive queue and first MVP ladder."
+    },
+    {
+      "mode": "speed_1v1",
+      "label": "Speed / Blitz 1v1",
+      "players": "1v1",
+      "ratingConfigName": "baseline_glicko",
+      "startingRating": 1500,
+      "provisionalMatches": 10,
+      "adjudication": "Fewer guesses wins; same guesses use server-received solve time.",
+      "notes": "Separate ladder because time/latency pressure materially changes skill expression."
+    },
+    {
+      "mode": "classic_1v1",
+      "label": "Classic 1v1",
+      "players": "1v1",
+      "ratingConfigName": "conservative_beta",
+      "startingRating": 1500,
+      "provisionalMatches": 10,
+      "adjudication": "Fewer guesses wins; same guesses draw; slower time pressure.",
+      "notes": "Lower volatility candidate for slower/casual-competitive play."
+    },
+    {
+      "mode": "multiplayer_lobby",
+      "label": "Multiplayer / Lobby",
+      "players": "2-4",
+      "ratingConfigName": "conservative_beta",
+      "startingRating": 1500,
+      "provisionalMatches": 10,
+      "adjudication": "Placement converts to pairwise wins/losses/draws with lobby-size averaging.",
+      "notes": "Keep separate and feature-flagged until collusion/abuse policy matures."
+    }
+  ],
   "parameterSets": [
     {
       "name": "conservative_beta",
       "displayName": "Conservative beta",
+      "algorithm": "elo_pairwise",
       "ratingScale": 400,
       "establishedK": 20,
       "provisionalK": 32,
       "provisionalMatches": 10,
       "establishedDeltaCap": 32,
       "provisionalDeltaCap": 48,
-      "ratingFloor": 100
+      "ratingFloor": 100,
+      "initialRating": 1500
     },
     {
       "name": "baseline_v1",
       "displayName": "Baseline V1 candidate",
+      "algorithm": "elo_pairwise",
       "ratingScale": 400,
       "establishedK": 24,
       "provisionalK": 36,
       "provisionalMatches": 10,
       "establishedDeltaCap": 40,
       "provisionalDeltaCap": 60,
-      "ratingFloor": 100
+      "ratingFloor": 100,
+      "initialRating": 1500
     },
     {
       "name": "fast_convergence",
       "displayName": "Fast convergence stress candidate",
+      "algorithm": "elo_pairwise",
       "ratingScale": 400,
       "establishedK": 28,
       "provisionalK": 48,
       "provisionalMatches": 10,
       "establishedDeltaCap": 48,
       "provisionalDeltaCap": 72,
-      "ratingFloor": 100
+      "ratingFloor": 100,
+      "initialRating": 1500
+    },
+    {
+      "name": "baseline_glicko",
+      "displayName": "Glicko-style internal baseline",
+      "algorithm": "glicko_style_internal",
+      "ratingScale": 400,
+      "establishedK": 24,
+      "provisionalK": 36,
+      "provisionalMatches": 10,
+      "establishedDeltaCap": 40,
+      "provisionalDeltaCap": 64,
+      "ratingFloor": 100,
+      "initialRating": 1500,
+      "initialRatingDeviation": 350,
+      "establishedRatingDeviation": 80,
+      "minimumRatingDeviation": 50,
+      "maximumRatingDeviation": 350,
+      "inactivityRdPer30Days": 25
     }
   ],
   "scenarios": [
@@ -78,6 +144,17 @@
           },
           "averageAbsoluteDelta": 14,
           "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 12,
+            "B": -12
+          },
+          "averageAbsoluteDelta": 12,
+          "maxAbsoluteDelta": 12,
           "capHits": 0,
           "totalDelta": 0
         }
@@ -125,6 +202,17 @@
           "maxAbsoluteDelta": 21,
           "capHits": 0,
           "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": -18,
+            "B": 18
+          },
+          "averageAbsoluteDelta": 18,
+          "maxAbsoluteDelta": 18,
+          "capHits": 0,
+          "totalDelta": 0
         }
       ]
     },
@@ -170,6 +258,129 @@
           "maxAbsoluteDelta": 24,
           "capHits": 0,
           "totalDelta": 10
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 21,
+            "B": -8
+          },
+          "averageAbsoluteDelta": 14.5,
+          "maxAbsoluteDelta": 21,
+          "capHits": 0,
+          "totalDelta": 13
+        }
+      ]
+    },
+    {
+      "id": "1v1_draw_equal_guesses",
+      "title": "1v1 draw equal guesses",
+      "mode": "1v1",
+      "playerCount": 2,
+      "tags": [
+        "1v1",
+        "draw"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 0,
+            "B": 0
+          },
+          "averageAbsoluteDelta": 0,
+          "maxAbsoluteDelta": 0,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 0,
+            "B": 0
+          },
+          "averageAbsoluteDelta": 0,
+          "maxAbsoluteDelta": 0,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 0,
+            "B": 0
+          },
+          "averageAbsoluteDelta": 0,
+          "maxAbsoluteDelta": 0,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 0,
+            "B": 0
+          },
+          "averageAbsoluteDelta": 0,
+          "maxAbsoluteDelta": 0,
+          "capHits": 0,
+          "totalDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "1v1_inactive_return_win",
+      "title": "1v1 inactive return win",
+      "mode": "1v1",
+      "playerCount": 2,
+      "tags": [
+        "1v1",
+        "inactive"
+      ],
+      "configResults": [
+        {
+          "configName": "conservative_beta",
+          "deltas": {
+            "A": 10,
+            "B": -10
+          },
+          "averageAbsoluteDelta": 10,
+          "maxAbsoluteDelta": 10,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_v1",
+          "deltas": {
+            "A": 12,
+            "B": -12
+          },
+          "averageAbsoluteDelta": 12,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "fast_convergence",
+          "deltas": {
+            "A": 14,
+            "B": -14
+          },
+          "averageAbsoluteDelta": 14,
+          "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 17,
+            "B": -10
+          },
+          "averageAbsoluteDelta": 13.5,
+          "maxAbsoluteDelta": 17,
+          "capHits": 0,
+          "totalDelta": 7
         }
       ]
     },
@@ -216,6 +427,18 @@
           },
           "averageAbsoluteDelta": 5.33,
           "maxAbsoluteDelta": 8,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 7,
+            "B": 0,
+            "C": -7
+          },
+          "averageAbsoluteDelta": 4.67,
+          "maxAbsoluteDelta": 7,
           "capHits": 0,
           "totalDelta": 0
         }
@@ -270,6 +493,19 @@
           "maxAbsoluteDelta": 14,
           "capHits": 0,
           "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 12,
+            "B": 4,
+            "C": -4,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 8,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
         }
       ]
     },
@@ -320,6 +556,19 @@
           },
           "averageAbsoluteDelta": 7,
           "maxAbsoluteDelta": 14,
+          "capHits": 0,
+          "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": -3,
+            "B": 12,
+            "C": -4,
+            "D": -5
+          },
+          "averageAbsoluteDelta": 6,
+          "maxAbsoluteDelta": 12,
           "capHits": 0,
           "totalDelta": 0
         }
@@ -374,6 +623,19 @@
           "maxAbsoluteDelta": 14,
           "capHits": 0,
           "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 12,
+            "B": 0,
+            "C": 0,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 6,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
         }
       ]
     },
@@ -426,6 +688,19 @@
           "maxAbsoluteDelta": 14,
           "capHits": 0,
           "totalDelta": 0
+        },
+        {
+          "configName": "baseline_glicko",
+          "deltas": {
+            "A": 12,
+            "B": 4,
+            "C": -4,
+            "D": -12
+          },
+          "averageAbsoluteDelta": 8,
+          "maxAbsoluteDelta": 12,
+          "capHits": 0,
+          "totalDelta": 0
         }
       ]
     }
@@ -453,5 +728,5 @@
       "openDecision": "Need server-side definition of early abandon, server fault, and admin void states."
     }
   ],
-  "recommendation": "Start ranked beta with baseline_v1 for 1v1 only; keep 3–4 player ranked feature-flagged until QA and telemetry pass."
+  "recommendation": "Recommend baseline_glicko as the internal MVP target for Standard and Speed/Blitz if Ticket 112 can store RD/confidence fields; otherwise ship baseline_v1 Elo-compatible deltas while preserving Glicko-ready columns. Keep Classic conservative and Multiplayer/Lobby feature-flagged until abuse and abandon policy are locked."
 }

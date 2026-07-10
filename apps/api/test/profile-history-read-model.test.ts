@@ -23,8 +23,8 @@ function createProfileReadPrismaMock() {
     { id: emptyUserId, displayName: 'Empty Player', profile: { publicHandle: 'empty_player', avatarUrl: null } },
   ];
   const ratingProfiles = [
-    { id: 'rating_host', userId: currentUserId, mode: 'ranked', rating: 1216, matchesPlayed: 1, provisionalRemaining: 9, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active' },
-    { id: 'rating_guest', userId: guestUserId, mode: 'ranked', rating: 1184, matchesPlayed: 1, provisionalRemaining: 9, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active' },
+    { id: 'rating_host', userId: currentUserId, mode: 'standard_1v1', rating: 1516, matchesPlayed: 1, provisionalRemaining: 9, wins: 1, losses: 0, draws: 0, abandons: 0, peakRating: 1516, ratingDeviation: 320, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active' },
+    { id: 'rating_guest', userId: guestUserId, mode: 'standard_1v1', rating: 1484, matchesPlayed: 1, provisionalRemaining: 9, wins: 0, losses: 1, draws: 0, abandons: 0, peakRating: 1500, ratingDeviation: 320, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active' },
   ];
   const matches = [
     {
@@ -77,7 +77,8 @@ function createProfileReadPrismaMock() {
       findUnique: async (args: any) => ratingProfiles.find((profile) => profile.userId === args.where.userId_mode_algorithmConfigVersion.userId
         && profile.mode === args.where.userId_mode_algorithmConfigVersion.mode
         && profile.algorithmConfigVersion === args.where.userId_mode_algorithmConfigVersion.algorithmConfigVersion) ?? null,
-      findMany: async (args: any) => ratingProfiles.filter((profile) => profile.mode === args.where.mode
+      findMany: async (args: any) => ratingProfiles.filter((profile) => (!args.where.userId || profile.userId === args.where.userId)
+        && (!args.where.mode || profile.mode === args.where.mode)
         && profile.algorithmConfigVersion === args.where.algorithmConfigVersion
         && profile.status === args.where.status),
     },
@@ -126,7 +127,8 @@ describe('profile and match history REST read models', () => {
     assert.equal(response.body.error, null);
     assert.equal(response.body.data.userId, currentUserId);
     assert.equal(response.body.data.handle, 'player_one');
-    assert.equal(response.body.data.rating.rating, 1216);
+    assert.equal(response.body.data.rating.rankedMode, 'standard_1v1');
+    assert.equal(response.body.data.rating.rating, 1516);
     assert.equal(response.body.data.rating.rank, 1);
     assert.equal(response.body.data.rating.unrated, false);
     assert.equal(response.body.data.recentMatches.length, 2);
@@ -141,7 +143,7 @@ describe('profile and match history REST read models', () => {
 
     assert.equal(profile.body.error, null);
     assert.equal(profile.body.data.handle, 'empty_player');
-    assert.equal(profile.body.data.rating.rating, 1200);
+    assert.equal(profile.body.data.rating.rating, 1500);
     assert.equal(profile.body.data.rating.matchesPlayed, 0);
     assert.equal(profile.body.data.rating.unrated, true);
     assert.deepEqual(profile.body.data.recentMatches, []);
@@ -214,7 +216,7 @@ describe('profile and match history REST read models', () => {
     assert.equal(response.body.error, null);
     assert.equal(response.body.data.userId, guestUserId);
     assert.equal(response.body.data.handle, 'guest_player');
-    assert.equal(response.body.data.rating.rating, 1184);
+    assert.equal(response.body.data.rating.rating, 1484);
     assert.equal(response.body.data.recentMatches.length, 2);
   });
 });

@@ -11,12 +11,13 @@ export class ReadinessService {
   ) {}
 
   async getReadiness(): Promise<ReadinessStatus> {
-    const [database, redis] = await Promise.all([
+    const [database, applicationSchema, redis] = await Promise.all([
       this.prisma.checkDatabase(),
+      this.prisma.checkApplicationSchema(),
       this.redis.checkRedis(),
     ]);
 
-    const blockingStatuses = [database.status, redis.status].filter((value) => value !== 'not_checked_stub');
+    const blockingStatuses = [database.status, applicationSchema.status, redis.status].filter((value) => value !== 'not_checked_stub');
     const status = blockingStatuses.every((value) => value === 'ok')
       ? 'ok'
       : blockingStatuses.some((value) => value === 'unavailable')
@@ -28,7 +29,7 @@ export class ReadinessService {
       service: 'wordle-royale-api',
       environment: process.env.NODE_ENV ?? 'development',
       checkedAt: new Date().toISOString(),
-      dependencies: { database, redis },
+      dependencies: { database, applicationSchema, redis },
     };
   }
 }
