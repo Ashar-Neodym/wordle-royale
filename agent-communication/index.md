@@ -88,8 +88,8 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 116 | Luna | Profile Mode Card Accuracy Fix | Complete; Athena verified web build |
 | 117 | Freya | Schema-Aware Readiness Check | Complete; Athena verified API tests/build |
 | 118 | Yuna | Railway Pre-Deploy Migration Command | Complete by Ashar in Railway dashboard; execution evidence pending next deploy |
-| 119 | Yuna | Wave Q Checkpoint PR and CI Monitor | Ready now |
-| 120 | Yuna | Hosted Preview Wave Q Deploy and Smoke | New after PR/merge approval |
+| 119 | Yuna | Wave Q Checkpoint PR and CI Monitor | Branch pushed; PR creation blocked by unauthenticated GitHub API/browser |
+| 120 | Yuna | Hosted Preview Wave Q Deploy and Smoke | Blocked until PR CI + merge approval |
 | 121 | Jasmine | QA Review Wave Q Follow-Up and Hosted Preview | New after 116–120 |
 
 ## Recommended order
