@@ -101,7 +101,7 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 124 | Ruby | Standard 1v1 Rating Settlement Activation | Complete; Athena verified focused settlement tests |
 | 125 | Luna | Live Standard 1v1 Queue UX | Complete; reconnect blocker fixed by 132 and verified by 133 |
 | 126 | Jasmine | Wave R Standard Queue Integration QA | Complete; original FAIL superseded by Ticket 133 PASS |
-| 127 | Yuna | Wave R Checkpoint PR and CI | Ready now |
+| 127 | Yuna | Wave R Checkpoint PR and CI | Complete; PR #6 checks passed, awaiting Ashar merge approval |
 | 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | Blocked pending PR/merge/main CI |
 | 129 | Jasmine | Final Hosted Wave R QA | Blocked pending hosted deploy |
 
