@@ -39,6 +39,7 @@ const requiredApplicationTables = [
   'RatingProfile',
   'RatingEvent',
   'LeaderboardSnapshot',
+  'MatchmakingTicket',
   'AnalyticsEvent',
   'AuditLog',
 ] as const;

@@ -19,13 +19,15 @@ function createLeaderboardApiPrismaMock() {
   const ratingProfiles = [
     { id: 'rating_ada', userId: users[0]!.id, mode: 'standard_1v1', rating: 1516, matchesPlayed: 4, provisionalRemaining: 6, wins: 3, losses: 1, draws: 0, abandons: 0, peakRating: 1516, ratingDeviation: 300, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[0]! },
     { id: 'rating_zara', userId: users[1]!.id, mode: 'standard_1v1', rating: 1484, matchesPlayed: 4, provisionalRemaining: 0, wins: 1, losses: 3, draws: 0, abandons: 0, peakRating: 1500, ratingDeviation: 90, ratingVolatility: null, lastRatedAt: null, algorithm: 'placement_mmr_v1', algorithmConfigVersion: 'placement_mmr_v1', status: 'active', user: users[1]! },
+    { id: 'rating_ada_standard', userId: users[0]!.id, mode: 'standard_1v1', rating: 1514, matchesPlayed: 1, provisionalRemaining: 9, wins: 1, losses: 0, draws: 0, abandons: 0, peakRating: 1514, ratingDeviation: 290, ratingVolatility: null, lastRatedAt: null, algorithm: 'glicko_style_internal', algorithmConfigVersion: 'standard_1v1_glicko_v1', status: 'active', user: users[0]! },
+    { id: 'rating_zara_standard', userId: users[1]!.id, mode: 'standard_1v1', rating: 1486, matchesPlayed: 1, provisionalRemaining: 9, wins: 0, losses: 1, draws: 0, abandons: 0, peakRating: 1500, ratingDeviation: 290, ratingVolatility: null, lastRatedAt: null, algorithm: 'glicko_style_internal', algorithmConfigVersion: 'standard_1v1_glicko_v1', status: 'active', user: users[1]! },
   ];
 
   const client = {
     ratingProfile: {
       findMany: async (args: any) => ratingProfiles.filter((profile) => (!args.where.userId || profile.userId === args.where.userId)
         && (!args.where.mode || profile.mode === args.where.mode)
-        && profile.algorithmConfigVersion === args.where.algorithmConfigVersion
+        && (!args.where.algorithmConfigVersion || profile.algorithmConfigVersion === args.where.algorithmConfigVersion)
         && profile.status === args.where.status),
       findUnique: async (args: any) => ratingProfiles.find((profile) => profile.userId === args.where.userId_mode_algorithmConfigVersion.userId
         && profile.mode === args.where.userId_mode_algorithmConfigVersion.mode
@@ -75,10 +77,11 @@ describe('leaderboard REST read models', () => {
     const response = await request(app.getHttpServer()).get('/leaderboard?limit=2').expect(200);
 
     assert.equal(response.body.error, null);
-    assert.equal(response.body.data.algorithm, 'placement_mmr_v1');
+    assert.equal(response.body.data.algorithm, 'standard_1v1_glicko_v1');
+    assert.equal(response.body.data.algorithmConfigVersion, 'standard_1v1_glicko_v1');
     assert.deepEqual(response.body.data.entries.map((entry: any) => ({ rank: entry.rank, handle: entry.handle, rating: entry.rating })), [
-      { rank: 1, handle: 'ada', rating: 1516 },
-      { rank: 2, handle: 'zara', rating: 1484 },
+      { rank: 1, handle: 'ada', rating: 1514 },
+      { rank: 2, handle: 'zara', rating: 1486 },
     ]);
   });
 
@@ -92,6 +95,8 @@ describe('leaderboard REST read models', () => {
     assert.equal(response.body.data.matchesPlayed, 0);
     assert.equal(response.body.data.unrated, true);
     assert.equal(response.body.data.provisional, true);
+    assert.equal(response.body.data.algorithm, 'standard_1v1_glicko_v1');
+    assert.equal(response.body.data.algorithmConfigVersion, 'standard_1v1_glicko_v1');
   });
 
   it('serves ranked mode metadata and all per-mode profile ratings', async () => {
@@ -104,5 +109,6 @@ describe('leaderboard REST read models', () => {
     assert.deepEqual(ratings.body.data.ratings.map((rating: any) => rating.mode), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'standard_1v1').unrated, false);
     assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').unrated, true);
+    assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').algorithm, null);
   });
 });

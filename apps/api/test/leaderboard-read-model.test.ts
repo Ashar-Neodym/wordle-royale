@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 
 import { LeaderboardReadService } from '../src/leaderboard/leaderboard-read.service.ts';
 
-const algorithmConfigVersion = 'placement_mmr_v1';
+const algorithmConfigVersion = 'standard_1v1_glicko_v1';
 
 function createLeaderboardPrismaMock() {
   const users = [
@@ -46,7 +46,7 @@ function createLeaderboardPrismaMock() {
       ratingDeviation: 80,
       ratingVolatility: null,
       lastRatedAt: new Date('2026-07-01T00:00:00.000Z'),
-      algorithm: 'placement_mmr_v1',
+      algorithm: 'glicko_style_internal',
       algorithmConfigVersion,
       status: 'active',
       user: users[0]!,
@@ -66,7 +66,7 @@ function createLeaderboardPrismaMock() {
       ratingDeviation: 320,
       ratingVolatility: null,
       lastRatedAt: new Date('2026-07-02T00:00:00.000Z'),
-      algorithm: 'placement_mmr_v1',
+      algorithm: 'glicko_style_internal',
       algorithmConfigVersion,
       status: 'active',
       user: users[1]!,
@@ -86,7 +86,7 @@ function createLeaderboardPrismaMock() {
       ratingDeviation: 180,
       ratingVolatility: null,
       lastRatedAt: null,
-      algorithm: 'placement_mmr_v1',
+      algorithm: 'glicko_style_internal',
       algorithmConfigVersion,
       status: 'active',
       user: users[2]!,
@@ -106,7 +106,7 @@ function createLeaderboardPrismaMock() {
       ratingDeviation: 75,
       ratingVolatility: null,
       lastRatedAt: new Date('2026-07-03T00:00:00.000Z'),
-      algorithm: 'placement_mmr_v1',
+      algorithm: 'glicko_style_internal',
       algorithmConfigVersion,
       status: 'active',
       user: users[1]!,
@@ -118,7 +118,7 @@ function createLeaderboardPrismaMock() {
       findMany: async (args: any) => ratingProfiles.filter((profile) => {
         if (args.where.userId && profile.userId !== args.where.userId) return false;
         if (args.where.mode && profile.mode !== args.where.mode) return false;
-        return profile.algorithmConfigVersion === args.where.algorithmConfigVersion
+        return (!args.where.algorithmConfigVersion || profile.algorithmConfigVersion === args.where.algorithmConfigVersion)
           && profile.status === args.where.status;
       }),
       findUnique: async (args: any) => ratingProfiles.find((profile) => profile.userId === args.where.userId_mode_algorithmConfigVersion.userId
@@ -154,21 +154,28 @@ describe('LeaderboardReadService', () => {
     assert.equal(result.entries.some((entry) => entry.displayName === 'Unrated Local'), false);
   });
 
-  it('keeps mode ladders separate for leaderboard and profile reads', async () => {
+  it('does not expose prepared mode ladders as live rating algorithms', async () => {
     const service = new LeaderboardReadService({ client: createLeaderboardPrismaMock().client } as any);
 
     const speedLeaderboard = await service.listLeaderboard({ mode: 'speed_1v1', limit: 10 });
     assert.equal(speedLeaderboard.mode, 'speed_1v1');
-    assert.deepEqual(speedLeaderboard.entries.map((entry) => ({ handle: entry.handle, rating: entry.rating, mode: entry.mode })), [
-      { handle: 'ada', rating: 1625, mode: 'speed_1v1' },
-    ]);
+    assert.equal(speedLeaderboard.algorithm, null);
+    assert.deepEqual(speedLeaderboard.entries, []);
 
     const standard = await service.getRatedProfileByHandle('ada', { mode: 'standard_1v1' });
     const speed = await service.getRatedProfileByHandle('ada', { mode: 'speed_1v1' });
     assert.equal(standard.rating, 1500);
-    assert.equal(speed.rating, 1625);
-    assert.equal(speed.wins, 8);
-    assert.equal(speed.peakRating, 1650);
+    assert.equal(standard.algorithm, 'standard_1v1_glicko_v1');
+    assert.equal(speed.rating, 1500);
+    assert.equal(speed.matchesPlayed, 0);
+    assert.equal(speed.algorithm, null);
+    assert.equal(speed.unrated, true);
+  });
+
+  it('rejects unknown mode values instead of silently returning Standard', async () => {
+    const service = new LeaderboardReadService({ client: createLeaderboardPrismaMock().client } as any);
+
+    await assert.rejects(service.listLeaderboard({ mode: 'standard_typo' }), /Unsupported ranked mode/);
   });
 
   it('returns all mode rating profiles with unrated defaults for missing modes', async () => {
@@ -179,7 +186,8 @@ describe('LeaderboardReadService', () => {
     assert.deepEqual(ratings.ratings.map((rating) => rating.mode), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(ratings.ratings.find((rating) => rating.mode === 'classic_1v1')?.rating, 1500);
     assert.equal(ratings.ratings.find((rating) => rating.mode === 'classic_1v1')?.unrated, true);
-    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.unrated, false);
+    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.unrated, true);
+    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.algorithm, null);
   });
 
   it('returns default unrated profile data for a known handle without a standard profile', async () => {
@@ -204,6 +212,7 @@ describe('LeaderboardReadService', () => {
 
     assert.deepEqual(modes.map((mode) => mode.id), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(modes.find((mode) => mode.id === 'multiplayer_lobby')?.enabled, false);
+    assert.deepEqual(modes.filter((mode) => mode.enabled).map((mode) => mode.id), ['standard_1v1']);
     assert.equal(modes.every((mode) => mode.defaultRating === 1500), true);
     assert.equal(modes.every((mode) => mode.provisionalGames === 10), true);
   });

@@ -87,21 +87,45 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 |---|---|---|---|
 | 116 | Luna | Profile Mode Card Accuracy Fix | Complete; Athena verified web build |
 | 117 | Freya | Schema-Aware Readiness Check | Complete; Athena verified API tests/build |
-| 118 | Yuna | Railway Pre-Deploy Migration Command | Complete by Ashar in Railway dashboard; execution evidence pending next deploy |
-| 119 | Yuna | Wave Q Checkpoint PR and CI Monitor | Branch pushed; PR creation blocked by unauthenticated GitHub API/browser |
-| 120 | Yuna | Hosted Preview Wave Q Deploy and Smoke | Blocked until PR CI + merge approval |
-| 121 | Jasmine | QA Review Wave Q Follow-Up and Hosted Preview | New after 116–120 |
+| 118 | Yuna | Railway Pre-Deploy Migration Command | Complete; configured manually by Ashar |
+| 119 | Yuna | Wave Q Checkpoint PR and CI Monitor | Complete; PR #5 merged as `b4135e1`, main CI passed |
+| 120 | Yuna | Hosted Preview Wave Q Deploy and Smoke | Complete; hosted runtime smoke passed |
+| 121 | Jasmine | QA Review Wave Q Follow-Up and Hosted Preview | Complete; PASS with non-blocking Railway log warning |
+
+## Wave R — Live Standard 1v1 Matchmaking
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 122 | Elisa | Standard 1v1 Queue Contract and Persistence Decision | Complete; Athena reviewed decision lock |
+| 123 | Freya | Database-Backed Standard 1v1 Queue and Matchmaker | Complete; Athena verified migration/build/tests |
+| 124 | Ruby | Standard 1v1 Rating Settlement Activation | Complete; Athena verified focused settlement tests |
+| 125 | Luna | Live Standard 1v1 Queue UX | Complete; reconnect blocker fixed by 132 and verified by 133 |
+| 126 | Jasmine | Wave R Standard Queue Integration QA | Complete; original FAIL superseded by Ticket 133 PASS |
+| 127 | Yuna | Wave R Checkpoint PR and CI | Ready now |
+| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | Blocked pending PR/merge/main CI |
+| 129 | Jasmine | Final Hosted Wave R QA | Blocked pending hosted deploy |
+
+## Wave R-Fix — Ticket 126 blocker remediation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 130 | Freya | Retry Concurrent Cold-Profile Queue Joins | Complete; Athena verified real-Postgres serialization recovery |
+| 131 | Ruby | Authoritative Standard Rating Read Models | Complete; Athena verified real-Postgres read convergence |
+| 132 | Luna | Bounded Standard Queue Reconnect UX | Complete; Athena verified focused state tests and web build |
+| 133 | Jasmine | Focused Wave R Blocker Recheck | Complete; PASS, all three Ticket 126 blockers cleared |
 
 ## Recommended order
 
-Wave Q status: 116/117 are complete and verified; 118 is blocked from live provider change because the worker shell lacks Railway access. Proceed with checkpointing 116/117 plus the documented 118 block, unless Ashar applies the Railway dashboard setting first.
+Wave Q is complete. Wave R implementation exists, but Ticket 126 returned FAIL and blocks checkpoint/deployment.
 
-Wave Q recommended execution:
+Wave R-Fix recommended execution:
 
-1. Optional manual gate: Ashar can set Railway API pre-deploy command from Ticket 118 dashboard instructions.
-2. Q.1 now: 119 (Yuna PR/CI checkpoint) — include 116/117 fixes and 118 blocked evidence.
-3. Q.2 after PR merge approval/provider migration decision: 120 (Yuna hosted deploy/migration smoke).
-4. Q.3 after deploy: 121 (Jasmine independent QA).
+1. RF.0 parallel: 130 (Freya transaction retry) + 131 (Ruby rating reads) + 132 (Luna reconnect UX).
+2. RF.1 after all three: 133 (Jasmine focused real-Postgres/browser recheck).
+3. Only after Ticket 133 PASS: 127 (Yuna branch/PR/CI; no merge).
+4. Approval gate: Ashar approves PR merge in chat; Athena/Yuna merges and monitors main CI.
+5. Then 128 (Yuna hosted deploy/migration/two-user smoke).
+6. Then 129 (Jasmine final hosted QA).
 
 ## Persistent constraints
 

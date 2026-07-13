@@ -90,6 +90,15 @@ enum RatingProfileStatus {
   reset
 }
 
+enum MatchmakingTicketState {
+  queued
+  matched
+  consumed
+  cancelled
+  timed_out
+  failed
+}
+
 model UserAccount {
   id          String            @id @default(uuid())
   email       String?           @unique
@@ -99,13 +108,15 @@ model UserAccount {
   updatedAt   DateTime          @updatedAt
   deletedAt   DateTime?
 
-  profile         UserProfile?
-  consentRecords  ConsentRecord[]
-  lobbiesHosted   Lobby[]            @relation("LobbyHost")
-  participants    MatchParticipant[]
-  ratingProfiles  RatingProfile[]
-  analyticsEvents AnalyticsEvent[]
-  auditLogs       AuditLog[]         @relation("AuditActor")
+  profile                    UserProfile?
+  consentRecords             ConsentRecord[]
+  lobbiesHosted              Lobby[]             @relation("LobbyHost")
+  participants               MatchParticipant[]
+  ratingProfiles             RatingProfile[]
+  analyticsEvents            AnalyticsEvent[]
+  auditLogs                  AuditLog[]          @relation("AuditActor")
+  matchmakingTickets         MatchmakingTicket[] @relation("MatchmakingTicketUser")
+  matchmakingOpponentTickets MatchmakingTicket[] @relation("MatchmakingTicketOpponent")
 
   @@index([status])
   @@index([createdAt])
@@ -205,6 +216,7 @@ model Match {
   lobbyId                String?
   dictionaryReleaseId    String
   mode                   MatchMode   @default(casual)
+  rankedMode             RankedMode?
   status                 MatchStatus @default(pending)
   algorithmConfigVersion String?
   idempotencyKey         String      @unique
@@ -215,18 +227,20 @@ model Match {
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
 
-  lobby             Lobby?             @relation(fields: [lobbyId], references: [id], onDelete: SetNull)
-  dictionaryRelease DictionaryRelease  @relation(fields: [dictionaryReleaseId], references: [id])
-  rounds            MatchRound[]
-  participants      MatchParticipant[]
-  guessAttempts     GuessAttempt[]
-  scoreBreakdowns   ScoreBreakdown[]
-  report            MatchReport?
-  ratingEvents      RatingEvent[]
-  analyticsEvents   AnalyticsEvent[]
-  auditLogs         AuditLog[]
+  lobby              Lobby?              @relation(fields: [lobbyId], references: [id], onDelete: SetNull)
+  dictionaryRelease  DictionaryRelease   @relation(fields: [dictionaryReleaseId], references: [id])
+  rounds             MatchRound[]
+  participants       MatchParticipant[]
+  guessAttempts      GuessAttempt[]
+  scoreBreakdowns    ScoreBreakdown[]
+  report             MatchReport?
+  ratingEvents       RatingEvent[]
+  analyticsEvents    AnalyticsEvent[]
+  auditLogs          AuditLog[]
+  matchmakingTickets MatchmakingTicket[]
 
   @@index([status, mode, createdAt])
+  @@index([rankedMode, status, createdAt])
   @@index([dictionaryReleaseId])
 }
 
@@ -383,14 +397,50 @@ model RatingEvent {
 }
 
 model LeaderboardSnapshot {
-  id                      String    @id @default(uuid())
+  id                      String     @id @default(uuid())
   mode                    RankedMode @default(standard_1v1)
   algorithmConfigVersion  String
-  generatedAt             DateTime  @default(now())
+  generatedAt             DateTime   @default(now())
   entries                 Json
   sourceEventMaxCreatedAt DateTime?
 
   @@index([mode, algorithmConfigVersion, generatedAt])
+}
+
+model MatchmakingTicket {
+  id                                String                 @id @default(uuid())
+  userId                            String
+  mode                              RankedMode             @default(standard_1v1)
+  rated                             Boolean                @default(true)
+  state                             MatchmakingTicketState @default(queued)
+  ratingAtQueue                     Int
+  provisionalAtQueue                Boolean                @default(true)
+  allowProvisionalOpponent          Boolean                @default(true)
+  searchMinRating                   Int
+  searchMaxRating                   Int
+  expansionStep                     Int                    @default(0)
+  matchedMatchId                    String?
+  matchedOpponentUserId             String?
+  matchedOpponentRatingAtQueue      Int?
+  matchedOpponentProvisionalAtQueue Boolean?
+  idempotencyKey                    String
+  createdAt                         DateTime               @default(now())
+  updatedAt                         DateTime               @updatedAt
+  expiresAt                         DateTime
+  cancelledAt                       DateTime?
+  timedOutAt                        DateTime?
+  failedAt                          DateTime?
+  failureCode                       String?
+
+  user            UserAccount  @relation("MatchmakingTicketUser", fields: [userId], references: [id], onDelete: Cascade)
+  matchedOpponent UserAccount? @relation("MatchmakingTicketOpponent", fields: [matchedOpponentUserId], references: [id], onDelete: SetNull)
+  matchedMatch    Match?       @relation(fields: [matchedMatchId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, mode, idempotencyKey])
+  @@index([mode, state, searchMinRating, searchMaxRating, createdAt])
+  @@index([state, expiresAt])
+  @@index([matchedMatchId])
+  @@index([matchedOpponentUserId])
 }
 
 model AnalyticsEvent {

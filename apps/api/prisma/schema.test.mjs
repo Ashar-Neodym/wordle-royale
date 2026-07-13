@@ -57,3 +57,13 @@ test('schema supports rating events idempotency voids reversals and leaderboard 
   assert.match(modelBody('RatingEvent'), /reversalOfEventId\s+String\?/);
   assert.match(modelBody('RatingProfile'), /algorithmConfigVersion\s+String/);
 });
+
+test('schema persists durable Standard matchmaking tickets and first-class ranked match mode', () => {
+  assertModel('MatchmakingTicket');
+  const ticket = modelBody('MatchmakingTicket');
+  assert.match(schema, /enum\s+MatchmakingTicketState\s+\{[\s\S]*?queued[\s\S]*?matched[\s\S]*?cancelled[\s\S]*?timed_out[\s\S]*?failed/);
+  assert.match(ticket, /mode\s+RankedMode\s+@default\(standard_1v1\)/);
+  assert.match(ticket, /idempotencyKey\s+String/);
+  assert.match(ticket, /expiresAt\s+DateTime/);
+  assert.match(modelBody('Match'), /rankedMode\s+RankedMode\?/);
+});

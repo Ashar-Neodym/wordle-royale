@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import {
   consentScopeSchema,
+  authoritativeRatingAlgorithmByMode,
   createLobbyRequestSchema,
   errorEnvelopeSchema,
   guessAcceptedEventSchema,
   listEnvelopeSchema,
   matchReportSchema,
+  profileRatingSummarySchema,
   rankedMatchResultSummarySchema,
   rankedMatchStartResponseDataSchema,
   ratingEventContractSchema,
@@ -43,6 +45,39 @@ test('REST success and error envelopes validate request metadata', () => {
   });
 
   assert.equal(error.error.code, 'validation_failed');
+});
+
+test('profile rating summaries identify the authoritative Standard algorithm without claiming prepared ladders are live', () => {
+  const standard = profileRatingSummarySchema.parse({
+    mode: 'ranked',
+    rankedMode: 'standard_1v1',
+    rating: 1514,
+    matchesPlayed: 1,
+    provisional: true,
+    algorithm: 'standard_1v1_glicko_v1',
+    algorithmConfigVersion: 'standard_1v1_glicko_v1',
+    rank: 1,
+  });
+  const prepared = profileRatingSummarySchema.parse({
+    mode: 'ranked',
+    rankedMode: 'speed_1v1',
+    rating: 1500,
+    matchesPlayed: 0,
+    provisional: true,
+    algorithm: null,
+    algorithmConfigVersion: null,
+    rank: null,
+    unrated: true,
+  });
+
+  assert.equal(standard.algorithm, 'standard_1v1_glicko_v1');
+  assert.equal(standard.algorithmConfigVersion, 'standard_1v1_glicko_v1');
+  assert.equal(authoritativeRatingAlgorithmByMode.standard_1v1.algorithm, 'standard_1v1_glicko_v1');
+  assert.equal(authoritativeRatingAlgorithmByMode.speed_1v1, null);
+  assert.equal(authoritativeRatingAlgorithmByMode.classic_1v1, null);
+  assert.equal(authoritativeRatingAlgorithmByMode.multiplayer_lobby, null);
+  assert.equal(prepared.algorithm, null);
+  assert.equal(prepared.algorithmConfigVersion, null);
 });
 
 test('validation error details use API-compatible issue arrays', () => {
@@ -142,25 +177,26 @@ test('ranked match start response wraps server-shaped snapshot without answer le
   assert.equal('answer' in response.snapshot.currentRound!, false);
 });
 
-test('rating event contract defaults V1 placement MMR baseline to 1200', () => {
+test('standard 1v1 rating event carries Glicko-ready before/after read fields', () => {
   const event = ratingEventContractSchema.parse({
     eventId: '66666666-6666-4666-8666-666666666666',
     matchId,
-    kind: 'placement_mmr_v1',
+    kind: 'standard_1v1_glicko_v1',
     status: 'applied',
-    idempotencyKey: `rating:${matchId}:placement_mmr_v1`,
-    algorithmVersion: 'placement_mmr_v1',
-    defaultRating: 1200,
+    idempotencyKey: `rating:${matchId}:standard_1v1_glicko_v1`,
+    algorithmVersion: 'standard_1v1_glicko_v1',
+    defaultRating: 1500,
     createdAt: ts,
     appliedAt: ts,
     participants: [
-      { userId: userA, ratingBefore: 1200, ratingAfter: 1216, ratingDelta: 16, placement: 1 },
-      { userId: userB, ratingBefore: 1200, ratingAfter: 1184, ratingDelta: -16, placement: 2 },
+      { userId: userA, ratingBefore: 1500, ratingAfter: 1512, ratingDelta: 12, placement: 1, ratingDeviationBefore: 80, ratingDeviationAfter: 79 },
+      { userId: userB, ratingBefore: 1500, ratingAfter: 1488, ratingDelta: -12, placement: 2, ratingDeviationBefore: 80, ratingDeviationAfter: 79 },
     ],
   });
 
-  assert.equal(event.defaultRating, 1200);
-  assert.equal(event.participants[0]!.ratingDelta, 16);
+  assert.equal(event.defaultRating, 1500);
+  assert.equal(event.algorithmVersion, 'standard_1v1_glicko_v1');
+  assert.equal(event.participants[0]!.ratingDeviationAfter, 79);
 });
 
 test('ranked match result summary includes spoiler-safe post-match action affordances', () => {

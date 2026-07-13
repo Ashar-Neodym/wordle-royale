@@ -1,10 +1,9 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { currentProfileSummarySchema, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, matchHistoryListSchema, matchHistorySummarySchema, publicProfileSummarySchema, rankedModes } from '@wordle-royale/contracts';
+import { authoritativeRatingAlgorithmByMode, currentProfileSummarySchema, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, matchHistoryListSchema, matchHistorySummarySchema, publicProfileSummarySchema, rankedModes } from '@wordle-royale/contracts';
 import type { RankedMode } from '@wordle-royale/contracts';
 import type { CurrentProfileSummary, MatchHistoryList, MatchHistorySummary, PublicProfileSummary } from '@wordle-royale/contracts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
-const DEFAULT_ALGORITHM_CONFIG_VERSION = 'placement_mmr_v1';
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 50;
 const stubCurrentUserId = '11111111-1111-4111-8111-111111111111';
@@ -40,6 +39,9 @@ type RatingProfileRow = {
 type RatingEventRow = {
   userId?: string;
   delta?: number;
+  algorithm?: string;
+  algorithmConfigVersion?: string;
+  voidedByEventId?: string | null;
   metadata?: unknown;
 };
 
@@ -84,12 +86,37 @@ function handleFor(user: UserWithProfile | null | undefined): string | null {
   return user?.profile?.publicHandle?.trim() || null;
 }
 
+function effectiveRatingEvent(participant: MatchParticipantWithUser): RatingEventRow | null {
+  const events = (participant.ratingEvents ?? []).filter((event) => !event.voidedByEventId);
+  return events.find((event) => event.algorithmConfigVersion === 'standard_1v1_glicko_v1')
+    ?? events.find((event) => event.algorithmConfigVersion === 'placement_mmr_v1')
+    ?? null;
+}
+
 function ratingDeltaFor(participant: MatchParticipantWithUser): number | null {
-  const event = participant.ratingEvents?.[0];
+  const event = effectiveRatingEvent(participant);
   if (!event) return null;
   if (typeof event.delta === 'number') return event.delta;
   const metadata = typeof event.metadata === 'object' && event.metadata !== null ? event.metadata as { ratingDelta?: unknown } : {};
   return typeof metadata.ratingDelta === 'number' ? metadata.ratingDelta : null;
+}
+
+function ratingIdentityFor(participants: MatchParticipantWithUser[]): {
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithmConfigVersion: string | null;
+} {
+  const events = participants.map(effectiveRatingEvent).filter((event): event is RatingEventRow => event !== null);
+  const versions = new Set(events.map((event) => event.algorithmConfigVersion).filter(Boolean));
+  if (versions.size !== 1) return { algorithm: null, algorithmConfigVersion: null };
+  const event = events[0];
+  if (!event?.algorithmConfigVersion) return { algorithm: null, algorithmConfigVersion: null };
+  if (event.algorithmConfigVersion === 'standard_1v1_glicko_v1') {
+    return { algorithm: 'standard_1v1_glicko_v1', algorithmConfigVersion: event.algorithmConfigVersion };
+  }
+  if (event.algorithmConfigVersion === 'placement_mmr_v1') {
+    return { algorithm: 'placement_mmr_v1', algorithmConfigVersion: event.algorithmConfigVersion };
+  }
+  return { algorithm: null, algorithmConfigVersion: null };
 }
 
 function normalizeStatus(status: string): MatchHistorySummary['status'] {
@@ -154,7 +181,10 @@ export class ProfileReadService {
         participants: {
           include: {
             user: { include: { profile: true } },
-            ratingEvents: { where: { type: 'apply' }, orderBy: { createdAt: 'asc' }, take: 1 },
+            ratingEvents: {
+              where: { type: 'apply', voidedByEventId: null },
+              orderBy: { createdAt: 'desc' },
+            },
           },
           orderBy: [{ placement: 'asc' }, { seatNumber: 'asc' }],
         },
@@ -191,10 +221,13 @@ export class ProfileReadService {
       };
     });
     const viewer = dataParticipants.find((participant) => participant.userId === viewerUserId) ?? null;
+    const ratingIdentity = ratingIdentityFor(participants);
     return matchHistorySummarySchema.parse({
       matchId: match.id,
       mode: normalizeMode(match.mode),
       status: normalizeStatus(match.status),
+      ratingAlgorithm: ratingIdentity.algorithm,
+      ratingAlgorithmConfigVersion: ratingIdentity.algorithmConfigVersion,
       startedAt: isoOrNull(match.startedAt ?? match.createdAt),
       completedAt: isoOrNull(match.completedAt),
       participants: dataParticipants,
@@ -220,32 +253,40 @@ export class ProfileReadService {
   private async baseProfileSummary(user: UserWithProfile): Promise<Omit<CurrentProfileSummary, 'recentMatches'>> {
     const handle = handleFor(user) ?? defaultHandle;
     const ratingProfiles = await (this.prisma.client as any).ratingProfile.findMany?.({
-      where: { userId: user.id, algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION, status: 'active' },
+      where: { userId: user.id, status: 'active' },
       orderBy: [{ mode: 'asc' }],
     }) as RatingProfileRow[] | undefined;
-    const profilesByMode = new Map((ratingProfiles ?? []).map((row) => [normalizeRankedMode(row.mode), row]));
+    const profilesByMode = new Map((ratingProfiles ?? [])
+      .filter((row) => {
+        const mode = normalizeRankedMode(row.mode);
+        return row.algorithmConfigVersion === authoritativeRatingAlgorithmByMode[mode]?.algorithmConfigVersion;
+      })
+      .map((row) => [normalizeRankedMode(row.mode), row]));
     const ratingProfile = profilesByMode.get(defaultRankedMode) ?? null;
     const rank = await this.rankFor(user.id);
-    const toRatingSummary = (profile: RatingProfileRow | null, mode: RankedMode, modeRank: number | null) => ({
-      mode: 'ranked' as const,
-      rankedMode: mode,
-      rating: profile?.rating ?? defaultRating,
-      matchesPlayed: profile?.matchesPlayed ?? 0,
-      provisional: (profile?.provisionalRemaining ?? defaultProvisionalGames) > 0,
-      provisionalRemaining: profile?.provisionalRemaining ?? defaultProvisionalGames,
-      wins: profile?.wins ?? 0,
-      losses: profile?.losses ?? 0,
-      draws: profile?.draws ?? 0,
-      abandons: profile?.abandons ?? 0,
-      peakRating: profile?.peakRating ?? profile?.rating ?? defaultRating,
-      ratingDeviation: profile?.ratingDeviation ?? defaultRatingDeviation,
-      ratingVolatility: profile?.ratingVolatility ?? null,
-      lastRatedAt: isoOrNull(profile?.lastRatedAt),
-      algorithm: 'placement_mmr_v1' as const,
-      algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION,
-      rank: modeRank,
-      unrated: !profile,
-    });
+    const toRatingSummary = (profile: RatingProfileRow | null, mode: RankedMode, modeRank: number | null) => {
+      const mapping = authoritativeRatingAlgorithmByMode[mode];
+      return {
+        mode: 'ranked' as const,
+        rankedMode: mode,
+        rating: profile?.rating ?? defaultRating,
+        matchesPlayed: profile?.matchesPlayed ?? 0,
+        provisional: (profile?.provisionalRemaining ?? defaultProvisionalGames) > 0,
+        provisionalRemaining: profile?.provisionalRemaining ?? defaultProvisionalGames,
+        wins: profile?.wins ?? 0,
+        losses: profile?.losses ?? 0,
+        draws: profile?.draws ?? 0,
+        abandons: profile?.abandons ?? 0,
+        peakRating: profile?.peakRating ?? profile?.rating ?? defaultRating,
+        ratingDeviation: profile?.ratingDeviation ?? defaultRatingDeviation,
+        ratingVolatility: profile?.ratingVolatility ?? null,
+        lastRatedAt: isoOrNull(profile?.lastRatedAt),
+        algorithm: mapping?.algorithm ?? null,
+        algorithmConfigVersion: mapping?.algorithmConfigVersion ?? null,
+        rank: modeRank,
+        unrated: !profile,
+      };
+    };
     const rating = toRatingSummary(ratingProfile, defaultRankedMode, rank);
     return {
       userId: user.id,
@@ -258,14 +299,15 @@ export class ProfileReadService {
   }
 
   private async rankFor(userId: string): Promise<number | null> {
+    const standardMapping = authoritativeRatingAlgorithmByMode.standard_1v1;
     const rows = await (this.prisma.client as any).ratingProfile.findMany?.({
-      where: { mode: defaultRankedMode, algorithmConfigVersion: DEFAULT_ALGORITHM_CONFIG_VERSION, status: 'active' },
+      where: { mode: defaultRankedMode, algorithmConfigVersion: standardMapping.algorithmConfigVersion, status: 'active' },
       orderBy: [{ rating: 'desc' }, { matchesPlayed: 'desc' }, { userId: 'asc' }],
       take: 500,
     }) as RatingProfileRow[] | undefined;
     if (!rows) return null;
     const sorted = rows
-      .filter((row) => row.algorithm === 'placement_mmr_v1')
+      .filter((row) => row.algorithmConfigVersion === standardMapping.algorithmConfigVersion)
       .sort((left, right) => (right.rating - left.rating) || (right.matchesPlayed - left.matchesPlayed) || left.userId.localeCompare(right.userId));
     const index = sorted.findIndex((row) => row.userId === userId);
     return index >= 0 ? index + 1 : null;

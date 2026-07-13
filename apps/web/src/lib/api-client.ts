@@ -53,14 +53,14 @@ export type LeaderboardEntry = {
   matchesPlayed: number;
   provisional: boolean;
   provisionalRemaining: number;
-  algorithm: 'placement_mmr_v1';
-  algorithmConfigVersion: string;
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithmConfigVersion: string | null;
 };
 
 export type LeaderboardPayload = {
-  mode: 'ranked';
-  algorithm: 'placement_mmr_v1';
-  algorithmConfigVersion: string;
+  mode: 'standard_1v1' | 'speed_1v1' | 'classic_1v1' | 'multiplayer_lobby';
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithmConfigVersion: string | null;
   generatedAt: string;
   entries: LeaderboardEntry[];
 };
@@ -73,9 +73,47 @@ export type RatedProfilePayload = {
   matchesPlayed: number;
   provisional: boolean;
   provisionalRemaining: number;
-  algorithm: 'placement_mmr_v1';
-  algorithmConfigVersion: string;
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithmConfigVersion: string | null;
   unrated: boolean;
+};
+
+export type Standard1v1TicketState = 'queued' | 'matched' | 'cancelled' | 'timed_out' | 'failed';
+
+export type Standard1v1Ticket = {
+  ticketId: string;
+  state: Standard1v1TicketState;
+  mode: 'standard_1v1';
+  rated: true;
+  userId: string;
+  ratingAtQueue: number;
+  provisional: boolean;
+  searchWindow: {
+    minRating: number;
+    maxRating: number;
+    expansionStep: 0 | 1 | 2 | 3 | 4;
+  };
+  estimatedWaitSeconds: number | null;
+  matchedMatchId: string | null;
+  matchedOpponent?: {
+    userId: string;
+    displayName: string;
+    handle: string | null;
+    ratingAtQueue: number;
+    provisional: boolean;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  cancelledAt: string | null;
+  timedOutAt: string | null;
+};
+
+export type CreateStandard1v1TicketRequest = {
+  clientRequestId: string;
+  mode: 'standard_1v1';
+  rated: true;
+  allowProvisionalOpponent?: boolean;
 };
 
 export type WebApiSnapshot = {
@@ -144,6 +182,10 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
       }),
     ]);
 
+    if (response.status === 204) {
+      return { status: 'connected', apiUrl, data: null, requestId: response.headers.get('x-request-id'), error: null };
+    }
+
     const envelope = (await response.json()) as ApiEnvelope<T>;
     if (!response.ok || envelope.error) {
       const code = envelope.error?.code ? `${envelope.error.code}: ` : '';
@@ -190,6 +232,29 @@ export async function joinLobby(lobbyId: string, clientRequestId: string): Promi
   return requestEnvelope<LobbyDto>(`/lobbies/${encodeURIComponent(lobbyId)}/join`, {
     method: 'POST',
     body: JSON.stringify({ clientRequestId }),
+  });
+}
+
+export async function createStandard1v1Ticket(body: CreateStandard1v1TicketRequest): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return requestEnvelope<Standard1v1Ticket>('/matchmaking/standard-1v1/tickets', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    timeoutMs: 5000,
+  });
+}
+
+export async function getCurrentStandard1v1Ticket(): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return requestEnvelope<Standard1v1Ticket>('/matchmaking/standard-1v1/tickets/current', { timeoutMs: 5000 });
+}
+
+export async function getStandard1v1Ticket(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return requestEnvelope<Standard1v1Ticket>(`/matchmaking/standard-1v1/tickets/${encodeURIComponent(ticketId)}`, { timeoutMs: 5000 });
+}
+
+export async function cancelStandard1v1Ticket(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return requestEnvelope<Standard1v1Ticket>(`/matchmaking/standard-1v1/tickets/${encodeURIComponent(ticketId)}`, {
+    method: 'DELETE',
+    timeoutMs: 5000,
   });
 }
 

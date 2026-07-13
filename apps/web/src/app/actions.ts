@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { completeRankedMatch, createLobby, getApiBaseUrl, joinLobby, joinLobbyByCode, startRankedMatch, submitGuess } from '../lib/api-client';
+import { cancelStandard1v1Ticket, completeRankedMatch, createLobby, createStandard1v1Ticket, getApiBaseUrl, getCurrentStandard1v1Ticket, getStandard1v1Ticket, joinLobby, joinLobbyByCode, startRankedMatch, submitGuess } from '../lib/api-client';
+import type { ApiClientResult, CreateStandard1v1TicketRequest, Standard1v1Ticket } from '../lib/api-client';
 import type { CreateLobbyRequest } from '@wordle-royale/contracts';
 
 const rankedLobbyDefaults: CreateLobbyRequest = {
@@ -109,6 +110,28 @@ export async function startPreviewDemoSessionAction(formData: FormData): Promise
   }
 
   redirectWithParams(redirectTo, { action: 'preview_demo', status, message });
+}
+
+export async function createStandard1v1TicketAction(): Promise<ApiClientResult<Standard1v1Ticket>> {
+  const body: CreateStandard1v1TicketRequest = {
+    clientRequestId: randomUUID(),
+    mode: 'standard_1v1',
+    rated: true,
+    allowProvisionalOpponent: true,
+  };
+  return createStandard1v1Ticket(body);
+}
+
+export async function getCurrentStandard1v1TicketAction(): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return getCurrentStandard1v1Ticket();
+}
+
+export async function getStandard1v1TicketAction(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return getStandard1v1Ticket(ticketId);
+}
+
+export async function cancelStandard1v1TicketAction(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
+  return cancelStandard1v1Ticket(ticketId);
 }
 
 export async function createRankedLobbyAction(): Promise<void> {

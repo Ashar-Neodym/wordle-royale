@@ -9,7 +9,11 @@ const participantTwoId = '22222222-2222-4222-8222-222222222222';
 const userOneId = '33333333-3333-4333-8333-333333333331';
 const userTwoId = '33333333-3333-4333-8333-333333333332';
 
-function createRatingPrismaMock() {
+function createRatingPrismaMock(options: {
+  algorithmConfigVersion?: string;
+  rankedMode?: string | null;
+  mode?: string;
+} = {}) {
   const created: {
     match: any[];
     matchParticipant: any[];
@@ -17,7 +21,14 @@ function createRatingPrismaMock() {
     ratingEvent: any[];
     matchReport: any[];
   } = {
-    match: [{ id: matchId, mode: 'ranked', status: 'active', algorithmConfigVersion: 'placement_mmr_v1', completedAt: null }],
+    match: [{
+      id: matchId,
+      mode: options.mode ?? 'ranked',
+      rankedMode: options.rankedMode ?? null,
+      status: 'active',
+      algorithmConfigVersion: options.algorithmConfigVersion ?? 'placement_mmr_v1',
+      completedAt: null,
+    }],
     matchParticipant: [
       { id: participantOneId, matchId, userId: userOneId, seatNumber: 1, outcome: 'solved', placement: null, finalScore: 820 },
       { id: participantTwoId, matchId, userId: userTwoId, seatNumber: 2, outcome: 'failed', placement: null, finalScore: 120 },
@@ -27,8 +38,19 @@ function createRatingPrismaMock() {
     matchReport: [],
   };
 
+  let transactionTail = Promise.resolve();
   const client: any = {
-    $transaction: async (callback: (tx: any) => Promise<any>) => callback(client),
+    $transaction: async (callback: (tx: any) => Promise<any>) => {
+      const prior = transactionTail;
+      let release!: () => void;
+      transactionTail = new Promise<void>((resolve) => { release = resolve; });
+      await prior;
+      try {
+        return await callback(client);
+      } finally {
+        release();
+      }
+    },
     match: {
       findUnique: async (args: any) => created.match.find((row) => row.id === args.where.id) ?? null,
       update: async (args: any) => {
@@ -170,5 +192,84 @@ describe('GameplayPersistenceService rating finalization', () => {
     assert.equal(created.ratingEvent.length, 0);
     assert.equal(created.ratingProfile.length, 0);
     assert.equal(created.matchReport[0].publicSummary.ratingEvent, null);
+  });
+
+  it('settles standard_1v1 with Glicko-ready profile and event fields exactly once', async () => {
+    const { client, created } = createRatingPrismaMock({
+      algorithmConfigVersion: 'standard_1v1_glicko_v1',
+      rankedMode: 'standard_1v1',
+    });
+    const service = new GameplayPersistenceService({ client } as any);
+
+    const first = await service.finalizeRankedMatchRatings({ matchId, now: new Date('2026-07-10T00:00:00.000Z') });
+    const replay = await service.finalizeRankedMatchRatings({ matchId, now: new Date('2026-07-10T00:01:00.000Z') });
+
+    assert.equal(first.ratingEvent?.kind, 'standard_1v1_glicko_v1');
+    assert.equal(first.ratingEvent?.algorithmVersion, 'standard_1v1_glicko_v1');
+    assert.deepEqual(first.ratingEvent?.participants.map((participant) => participant.ratingDelta), [14, -14]);
+    assert.ok((first.ratingEvent?.participants[0]?.ratingDeviationAfter ?? 999) < 350);
+    assert.deepEqual(replay.ratingEvent, first.ratingEvent);
+    assert.equal(created.ratingEvent.length, 2);
+    assert.deepEqual(created.ratingProfile.map((profile) => ({
+      mode: profile.mode,
+      algorithm: profile.algorithm,
+      rating: profile.rating,
+      provisionalRemaining: profile.provisionalRemaining,
+      wins: profile.wins,
+      losses: profile.losses,
+    })), [
+      { mode: 'standard_1v1', algorithm: 'glicko_style_internal', rating: 1514, provisionalRemaining: 9, wins: 1, losses: 0 },
+      { mode: 'standard_1v1', algorithm: 'glicko_style_internal', rating: 1486, provisionalRemaining: 9, wins: 0, losses: 1 },
+    ]);
+  });
+
+  it('settles standard_1v1 draws and abandons from server-authoritative outcomes', async () => {
+    const drawMock = createRatingPrismaMock({ algorithmConfigVersion: 'standard_1v1_glicko_v1', rankedMode: 'standard_1v1' });
+    drawMock.created.matchParticipant[1].finalScore = drawMock.created.matchParticipant[0].finalScore;
+    const drawService = new GameplayPersistenceService({ client: drawMock.client } as any);
+    const draw = await drawService.finalizeRankedMatchRatings({ matchId });
+    assert.deepEqual(draw.ratingEvent?.participants.map((participant) => participant.ratingDelta), [0, 0]);
+    assert.deepEqual(drawMock.created.ratingProfile.map((profile) => profile.draws), [1, 1]);
+
+    const abandonMock = createRatingPrismaMock({ algorithmConfigVersion: 'standard_1v1_glicko_v1', rankedMode: 'standard_1v1' });
+    abandonMock.created.matchParticipant[0].outcome = 'abandoned';
+    abandonMock.created.matchParticipant[0].finalScore = abandonMock.created.matchParticipant[1].finalScore;
+    const abandonService = new GameplayPersistenceService({ client: abandonMock.client } as any);
+    const abandon = await abandonService.finalizeRankedMatchRatings({ matchId, reason: 'abandoned' });
+    assert.equal(abandon.finalStandings[0]?.userId, userTwoId);
+    assert.deepEqual(abandonMock.created.ratingProfile.map((profile) => ({ userId: profile.userId, wins: profile.wins, losses: profile.losses, abandons: profile.abandons })), [
+      { userId: userTwoId, wins: 1, losses: 0, abandons: 0 },
+      { userId: userOneId, wins: 0, losses: 1, abandons: 1 },
+    ]);
+  });
+
+  it('serializes concurrent standard_1v1 settlement attempts without duplicate events', async () => {
+    const { client, created } = createRatingPrismaMock({ algorithmConfigVersion: 'standard_1v1_glicko_v1', rankedMode: 'standard_1v1' });
+    const service = new GameplayPersistenceService({ client } as any);
+
+    const [first, second] = await Promise.all([
+      service.completeRankedMatch({ matchId, now: new Date('2026-07-10T00:00:00.000Z') }),
+      service.completeRankedMatch({ matchId, now: new Date('2026-07-10T00:00:00.000Z') }),
+    ]);
+
+    assert.deepEqual(second.ratingEvent, first.ratingEvent);
+    assert.equal(created.ratingEvent.length, 2);
+    assert.deepEqual(created.ratingProfile.map((profile) => profile.matchesPlayed), [1, 1]);
+  });
+
+  it('does not rate unranked matches or non-standard Glicko-tagged matches', async () => {
+    const unranked = createRatingPrismaMock({ mode: 'casual' });
+    await assert.rejects(
+      () => new GameplayPersistenceService({ client: unranked.client } as any).finalizeRankedMatchRatings({ matchId }),
+      /Only ranked matches/,
+    );
+    assert.equal(unranked.created.ratingEvent.length, 0);
+
+    const unsupported = createRatingPrismaMock({ algorithmConfigVersion: 'standard_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    await assert.rejects(
+      () => new GameplayPersistenceService({ client: unsupported.client } as any).finalizeRankedMatchRatings({ matchId }),
+      /Only standard_1v1 settlement is active/,
+    );
+    assert.equal(unsupported.created.ratingEvent.length, 0);
   });
 });
