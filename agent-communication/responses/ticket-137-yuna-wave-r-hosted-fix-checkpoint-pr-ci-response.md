@@ -2,11 +2,11 @@
 
 Task: Wave R Hosted-Fix Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 136 PASS and local gates confirmed; branch/PR/remote CI pending
+Status: Completed — checkpoint pushed, PR opened, GitHub Actions and Vercel checks passed; not merged or deployed to hosted API/data
 
 ## What I understood
 
-Checkpoint only the intended Ticket 128 and 134–136 evidence plus the reviewed dictionary-only preview bootstrap/readiness implementation on `wave-r/preview-dictionary-bootstrap`. Run the canonical local gates and a real-PostgreSQL disposable-schema integration, push the branch, open a PR to `main`, monitor GitHub/Vercel checks, and stop before merge/deploy/hosted-data mutation.
+Checkpoint only the intended Ticket 128 and 134–136 evidence plus the reviewed dictionary-only preview bootstrap/readiness implementation on `wave-r/preview-dictionary-bootstrap`. Run canonical local gates and a real-PostgreSQL disposable-schema integration, push the branch, open a PR to `main`, monitor GitHub and Vercel checks, and stop before merge/deployment/hosted-data mutation.
 
 ## QA prerequisite
 
@@ -21,46 +21,30 @@ Independent QA confirmed:
 - idempotent rerun;
 - no fixture users/profiles/ratings/lobbies/matches created by bootstrap;
 - readiness transition to `ok`;
-- one shared non-self Standard match for two distinct users after bootstrap;
+- one shared non-self Standard match after bootstrap;
 - production rejection of the preview fixture.
 
-No hosted data-operation approval was granted by Ticket 136.
+No hosted data-operation approval was granted by Ticket 136 or this checkpoint.
 
 ## Intended scope
 
-Included source/config:
+Checkpoint included 30 intended source/config/test/docs/ticket/response paths.
 
-- `README.md`
-- `apps/api/package.json`
-- `apps/api/prisma/bootstrap-preview-dictionary.ts`
-- `apps/api/prisma/dictionary-fixture.ts`
-- `apps/api/prisma/dictionary-fixture.test.mjs`
-- `apps/api/prisma/seed-fixtures.ts`
-- `apps/api/scripts/run-preview-dictionary-postgres-integration.mjs`
-- `apps/api/src/app.module.ts`
-- `apps/api/src/dictionary/standard-dictionary.service.ts`
-- `apps/api/src/health/readiness.service.ts`
-- `apps/api/src/matchmaking/matchmaking-config.ts`
-- `apps/api/src/matchmaking/matchmaking.service.ts`
-- `apps/api/test/api-skeleton.test.ts`
-- `apps/api/test/matchmaking.test.ts`
-- `apps/api/test/preview-dictionary-postgres.integration.test.ts`
-- `apps/api/test/readiness-dictionary.test.ts`
-- `apps/api/test/standard-dictionary.test.ts`
-- `scripts/api-prod-start-smoke.mjs`
+Core implementation includes:
 
-Included evidence/docs:
+- guarded dictionary-only bootstrap CLI;
+- exact deterministic fixture plan and tests;
+- environment-aware dictionary selection service;
+- Standard dictionary readiness dependency;
+- pre-write and pair-time dictionary eligibility checks;
+- disposable PostgreSQL integration harness;
+- production-start smoke adjustment for queue-disabled startup validation.
 
-- Ticket 128 response.
-- Tickets/responses 134–136.
-- Ticket 137 assignment and this response.
-- Athena dictionary-bootstrap review.
-- Elisa preview dictionary/bootstrap readiness contract.
-- communication index update.
+Evidence includes Ticket 128, Tickets/responses 134–137, Athena's Ticket 128 review, Elisa's readiness contract, README operator guidance, and the communication index update.
 
 ## Local verification
 
-Canonical gates passed:
+Canonical gates:
 
 ```text
 CI=true pnpm install --frozen-lockfile -> 0
@@ -90,7 +74,7 @@ rating-tools: 14 passed, 0 failed
 secret scan: 214 source/config files scanned
 ```
 
-Dry-run aggregate output:
+Dry-run aggregate:
 
 ```text
 releaseId = dict_en_5_test_vfixture_001
@@ -105,71 +89,125 @@ productionApproved = false
 result = planned
 ```
 
-No words, database URL, cookies, provider secrets, or credentials were printed by the bootstrap dry-run.
+No dictionary words, database URL, cookies, provider secrets, or credentials were printed by the dry-run.
 
 ## Real-PostgreSQL integration
 
-The first command invocation without an explicit disposable local database URL correctly failed closed before any database operation:
+The first invocation without an explicit disposable database URL failed closed as designed before database access:
 
 ```text
 Set PREVIEW_DICTIONARY_TEST_DATABASE_URL (or DATABASE_URL) to a disposable local PostgreSQL database.
 exit 1
 ```
 
-The local Compose PostgreSQL dependency was then started and the integration rerun with an explicit local test database URL supplied only to the process:
+After starting local Compose dependencies, the integration was rerun with an explicit local test database URL supplied only to the process:
 
 ```text
-3 migrations applied to unique disposable schema
+unique disposable schema created
+3 migrations applied
 3 integration tests passed
 0 failed/skipped
 disposable schema dropped
 exit 0
 ```
 
-Verified behaviors:
+Verified:
 
 1. unavailable readiness and zero-write first joins before bootstrap;
-2. exact dictionary-only first apply and idempotent rerun;
+2. exact dictionary-only apply and idempotent rerun;
 3. readiness transition to `ok`;
 4. ineligible-release pairing rollback;
 5. one exact-release shared non-self match after bootstrap.
 
-Local PostgreSQL/Redis containers and the Compose network were removed afterward.
+Local PostgreSQL/Redis containers and Compose network were removed afterward.
+
+## Git checkpoint
+
+```text
+branch = wave-r/preview-dictionary-bootstrap
+checkpoint commit = 838370b7612719e77bf648fc5d8ab6443a09a00a
+remote checkpoint read-back = 838370b7612719e77bf648fc5d8ab6443a09a00a
+staged_count = 30
+blocked_staged = []
+```
+
+Three handoff Markdown files received mechanical trailing-whitespace normalization before commit; no semantic content was altered.
+
+## Pull request
+
+```text
+PR #7
+https://github.com/Ashar-Neodym/wordle-royale/pull/7
+base = main
+head = wave-r/preview-dictionary-bootstrap
+state = open
+```
+
+## Initial remote checks
+
+All terminal-success:
+
+```text
+Workspace checks = pass (1m6s)
+https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29240862091/job/86786315040
+
+Vercel = pass
+https://vercel.com/ashar-neodyms-projects/wordle-royale-web/6V6mCuDMRpKxBWLU1Qw188itXvzV
+
+Vercel Preview Comments = pass
+```
+
+The Vercel result is a PR preview check only. No production Vercel deployment, Railway API deployment, Supabase mutation, or provider configuration change was requested or performed.
+
+A final documentation-only evidence commit follows this checkpoint and retriggers checks; current terminal status should be read from PR #7 before merge consideration.
 
 ## Artifact and secret hygiene
 
 Excluded and unstaged:
 
 - `.env.preview.local`
-- `apps/api/dist/`
-- `apps/mobile/.expo/`
-- `apps/web/.next/`
-- `apps/web/tsconfig.tsbuildinfo`
-- generated package `dist/` and `node_modules/` paths
+- generated `dist/`, `.next/`, `.expo/`, `node_modules/`, and TypeScript build-info paths
+- database dumps and logs
 
-No env files, credentials, database dumps, logs, or generated build outputs are intended for the checkpoint.
-
-## Git / PR / CI evidence
-
-Pending until branch creation, push, PR creation, and terminal check monitoring.
+`git diff --cached --check`, staged safety inspection, and source/config secret scan passed.
 
 ## Safety boundary
 
-This checkpoint does **not** authorize or perform:
+Not performed or authorized:
 
 - PR merge;
-- deployment;
+- push to `main`;
+- Railway API deployment;
+- production Vercel deployment;
 - hosted Supabase dictionary bootstrap;
-- `db:seed:local` on hosted preview;
+- hosted `db:seed:local`;
 - provider env/secret changes;
 - paid resource changes.
 
-Even after a future merge, hosted dictionary bootstrap remains blocked until Ashar explicitly approves the exact reviewed dictionary-only data operation in chat.
+Even after a future merge, the hosted dictionary bootstrap remains blocked until Ashar explicitly approves the exact reviewed dictionary-only data operation in chat.
 
 ## Follow-up tickets
 
-Pending final PR/check status. At minimum:
+### Follow-up ticket 1
 
-- Ashar/Athena: review the PR and explicitly decide merge; do not infer hosted-data approval from merge approval.
-- Yuna: after merge/current-main CI and separate explicit hosted-data approval, execute only the guarded dictionary-only bootstrap and resume Ticket 128 smoke.
-- Jasmine: independently verify resumed hosted Wave R behavior after the approved bootstrap.
+- Target agent: Ashar/Athena
+- Why needed: human/orchestrator approval gate.
+- Exact task: Review PR #7 and its terminal checks. Explicitly approve or reject merge. Merge approval must not be interpreted as hosted-data-mutation approval.
+- Inputs/context: PR #7, Ticket 136 PASS, this response.
+- Expected output back to Athena: merge decision and, separately, whether to request hosted dictionary bootstrap approval.
+
+### Follow-up ticket 2
+
+- Target agent: Yuna
+- Why needed: controlled hosted operation.
+- Exact task: Only after PR #7 is merged, current-main CI is green, and Ashar separately approves the hosted data mutation, execute the exact guarded dictionary-only bootstrap and resume Ticket 128 smoke.
+- Inputs/context: current main SHA, provider access, reviewed command, explicit approval, rollback notes.
+- Expected output back to Athena: aggregate bootstrap output, readiness transition, two-session shared-match/reconnect/settlement evidence, and rollback status.
+
+### Follow-up ticket 3
+
+- Target agent: Jasmine
+- Why needed: independent hosted verification.
+- Exact task: After Yuna's approved hosted bootstrap and resumed Ticket 128 PASS, independently verify hosted Standard queue, shared match, reconnect, spoiler safety, and rating convergence.
+- Inputs/context: hosted URLs and corrected Ticket 128/Yuna evidence.
+- Expected output back to Athena: final hosted PASS/WARN/FAIL.
