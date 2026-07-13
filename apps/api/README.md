@@ -18,7 +18,7 @@ Implemented local foundational routes:
 - `POST /lobbies/join-code` — join by code stub using `joinLobbyByCodeRequestSchema`.
 - `POST /lobbies/:lobbyId/join` — join lobby stub using client request validation.
 - `GET /leaderboard?limit=20` — ranked leaderboard read model from durable `RatingProfile` rows.
-- `GET /profiles/:handle/rating` — rated profile read model with default unrated `1200` behavior.
+- `GET /profiles/:handle/rating` — authoritative Standard rated profile read model with default unrated `1500` behavior.
 
 Responses use a shared envelope shape:
 
@@ -96,7 +96,7 @@ The slice does not introduce a full matchmaking queue. Start readiness stays ser
 
 Current service boundary:
 
-- `startRankedMatch({ dictionaryReleaseId, participantUserIds, idempotencyKey, lobbyId?, now? })`
+- `startRankedMatch({ dictionaryReleaseId, participantUserIds, idempotencyKey, lobbyId?, rankedMode?, now? })`
   - Requires at least two participants.
   - Creates a ranked active `Match`.
   - Creates `MatchParticipant` rows.
@@ -115,25 +115,37 @@ This is intentionally a service-level slice, not a public route yet. Future rout
 Ranked/MMR finalization slice:
 
 - `finalizeRankedMatchRatings({ matchId, reason?, now? })`
-  - Loads persisted ranked participants and computes final standings from server-side `finalScore` values.
-  - Uses placeholder V1 algorithm `placement_mmr_v1`: unrated players start at shared contract default `1200`; a two-player decisive match applies `+16/-16`, with larger matches scaled by placement around the field midpoint and ties sharing placement.
-  - Runs inside a Prisma transaction when available.
-  - Persists one per-participant `RatingEvent` row with reversal/void compatibility fields (`voidedByEventId`, `reversalOfEventId`) left null for applied events and a shared logical idempotency key in metadata: `rating:<matchId>:placement_mmr_v1`.
-  - Updates/creates ranked `RatingProfile` rows, writes final participant placement, completes the match, and upserts a spoiler-safe `MatchReport.publicSummary`.
-  - Is idempotent: if applied rating events already exist for the match + algorithm, it reconstructs the shared result summary and does not apply deltas twice.
-  - Does not apply rating events for voided matches; the result summary records `ratingEvent: null`.
+  - Loads persisted ranked participants and computes final standings from server-authoritative scores/outcomes; an abandoned player is adjudicated as the loser.
+  - Queue-created `standard_1v1` matches use `standard_1v1_glicko_v1`: initial rating `1500`, initial RD `350`, 10 provisional games, established K `24`, established cap `40`, provisional cap `64`, and inactivity RD inflation of `25` per completed 30-day period.
+  - Updates both Standard profiles and appends both per-participant rating events in one Prisma transaction. Event metadata records rating/RD before and after, expected/actual score, rounding policy, and bounded settlement drift.
+  - Legacy lobby-backed ranked matches retain `placement_mmr_v1`; Speed, Classic, and Multiplayer settlement are rejected until separately activated.
+  - Is idempotent for retries and concurrent attempts: per-participant event keys derive from `rating:<matchId>:<algorithmVersion>`, and unique-key races recover by reading the committed event pair.
+  - Decrements provisional counters, updates W/L/D/abandon counters, peak rating, RD, and `lastRatedAt`.
+  - Does not apply rating events for voided or unranked matches; result summaries expose before/after delta and Glicko-ready RD fields only after completion.
 
 ## Leaderboard and rated profile read model
 
-`src/leaderboard/leaderboard-read.service.ts` provides the first local-first competitive read model on top of `RatingProfile` rows:
+`src/leaderboard/leaderboard-read.service.ts` provides the competitive read model on top of authoritative `RatingProfile` rows:
 
-- `listLeaderboard({ limit?, algorithmConfigVersion?, now? })`
-  - Reads active ranked `RatingProfile` rows for `placement_mmr_v1`.
+- `listLeaderboard({ limit?, mode?, now? })`
+  - Resolves the requested ranked mode through `authoritativeRatingAlgorithmByMode`.
+  - Standard 1v1 reads only active `standard_1v1_glicko_v1` profiles, even when an older active `placement_mmr_v1` row coexists for the same user/mode.
   - Sorts deterministically by rating descending, matches played descending, then handle/display identity.
-  - Returns rank, user id, handle, display name, rating, matches played, provisional status, and provisional remaining count.
-- `getRatedProfileByHandle(handle)`
-  - Resolves a public profile handle to a rated profile summary.
-  - Uses the shared unrated default rating `1200`, `matchesPlayed: 0`, and `provisional: true` for known users without a ranked profile yet.
+  - Returns rank, user id, handle, display name, rating, matches played, provisional status, RD, algorithm, and algorithm config version.
+- `getRatedProfileByHandle(handle)` and profile summary/rating reads use the same mapping and the shared unrated default rating `1500`.
+- Speed, Classic, and Multiplayer remain prepared-only: their mapping is explicitly `null`, their mode metadata is disabled, and read DTOs expose `algorithm: null` rather than claiming live settlement.
+- Match history identifies the applied rating algorithm/version and delta for completed matches.
+
+Legacy active `placement_mmr_v1` profiles and historical events are retained unchanged. No destructive migration or status rewrite is required for this read fix; the explicit per-mode mapping safely selects Standard Glicko rows. A future retirement migration may mark legacy rows non-active after product policy is locked, but it must not rewrite historical events.
+
+The settlement-to-read PostgreSQL integration test is opt-in and refuses non-disposable schema names. Provision a schema whose name starts with `ticket131`, apply migrations, then run:
+
+```bash
+RATING_READ_INTEGRATION_DATABASE_URL='postgresql://.../wordle_royale_local?schema=ticket131_local' \
+  pnpm --filter @wordle-royale/api test:rating-reads:postgres
+```
+
+The fixture uses run-unique users, handles, match IDs, and dictionary metadata, scopes assertions to those users, and deletes only its own rows.
 
 Public low-risk endpoints are exposed as `GET /leaderboard?limit=20` and `GET /profiles/:handle/rating`. They do not read match rounds, guesses, dictionary words, or answer hashes, so the lichess/chess.com-style competitive loop can show stable ratings, provisional identity, and post-match progression without any spoiler surface.
 

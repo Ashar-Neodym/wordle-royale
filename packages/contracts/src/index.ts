@@ -13,6 +13,9 @@ export * from './gameplay/constants.ts';
 export * from './gameplay/schemas.ts';
 export * from './gameplay/types.ts';
 
+export * from './matchmaking/schemas.ts';
+export * from './matchmaking/types.ts';
+
 export * from './realtime/constants.ts';
 export * from './realtime/schemas.ts';
 export * from './realtime/types.ts';

@@ -4,6 +4,12 @@ import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, d
 import type { AcceptedGuessResult, CurrentRankedMatchStateResponseData, GuessResult, RankedMatchResultSummary, RankedMatchStartResponseData, RatingEventContract, RejectedGuessResult } from '@wordle-royale/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.ts';
+import {
+  calculateStandard1v1Settlement,
+  STANDARD_1V1_INITIAL_RATING_DEVIATION,
+  STANDARD_1V1_RATING_ALGORITHM,
+  STANDARD_1V1_RATING_ALGORITHM_VERSION,
+} from '../rating/standard-1v1-rating.ts';
 
 const ANSWER_SALT_REF = 'fixture-local-v1';
 const ROUND_TIME_MS = 120_000;
@@ -45,6 +51,7 @@ export interface StartRankedMatchInput {
   participantUserIds: string[];
   idempotencyKey: string;
   lobbyId?: string | null;
+  rankedMode?: 'standard_1v1';
   now?: Date;
 }
 
@@ -85,6 +92,7 @@ export interface DevTerminalizeParticipantInput {
 type MatchRecord = {
   id: string;
   mode: string;
+  rankedMode?: string | null;
   status: string;
   algorithmConfigVersion?: string | null;
   completedAt?: Date | string | null;
@@ -103,6 +111,9 @@ type RatingProfileRecord = {
   matchesPlayed: number;
   provisionalRemaining: number;
   peakRating?: number;
+  ratingDeviation?: number;
+  ratingVolatility?: number | null;
+  lastRatedAt?: Date | string | null;
   algorithm: string;
   algorithmConfigVersion: string;
 };
@@ -145,27 +156,37 @@ function elapsedMs(startedAt: Date | string | null | undefined, now: Date): numb
   return Math.max(0, now.getTime() - started.getTime());
 }
 
+function elapsedDays(startedAt: Date | string | null | undefined, now: Date): number {
+  return Math.floor(elapsedMs(startedAt, now) / 86_400_000);
+}
+
 function ratingIdempotencyKey(matchId: string, algorithmVersion: string): string {
   return `rating:${matchId}:${algorithmVersion}`;
 }
 
 function buildFinalStandings(participants: MatchParticipantRecord[]): FinalStandingDraft[] {
   const sorted = [...participants].sort((left, right) => {
+    const leftAbandoned = left.outcome === 'abandoned';
+    const rightAbandoned = right.outcome === 'abandoned';
+    if (leftAbandoned !== rightAbandoned) return leftAbandoned ? 1 : -1;
     const scoreDelta = (right.finalScore ?? 0) - (left.finalScore ?? 0);
     if (scoreDelta !== 0) return scoreDelta;
     return left.seatNumber - right.seatNumber;
   });
   let priorScore: number | null = null;
+  let priorAbandoned: boolean | null = null;
   let priorPlacement = 0;
-  let priorGroup = 0;
+  let placementGroup = 0;
   return sorted.map((participant, index) => {
     const score = participant.finalScore ?? 0;
-    if (priorScore === null || score !== priorScore) {
+    const abandoned = participant.outcome === 'abandoned';
+    if (priorScore === null || score !== priorScore || abandoned !== priorAbandoned) {
       priorPlacement = index + 1;
-      priorGroup += 1;
+      placementGroup += 1;
       priorScore = score;
+      priorAbandoned = abandoned;
     }
-    return { participant, placement: priorPlacement, placementGroup: priorGroup };
+    return { participant, placement: priorPlacement, placementGroup };
   });
 }
 
@@ -211,6 +232,7 @@ async function upsertRatingProfile(tx: any, userId: string, algorithmVersion: st
   }) as RatingProfileRecord | null;
   if (existing) return existing;
 
+  const standard1v1 = algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION;
   return await tx.ratingProfile.create({
     data: {
       userId,
@@ -218,7 +240,8 @@ async function upsertRatingProfile(tx: any, userId: string, algorithmVersion: st
       rating: defaultRating,
       matchesPlayed: 0,
       provisionalRemaining: defaultProvisionalGames,
-      algorithm: 'placement_mmr_v1',
+      ratingDeviation: STANDARD_1V1_INITIAL_RATING_DEVIATION,
+      algorithm: standard1v1 ? STANDARD_1V1_RATING_ALGORITHM : 'placement_mmr_v1',
       algorithmConfigVersion: algorithmVersion,
       status: 'active',
     },
@@ -232,6 +255,8 @@ function eventMetadata(event: RatingEventRecord): {
   placement?: number;
   placementGroup?: number;
   provisional?: boolean;
+  ratingDeviationBefore?: number;
+  ratingDeviationAfter?: number;
 } {
   return typeof event.metadata === 'object' && event.metadata !== null ? event.metadata as Record<string, never> : {};
 }
@@ -246,10 +271,10 @@ function ratingEventFromRows(matchId: string, idempotencyKey: string, events: Ra
   return ratingEventContractSchema.parse({
     eventId: firstMetadata.logicalEventId ?? firstEvent.id,
     matchId,
-    kind: 'placement_mmr_v1',
+    kind: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION ? 'standard_1v1_glicko_v1' : 'placement_mmr_v1',
     status: 'applied',
     idempotencyKey: firstMetadata.logicalIdempotencyKey ?? idempotencyKey,
-    algorithmVersion: 'placement_mmr_v1',
+    algorithmVersion: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION ? STANDARD_1V1_RATING_ALGORITHM_VERSION : 'placement_mmr_v1',
     defaultRating,
     participants: events.map((event) => {
       const metadata = eventMetadata(event);
@@ -261,6 +286,8 @@ function ratingEventFromRows(matchId: string, idempotencyKey: string, events: Ra
         placement: metadata.placement,
         placementGroup: metadata.placementGroup,
         provisional: metadata.provisional ?? false,
+        ...(metadata.ratingDeviationBefore === undefined ? {} : { ratingDeviationBefore: metadata.ratingDeviationBefore }),
+        ...(metadata.ratingDeviationAfter === undefined ? {} : { ratingDeviationAfter: metadata.ratingDeviationAfter }),
       };
     }),
     createdAt,
@@ -272,31 +299,34 @@ function ratingEventFromRows(matchId: string, idempotencyKey: string, events: Ra
 export class GameplayPersistenceService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async startRankedMatch(input: StartRankedMatchInput): Promise<StartRankedMatchResult> {
+  async startRankedMatch(input: StartRankedMatchInput, client: any = this.prisma.client): Promise<StartRankedMatchResult> {
     if (input.participantUserIds.length < 2) {
       throw new BadRequestException({ code: 'not_enough_players', message: 'Ranked matches require at least two participants.' });
     }
 
     const now = input.now ?? new Date();
-    const answerWords = await this.loadDictionaryWords(input.dictionaryReleaseId, 'answer');
+    const answerWords = await this.loadDictionaryWords(input.dictionaryReleaseId, 'answer', client);
     const answer = answerWords[0];
     if (!answer) {
       throw new BadRequestException({ code: 'dictionary_missing_answers', message: 'Dictionary release has no answer words.' });
     }
 
-    const match = await (this.prisma.client as any).match.create({
+    const match = await client.match.create({
       data: {
         lobbyId: input.lobbyId ?? null,
         dictionaryReleaseId: input.dictionaryReleaseId,
         mode: 'ranked',
+        rankedMode: input.rankedMode ?? null,
         status: 'active',
-        algorithmConfigVersion: 'placement_mmr_v1',
+        algorithmConfigVersion: input.rankedMode === 'standard_1v1'
+          ? STANDARD_1V1_RATING_ALGORITHM_VERSION
+          : 'placement_mmr_v1',
         idempotencyKey: input.idempotencyKey,
         startedAt: now,
       },
     });
 
-    await (this.prisma.client as any).matchParticipant.createMany({
+    await client.matchParticipant.createMany({
       data: input.participantUserIds.map((userId, index) => ({
         matchId: match.id,
         userId,
@@ -307,7 +337,7 @@ export class GameplayPersistenceService {
       skipDuplicates: true,
     });
 
-    const round = await (this.prisma.client as any).matchRound.create({
+    const round = await client.matchRound.create({
       data: {
         matchId: match.id,
         dictionaryReleaseId: input.dictionaryReleaseId,
@@ -458,7 +488,16 @@ export class GameplayPersistenceService {
     const client = this.prisma.client as any;
     const run = async (tx: any) => this.finalizeRankedMatchRatingsInTransaction(tx, input.matchId, reason, now);
     if (typeof client.$transaction === 'function') {
-      return await client.$transaction(run);
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await client.$transaction(run, { isolationLevel: 'Serializable' });
+        } catch (error) {
+          const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
+          if ((code === 'P2002' || code === 'P2034') && attempt < 3) continue;
+          throw error;
+        }
+      }
+      throw new Error('Rating settlement retry loop exhausted unexpectedly.');
     }
     return await run(client);
   }
@@ -509,7 +548,16 @@ export class GameplayPersistenceService {
     };
 
     if (typeof client.$transaction === 'function') {
-      return await client.$transaction(run);
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await client.$transaction(run, { isolationLevel: 'Serializable' });
+        } catch (error) {
+          const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
+          if ((code === 'P2002' || code === 'P2034') && attempt < 3) continue;
+          throw error;
+        }
+      }
+      throw new Error('Ranked completion retry loop exhausted unexpectedly.');
     }
     return await run(client);
   }
@@ -552,8 +600,11 @@ export class GameplayPersistenceService {
     }
 
     const algorithmVersion = match.algorithmConfigVersion ?? 'placement_mmr_v1';
-    if (algorithmVersion !== 'placement_mmr_v1') {
+    if (algorithmVersion !== 'placement_mmr_v1' && algorithmVersion !== STANDARD_1V1_RATING_ALGORITHM_VERSION) {
       throw new BadRequestException({ code: 'unsupported_rating_algorithm', message: 'Unsupported rating algorithm.' });
+    }
+    if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION && match.rankedMode !== 'standard_1v1') {
+      throw new BadRequestException({ code: 'unsupported_ranked_mode_settlement', message: 'Only standard_1v1 settlement is active.' });
     }
 
     const participants = await tx.matchParticipant.findMany({ where: { matchId }, orderBy: [{ finalScore: 'desc' }, { seatNumber: 'asc' }] }) as MatchParticipantRecord[];
@@ -570,12 +621,23 @@ export class GameplayPersistenceService {
 
     const shouldSkipRating = reason === 'voided' || match.status === 'voided' || participants.some((participant) => participant.outcome === 'voided');
     if (existingEvents.length > 0) {
+      if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION && existingEvents.length !== 2) {
+        throw new BadRequestException({
+          code: 'incomplete_standard_1v1_rating_settlement',
+          message: 'Standard 1v1 rating settlement is incomplete and requires operator repair.',
+        });
+      }
       const existingRatingEvent = ratingEventFromRows(matchId, idempotencyKey, existingEvents);
       return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, existingRatingEvent);
     }
 
     if (shouldSkipRating) {
       return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, null);
+    }
+
+    if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION) {
+      const ratingEvent = await this.applyStandard1v1Settlement(tx, matchId, now, standings, idempotencyKey);
+      return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, ratingEvent);
     }
 
     const logicalEventId = randomUUID();
@@ -658,6 +720,139 @@ export class GameplayPersistenceService {
     });
 
     return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, ratingEvent);
+  }
+
+  private async applyStandard1v1Settlement(
+    tx: any,
+    matchId: string,
+    now: Date,
+    standings: FinalStandingDraft[],
+    idempotencyKey: string,
+  ): Promise<RatingEventContract> {
+    if (standings.length !== 2) {
+      throw new BadRequestException({ code: 'standard_1v1_requires_two_players', message: 'Standard 1v1 rating settlement requires exactly two players.' });
+    }
+
+    const [first, second] = standings;
+    if (!first || !second) {
+      throw new BadRequestException({ code: 'standard_1v1_requires_two_players', message: 'Standard 1v1 rating settlement requires exactly two players.' });
+    }
+    const abandoned = standings.filter((standing) => standing.participant.outcome === 'abandoned');
+    if (abandoned.length > 1) {
+      throw new BadRequestException({ code: 'ambiguous_standard_1v1_abandon', message: 'A double-abandon result must be voided instead of rated.' });
+    }
+    const isDraw = abandoned.length === 0 && first.placementGroup === second.placementGroup;
+    const loser = abandoned[0] ?? (isDraw ? null : second);
+    const winner = isDraw ? null : standings.find((standing) => standing.participant.id !== loser?.participant.id) ?? first;
+
+    const profiles = await Promise.all(standings.map((standing) => upsertRatingProfile(
+      tx,
+      standing.participant.userId,
+      STANDARD_1V1_RATING_ALGORITHM_VERSION,
+    )));
+    const settlement = calculateStandard1v1Settlement({
+      players: standings.map((standing, index) => ({
+        id: standing.participant.id,
+        rating: profiles[index]?.rating ?? defaultRating,
+        ratingDeviation: profiles[index]?.ratingDeviation ?? STANDARD_1V1_INITIAL_RATING_DEVIATION,
+        provisionalRemaining: profiles[index]?.provisionalRemaining ?? defaultProvisionalGames,
+        inactiveDays: elapsedDays(profiles[index]?.lastRatedAt, now),
+      })),
+      outcome: {
+        winnerId: winner?.participant.id ?? null,
+        loserId: loser?.participant.id ?? null,
+        draw: isDraw,
+        abandonedPlayerId: abandoned[0]?.participant.id ?? null,
+      },
+    });
+
+    const logicalEventId = randomUUID();
+    const ratingParticipants = [] as RatingEventContract['participants'];
+    for (let index = 0; index < standings.length; index += 1) {
+      const standing = standings[index]!;
+      const profile = profiles[index]!;
+      const playerSettlement = settlement.players[index]!;
+      const event = await tx.ratingEvent.create({
+        data: {
+          ratingProfileId: profile.id,
+          matchId,
+          participantId: standing.participant.id,
+          type: 'apply',
+          idempotencyKey: `${idempotencyKey}:${standing.participant.id}`,
+          ratingBefore: playerSettlement.ratingBefore,
+          ratingAfter: playerSettlement.ratingAfter,
+          delta: playerSettlement.delta,
+          algorithm: STANDARD_1V1_RATING_ALGORITHM,
+          algorithmConfigVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION,
+          metadata: {
+            logicalEventId,
+            logicalIdempotencyKey: idempotencyKey,
+            kind: 'standard_1v1_glicko_v1',
+            status: 'applied',
+            mode: 'standard_1v1',
+            userId: standing.participant.userId,
+            placement: standing.placement,
+            placementGroup: standing.placementGroup,
+            provisional: playerSettlement.provisionalBefore,
+            ratingDeviationBefore: playerSettlement.ratingDeviationBefore,
+            ratingDeviationAfter: playerSettlement.ratingDeviationAfter,
+            expectedScore: playerSettlement.expectedScore,
+            actualScore: playerSettlement.actualScore,
+            roundingPolicy: settlement.roundingPolicy,
+            settlementTotalDelta: settlement.totalDelta,
+            settlementDriftBound: settlement.driftBound,
+            abandoned: standing.participant.outcome === 'abandoned',
+          },
+          voidedByEventId: null,
+          reversalOfEventId: null,
+          createdAt: now,
+        },
+      }) as RatingEventRecord;
+
+      const isAbandon = standing.participant.outcome === 'abandoned';
+      const isWin = !isDraw && winner?.participant.id === standing.participant.id;
+      const isLoss = !isDraw && loser?.participant.id === standing.participant.id;
+      await tx.ratingProfile.update({
+        where: { id: profile.id },
+        data: {
+          rating: playerSettlement.ratingAfter,
+          ratingDeviation: playerSettlement.ratingDeviationAfter,
+          matchesPlayed: { increment: 1 },
+          provisionalRemaining: playerSettlement.provisionalRemainingAfter,
+          wins: { increment: isWin ? 1 : 0 },
+          losses: { increment: isLoss ? 1 : 0 },
+          draws: { increment: isDraw ? 1 : 0 },
+          abandons: { increment: isAbandon ? 1 : 0 },
+          peakRating: Math.max(profile.peakRating ?? profile.rating, playerSettlement.ratingAfter),
+          lastRatedAt: now,
+        },
+      });
+
+      ratingParticipants.push({
+        userId: standing.participant.userId,
+        ratingBefore: playerSettlement.ratingBefore,
+        ratingAfter: playerSettlement.ratingAfter,
+        ratingDelta: event.delta,
+        placement: standing.placement,
+        placementGroup: standing.placementGroup,
+        provisional: playerSettlement.provisionalBefore,
+        ratingDeviationBefore: playerSettlement.ratingDeviationBefore,
+        ratingDeviationAfter: playerSettlement.ratingDeviationAfter,
+      });
+    }
+
+    return ratingEventContractSchema.parse({
+      eventId: logicalEventId,
+      matchId,
+      kind: 'standard_1v1_glicko_v1',
+      status: 'applied',
+      idempotencyKey,
+      algorithmVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION,
+      defaultRating,
+      participants: ratingParticipants,
+      createdAt: iso(now),
+      appliedAt: iso(now),
+    });
   }
 
   private async persistRankedMatchResultSummary(
@@ -892,9 +1087,9 @@ export class GameplayPersistenceService {
     return 'in_progress';
   }
 
-  private async loadDictionaryWords(dictionaryReleaseId: string, kind: DictionaryWordKind | DictionaryWordKind[]): Promise<DictionaryWordRecord[]> {
+  private async loadDictionaryWords(dictionaryReleaseId: string, kind: DictionaryWordKind | DictionaryWordKind[], client: any = this.prisma.client): Promise<DictionaryWordRecord[]> {
     const where = Array.isArray(kind) ? { dictionaryReleaseId, kind: { in: kind } } : { dictionaryReleaseId, kind };
-    return await (this.prisma.client as any).dictionaryWord.findMany({ where, orderBy: { normalizedWord: 'asc' } }) as DictionaryWordRecord[];
+    return await client.dictionaryWord.findMany({ where, orderBy: { normalizedWord: 'asc' } }) as DictionaryWordRecord[];
   }
 
   private resolveAnswer(round: MatchRoundRecord, words: DictionaryWordRecord[]): DictionaryWordRecord {

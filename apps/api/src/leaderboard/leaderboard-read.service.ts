@@ -1,13 +1,14 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, rankedModes } from '@wordle-royale/contracts';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { authoritativeRatingAlgorithmByMode, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, rankedModes } from '@wordle-royale/contracts';
 import type { RankedMode } from '@wordle-royale/contracts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
-const DEFAULT_ALGORITHM_CONFIG_VERSION = 'placement_mmr_v1';
 const DEFAULT_LEADERBOARD_LIMIT = 20;
 const MAX_LEADERBOARD_LIMIT = 100;
 
 export type RankedModeId = RankedMode;
+type AuthoritativeRatingMapping = (typeof authoritativeRatingAlgorithmByMode)[RankedModeId];
+type PublicRatingAlgorithm = NonNullable<AuthoritativeRatingMapping>['algorithm'];
 
 type RatingProfileWithUser = {
   id: string;
@@ -62,14 +63,14 @@ export interface LeaderboardEntry {
   ratingDeviation: number;
   ratingVolatility: number | null;
   lastRatedAt: string | null;
-  algorithm: 'placement_mmr_v1';
+  algorithm: PublicRatingAlgorithm;
   algorithmConfigVersion: string;
 }
 
 export interface LeaderboardResult {
   mode: RankedModeId;
-  algorithm: 'placement_mmr_v1';
-  algorithmConfigVersion: string;
+  algorithm: PublicRatingAlgorithm | null;
+  algorithmConfigVersion: string | null;
   generatedAt: string;
   entries: LeaderboardEntry[];
 }
@@ -91,8 +92,8 @@ export interface RatedProfileReadModel {
   ratingDeviation: number;
   ratingVolatility: number | null;
   lastRatedAt: string | null;
-  algorithm: 'placement_mmr_v1';
-  algorithmConfigVersion: string;
+  algorithm: PublicRatingAlgorithm | null;
+  algorithmConfigVersion: string | null;
   unrated: boolean;
 }
 
@@ -118,13 +119,11 @@ export interface RankedModeReadModel {
 export interface ListLeaderboardInput {
   limit?: number;
   mode?: string;
-  algorithmConfigVersion?: string;
   now?: Date;
 }
 
 export interface GetRatedProfileInput {
   mode?: string;
-  algorithmConfigVersion?: string;
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -135,7 +134,7 @@ function normalizeLimit(limit: number | undefined): number {
 export function normalizeRankedMode(mode: string | undefined): RankedModeId {
   if (!mode || mode === 'ranked') return defaultRankedMode;
   if ((rankedModes as readonly string[]).includes(mode)) return mode as RankedModeId;
-  return defaultRankedMode;
+  throw new BadRequestException({ code: 'unsupported_ranked_mode', message: `Unsupported ranked mode: ${mode}` });
 }
 
 function displayNameFor(profile: RatingProfileWithUser): string {
@@ -163,7 +162,7 @@ function compareLeaderboardRows(left: RatingProfileWithUser, right: RatingProfil
   return left.userId.localeCompare(right.userId);
 }
 
-function toRatedProfile(profile: RatingProfileWithUser | null, user: UserProfileWithUser, mode: RankedModeId, algorithmConfigVersion: string): RatedProfileReadModel {
+function toRatedProfile(profile: RatingProfileWithUser | null, user: UserProfileWithUser, mode: RankedModeId, mapping: AuthoritativeRatingMapping): RatedProfileReadModel {
   return {
     userId: user.user.id,
     handle: user.publicHandle,
@@ -181,13 +180,13 @@ function toRatedProfile(profile: RatingProfileWithUser | null, user: UserProfile
     ratingDeviation: profile?.ratingDeviation ?? defaultRatingDeviation,
     ratingVolatility: profile?.ratingVolatility ?? null,
     lastRatedAt: isoOrNull(profile?.lastRatedAt),
-    algorithm: 'placement_mmr_v1',
-    algorithmConfigVersion,
+    algorithm: mapping?.algorithm ?? null,
+    algorithmConfigVersion: mapping?.algorithmConfigVersion ?? null,
     unrated: !profile,
   };
 }
 
-function toEntry(profile: RatingProfileWithUser, rank: number): LeaderboardEntry {
+function toEntry(profile: RatingProfileWithUser, rank: number, algorithm: PublicRatingAlgorithm): LeaderboardEntry {
   return {
     rank,
     userId: profile.userId,
@@ -206,7 +205,7 @@ function toEntry(profile: RatingProfileWithUser, rank: number): LeaderboardEntry
     ratingDeviation: profile.ratingDeviation ?? defaultRatingDeviation,
     ratingVolatility: profile.ratingVolatility ?? null,
     lastRatedAt: isoOrNull(profile.lastRatedAt),
-    algorithm: 'placement_mmr_v1',
+    algorithm,
     algorithmConfigVersion: profile.algorithmConfigVersion,
   };
 }
@@ -219,21 +218,30 @@ export class LeaderboardReadService {
     return {
       modes: [
         { id: 'standard_1v1', label: 'Standard', players: '1v1', rated: true, enabled: true, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Primary chess-style 1v1 ladder; fewer guesses wins, same guesses draw.' },
-        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: true, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Time-sensitive 1v1 ladder; same-guess tiebreak uses server-authoritative timing when enabled.' },
-        { id: 'classic_1v1', label: 'Classic', players: '1v1', rated: true, enabled: true, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Lower-pressure 1v1 ladder prepared for slower rules.' },
+        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
+        { id: 'classic_1v1', label: 'Classic', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
         { id: 'multiplayer_lobby', label: 'Multiplayer / Lobby', players: '2-4', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared as a separate pairwise-placement ladder; keep disabled until abuse policy is locked.' },
       ],
     };
   }
 
   async listLeaderboard(input: ListLeaderboardInput = {}): Promise<LeaderboardResult> {
-    const algorithmConfigVersion = input.algorithmConfigVersion ?? DEFAULT_ALGORITHM_CONFIG_VERSION;
     const limit = normalizeLimit(input.limit);
     const mode = normalizeRankedMode(input.mode);
+    const mapping = authoritativeRatingAlgorithmByMode[mode];
+    if (!mapping) {
+      return {
+        mode,
+        algorithm: null,
+        algorithmConfigVersion: null,
+        generatedAt: (input.now ?? new Date()).toISOString(),
+        entries: [],
+      };
+    }
     const rows = await (this.prisma.client as any).ratingProfile.findMany({
       where: {
         mode,
-        algorithmConfigVersion,
+        algorithmConfigVersion: mapping.algorithmConfigVersion,
         status: 'active',
       },
       include: {
@@ -244,45 +252,53 @@ export class LeaderboardReadService {
     }) as RatingProfileWithUser[];
 
     const entries = rows
-      .filter((profile) => profile.algorithm === 'placement_mmr_v1')
+      .filter((profile) => profile.algorithmConfigVersion === mapping.algorithmConfigVersion)
       .sort(compareLeaderboardRows)
       .slice(0, limit)
-      .map((profile, index) => toEntry(profile, index + 1));
+      .map((profile, index) => toEntry(profile, index + 1, mapping.algorithm));
 
     return {
       mode,
-      algorithm: 'placement_mmr_v1',
-      algorithmConfigVersion,
+      algorithm: mapping.algorithm,
+      algorithmConfigVersion: mapping.algorithmConfigVersion,
       generatedAt: (input.now ?? new Date()).toISOString(),
       entries,
     };
   }
 
   async getRatedProfileByHandle(handle: string, input: GetRatedProfileInput = {}): Promise<RatedProfileReadModel> {
-    const algorithmConfigVersion = input.algorithmConfigVersion ?? DEFAULT_ALGORITHM_CONFIG_VERSION;
     const mode = normalizeRankedMode(input.mode);
+    const mapping = authoritativeRatingAlgorithmByMode[mode];
     const profile = await this.findProfile(handle);
-    const ratingProfile = await this.findRatingProfile(profile.user.id, mode, algorithmConfigVersion);
-    return toRatedProfile(ratingProfile, profile, mode, algorithmConfigVersion);
+    const ratingProfile = mapping
+      ? await this.findRatingProfile(profile.user.id, mode, mapping.algorithmConfigVersion)
+      : null;
+    return toRatedProfile(ratingProfile, profile, mode, mapping);
   }
 
-  async listProfileRatingsByHandle(handle: string, input: GetRatedProfileInput = {}): Promise<ProfileRatingsReadModel> {
-    const algorithmConfigVersion = input.algorithmConfigVersion ?? DEFAULT_ALGORITHM_CONFIG_VERSION;
+  async listProfileRatingsByHandle(handle: string, _input: GetRatedProfileInput = {}): Promise<ProfileRatingsReadModel> {
     const profile = await this.findProfile(handle);
     const rows = await (this.prisma.client as any).ratingProfile.findMany({
       where: {
         userId: profile.user.id,
-        algorithmConfigVersion,
         status: 'active',
       },
       orderBy: [{ mode: 'asc' }],
     }) as RatingProfileWithUser[];
-    const byMode = new Map(rows.map((row) => [normalizeRankedMode(row.mode), row]));
+    const byMode = new Map(rows
+      .filter((row) => {
+        const mode = normalizeRankedMode(row.mode);
+        return row.algorithmConfigVersion === authoritativeRatingAlgorithmByMode[mode]?.algorithmConfigVersion;
+      })
+      .map((row) => [normalizeRankedMode(row.mode), row]));
     return {
       userId: profile.user.id,
       handle: profile.publicHandle,
       displayName: profile.user.displayName?.trim() || profile.publicHandle,
-      ratings: rankedModes.map((mode) => toRatedProfile(byMode.get(mode) ?? null, profile, mode, algorithmConfigVersion)),
+      ratings: rankedModes.map((mode) => {
+        const mapping = authoritativeRatingAlgorithmByMode[mode];
+        return toRatedProfile(mapping ? byMode.get(mode) ?? null : null, profile, mode, mapping);
+      }),
     };
   }
 

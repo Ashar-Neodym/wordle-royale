@@ -3,6 +3,8 @@ import { getRankedMatchResult, getRankedMatchState, getWebApiSnapshot } from '..
 import { GameplayScreen } from '../../components/GameplayScreen';
 import { LobbyBrowser } from '../../components/LobbyScreens';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
+import { StandardQueuePanel } from '../../components/StandardQueuePanel';
+import { isAuthLimited } from '../../components/ProfileHistory';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame } from '../../components/PageFrame';
 import { completeRankedMatchAction, createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction, submitRankedGuessAction } from '../actions';
@@ -12,10 +14,10 @@ import styles from '../../components/web-shell.module.css';
 export const dynamic = 'force-dynamic';
 
 const rankedModeChoices = [
-  { label: 'Quick', mode: 'standard_1v1', detail: 'Queue-style 1v1 target. Uses Standard rating when backend queue lands.', availability: 'UI only for now' },
-  { label: 'Speed / Blitz', mode: 'speed_1v1', detail: 'Fewer guesses first; same guesses break by server solve time.', availability: 'Mode prepared' },
-  { label: 'Classic', mode: 'classic_1v1', detail: 'Lower-pressure 1v1. Same-guess solves draw.', availability: 'Mode prepared' },
-  { label: 'Multiplayer', mode: 'multiplayer_lobby', detail: '2–4 player lobby ladder; rating separate from 1v1 modes.', availability: 'Lobby UI prepared' },
+  { label: 'Standard', mode: 'standard_1v1', detail: 'Live automatic rated 1v1 queue with server-owned pairing and match creation.', availability: 'Live queue' },
+  { label: 'Speed / Blitz', mode: 'speed_1v1', detail: 'Fewer guesses first; same guesses break by server solve time.', availability: 'Not live yet' },
+  { label: 'Classic', mode: 'classic_1v1', detail: 'Lower-pressure 1v1. Same-guess solves draw.', availability: 'Not live yet' },
+  { label: 'Multiplayer', mode: 'multiplayer_lobby', detail: '2–4 player lobby ladder; rating separate from 1v1 modes.', availability: 'Not live yet' },
 ] as const;
 
 type PlayPageProps = {
@@ -31,6 +33,11 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
   const actionState = rankedActionState(params);
   const hasLiveMatch = Boolean(matchId);
   const liveMatchStateLabel = matchState?.data ? matchState.data.state : matchState?.status === 'unavailable' ? 'state unavailable' : 'loading';
+  const queueSessionState = api.currentUser.status === 'connected'
+    ? 'active'
+    : isAuthLimited(api.currentUser.error)
+      ? 'signed_out'
+      : 'unavailable';
 
   return (
     <PageFrame>
@@ -57,9 +64,10 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
       <section className={styles.section} aria-labelledby="ranked-mode-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Ranked modes</p>
-          <h2 id="ranked-mode-heading">Choose a format before the room</h2>
-          <p>Wordle Royale is moving toward chess-style queues and separate ladders. Today only the lobby-backed Standard path is live; the other mode cards are explicit UI affordances, not a claim of finished matchmaking.</p>
+          <h2 id="ranked-mode-heading">Choose a rated format</h2>
+          <p>Standard now uses the live automatic 1v1 queue. Speed, Classic, and Multiplayer remain explicit prepared modes and cannot start matchmaking.</p>
         </div>
+        <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} />
         <div className={styles.modeChoiceGrid}>
           {rankedModeChoices.map((choice) => (
             <article className={styles.modeChoiceCard} key={choice.mode}>
@@ -70,14 +78,14 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
               <p className={styles.eyebrow}>{choice.mode}</p>
               <p className={styles.muted}>{choice.detail}</p>
               <div className={styles.actionRow}>
-                <a className={choice.mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} href="/lobbies">{choice.mode === 'standard_1v1' ? 'Open live lobbies' : 'View planned mode'}</a>
+                <a className={choice.mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} href={choice.mode === 'standard_1v1' ? '#standard-queue' : '/profile#mode-ratings-heading'}>{choice.mode === 'standard_1v1' ? 'Find match' : 'View prepared mode'}</a>
               </div>
             </article>
           ))}
         </div>
         <article className={styles.practiceNote}>
           <strong>Ranked vs unranked</strong>
-          <p>Rated rooms affect the relevant mode ladder. Unranked/casual rooms are prepared as product language but do not have a complete live backend path yet.</p>
+          <p>The automatic Standard queue is rated. Existing public lobbies remain available as a separate fallback; Speed, Classic, Multiplayer, and automatic unranked matchmaking are not live yet.</p>
         </article>
       </section>
 

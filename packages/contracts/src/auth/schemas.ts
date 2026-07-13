@@ -50,8 +50,8 @@ export const profileRatingSummarySchema = z.object({
   ratingDeviation: z.number().nonnegative().default(defaultRatingDeviation),
   ratingVolatility: z.number().nonnegative().nullable().default(null),
   lastRatedAt: timestampSchema.nullable().default(null),
-  algorithm: z.literal('placement_mmr_v1'),
-  algorithmConfigVersion: z.string().min(1),
+  algorithm: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1']).nullable(),
+  algorithmConfigVersion: z.string().min(1).nullable(),
   rank: z.number().int().positive().nullable(),
   unrated: z.boolean().default(false),
 });

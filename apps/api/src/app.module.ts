@@ -13,6 +13,8 @@ import { LeaderboardController } from './leaderboard/leaderboard.controller.ts';
 import { LeaderboardReadService } from './leaderboard/leaderboard-read.service.ts';
 import { LobbyController } from './lobby/lobby.controller.ts';
 import { LobbyService } from './lobby/lobby.service.ts';
+import { MatchmakingController } from './matchmaking/matchmaking.controller.ts';
+import { MatchmakingService } from './matchmaking/matchmaking.service.ts';
 import { PrismaService } from './prisma/prisma.service.ts';
 import { ProfileReadService } from './profile/profile-read.service.ts';
 import { ProfileService } from './profile/profile.service.ts';
@@ -25,7 +27,7 @@ import { ProfileService } from './profile/profile.service.ts';
       validate: validateRuntimeConfig,
     }),
   ],
-  controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController],
-  providers: [PrismaService, RedisReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService],
+  controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController, MatchmakingController],
+  providers: [PrismaService, RedisReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService, MatchmakingService],
 })
 export class AppModule {}

@@ -136,6 +136,8 @@ export const ratingParticipantDeltaSchema = z.object({
   placement: z.number().int().positive(),
   placementGroup: z.number().int().positive().optional(),
   provisional: z.boolean().default(false),
+  ratingDeviationBefore: z.number().min(0).optional(),
+  ratingDeviationAfter: z.number().min(0).optional(),
 });
 
 export const ratingEventContractSchema = z.object({
@@ -144,7 +146,7 @@ export const ratingEventContractSchema = z.object({
   kind: ratingEventKindSchema,
   status: ratingEventStatusSchema,
   idempotencyKey: z.string().min(1),
-  algorithmVersion: z.literal('placement_mmr_v1'),
+  algorithmVersion: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1']),
   defaultRating: z.literal(defaultRating),
   participants: z.array(ratingParticipantDeltaSchema).min(2),
   createdAt: timestampSchema,
@@ -203,6 +205,8 @@ export const matchHistorySummarySchema = z.object({
   matchId: idSchema,
   mode: z.enum(['ranked', 'casual']),
   status: z.enum(['pending', 'active', 'completed', 'voided', 'cancelled']),
+  ratingAlgorithm: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1']).nullable().default(null),
+  ratingAlgorithmConfigVersion: z.string().min(1).nullable().default(null),
   startedAt: timestampSchema.nullable(),
   completedAt: timestampSchema.nullable(),
   participants: z.array(matchHistoryParticipantSchema).min(1),
