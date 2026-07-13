@@ -4,6 +4,7 @@ import { AuthController } from './auth/auth.controller.ts';
 import { CurrentUserService } from './auth/current-user.service.ts';
 import { PreviewDemoSessionService } from './auth/preview-demo-session.service.ts';
 import { validateRuntimeConfig } from './config/runtime-config.ts';
+import { StandardDictionaryService } from './dictionary/standard-dictionary.service.ts';
 import { GameplayController } from './gameplay/gameplay.controller.ts';
 import { GameplayPersistenceService } from './gameplay/gameplay-persistence.service.ts';
 import { HealthController } from './health/health.controller.ts';
@@ -28,6 +29,6 @@ import { ProfileService } from './profile/profile.service.ts';
     }),
   ],
   controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController, MatchmakingController],
-  providers: [PrismaService, RedisReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService, MatchmakingService],
+  providers: [PrismaService, StandardDictionaryService, RedisReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, LeaderboardReadService, MatchmakingService],
 })
 export class AppModule {}

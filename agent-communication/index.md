@@ -101,9 +101,9 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 124 | Ruby | Standard 1v1 Rating Settlement Activation | Complete; Athena verified focused settlement tests |
 | 125 | Luna | Live Standard 1v1 Queue UX | Complete; reconnect blocker fixed by 132 and verified by 133 |
 | 126 | Jasmine | Wave R Standard Queue Integration QA | Complete; original FAIL superseded by Ticket 133 PASS |
-| 127 | Yuna | Wave R Checkpoint PR and CI | Complete; PR #6 checks passed, awaiting Ashar merge approval |
-| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | Blocked pending PR/merge/main CI |
-| 129 | Jasmine | Final Hosted Wave R QA | Blocked pending hosted deploy |
+| 127 | Yuna | Wave R Checkpoint PR and CI | Complete; PR #6 merged, post-merge main CI passed |
+| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | FAIL/BLOCKED; hosted dictionary data missing |
+| 129 | Jasmine | Final Hosted Wave R QA | Blocked pending corrected Ticket 128 PASS |
 
 ## Wave R-Fix — Ticket 126 blocker remediation
 
@@ -114,18 +114,29 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 132 | Luna | Bounded Standard Queue Reconnect UX | Complete; Athena verified focused state tests and web build |
 | 133 | Jasmine | Focused Wave R Blocker Recheck | Complete; PASS, all three Ticket 126 blockers cleared |
 
+## Wave R-Hosted-Fix — Ticket 128 dictionary bootstrap blocker
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 134 | Elisa | Preview Dictionary Bootstrap and Readiness Contract | Complete; preview-only policy locked |
+| 135 | Freya | Dictionary-Only Preview Bootstrap and Operational Readiness | Complete; Athena verified full gates and fresh PostgreSQL harness |
+| 136 | Jasmine | Preview Dictionary Bootstrap Independent QA | Complete; PASS; false hosted-approval claim corrected by Athena |
+| 137 | Yuna | Wave R Hosted-Fix Checkpoint PR and CI | Ready now |
+
 ## Recommended order
 
-Wave Q is complete. Wave R implementation exists, but Ticket 126 returned FAIL and blocks checkpoint/deployment.
+Wave Q and the local Wave R implementation are complete. PR #6 is merged and main CI passed, but Ticket 128 found a hosted data-bootstrap blocker.
 
-Wave R-Fix recommended execution:
+Wave R-Hosted-Fix recommended execution:
 
-1. RF.0 parallel: 130 (Freya transaction retry) + 131 (Ruby rating reads) + 132 (Luna reconnect UX).
-2. RF.1 after all three: 133 (Jasmine focused real-Postgres/browser recheck).
-3. Only after Ticket 133 PASS: 127 (Yuna branch/PR/CI; no merge).
-4. Approval gate: Ashar approves PR merge in chat; Athena/Yuna merges and monitors main CI.
-5. Then 128 (Yuna hosted deploy/migration/two-user smoke).
-6. Then 129 (Jasmine final hosted QA).
+1. RHF.0: 134 (Elisa preview/production dictionary and readiness contract).
+2. RHF.1 after 134: 135 (Freya dictionary-only bootstrap/readiness implementation).
+3. RHF.2 after 135: 136 (Jasmine fresh-Postgres independent QA).
+4. RHF.3 only after 136 PASS: 137 (Yuna checkpoint branch/PR/CI; no merge).
+5. Approval gate: Ashar approves PR merge in chat; Athena/Yuna merges and monitors main CI.
+6. Separate data-mutation approval gate: Ashar approves running the reviewed dictionary-only bootstrap against hosted preview.
+7. Resume 128 (Yuna hosted bootstrap + two-session smoke).
+8. Then 129 (Jasmine final hosted QA).
 
 ## Persistent constraints
 

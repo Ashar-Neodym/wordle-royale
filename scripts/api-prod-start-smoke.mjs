@@ -125,6 +125,7 @@ const apiEnv = {
   DATABASE_URL: localDatabaseUrl,
   DATABASE_DIRECT_URL: localDatabaseUrl,
   REDIS_URL: localRedisUrl,
+  STANDARD_1V1_QUEUE_ENABLED: 'false',
 };
 
 console.log('$ node dist/apps/api/src/main.js');

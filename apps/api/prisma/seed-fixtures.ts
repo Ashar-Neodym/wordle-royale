@@ -1,44 +1,7 @@
 import { fixtureUsers } from '@wordle-royale/fixtures';
-import { buildFixtureArtifacts } from '@wordle-royale/word-tools';
-import { createHash } from 'node:crypto';
-
-export type SeedDictionaryWordKind = 'answer' | 'guess' | 'banned';
-
-export interface SeedDictionaryRelease {
-  id: string;
-  locale: string;
-  wordLength: number;
-  version: string;
-  status: 'draft';
-  sourceLabel: string;
-  sourceMetadata: {
-    fixtureOnly: true;
-    productionApproved: false;
-    sourcePolicy: string;
-    sources: Array<{ sourceId: string; licenseName: string; licenseReviewed: boolean }>;
-    validation: { passed: boolean; reportPath: string };
-    generatedBy: string;
-  };
-  artifactSha256: string;
-  answerCount: number;
-  guessCount: number;
-  bannedCount: number;
-}
-
-export interface SeedDictionaryWord {
-  id: string;
-  dictionaryReleaseId: string;
-  normalizedWord: string;
-  kind: SeedDictionaryWordKind;
-  checksum: string;
-  metadata: {
-    fixtureOnly: true;
-    sourceIds: string[];
-    difficultyTier: 'easy' | 'medium' | 'hard' | 'expert';
-    difficultyScore: number;
-    hasDuplicateLetters: boolean;
-  };
-}
+import { buildPreviewDictionaryPlan } from './dictionary-fixture.ts';
+import type { SeedDictionaryRelease, SeedDictionaryWord } from './dictionary-fixture.ts';
+export type { SeedDictionaryRelease, SeedDictionaryWord, SeedDictionaryWordKind } from './dictionary-fixture.ts';
 
 export interface SeedUser {
   id: string;
@@ -137,65 +100,8 @@ export interface SeedDryRunSummary {
   apply: { available: false; reason: string };
 }
 
-function sha256(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
-function stableId(prefix: string, value: string): string {
-  return `${prefix}_${createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
-}
-
-function mapArtifactWords(
-  dictionaryReleaseId: string,
-  kind: SeedDictionaryWordKind,
-  words: ReturnType<typeof buildFixtureArtifacts>['answerArtifact']['words'],
-): SeedDictionaryWord[] {
-  return words.map((word) => ({
-    id: stableId('dict_word', `${dictionaryReleaseId}:${kind}:${word.normalizedText}`),
-    dictionaryReleaseId,
-    normalizedWord: word.normalizedText,
-    kind,
-    checksum: sha256({ dictionaryReleaseId, kind, normalizedWord: word.normalizedText }),
-    metadata: {
-      fixtureOnly: true,
-      sourceIds: [...word.sourceIds].sort(),
-      difficultyTier: word.difficultyTier,
-      difficultyScore: word.difficultyScore,
-      hasDuplicateLetters: word.hasDuplicateLetters ?? false,
-    },
-  }));
-}
-
 export function buildLocalFixtureSeedPlan(): LocalFixtureSeedPlan {
-  const { answerArtifact, guessArtifact, bannedArtifact, manifest } = buildFixtureArtifacts();
-  const dictionaryReleaseId = `dict_${manifest.dictionaryVersion.replace(/[^a-z0-9]+/gi, '_')}`;
-
-  const dictionaryRelease: SeedDictionaryRelease = {
-    id: dictionaryReleaseId,
-    locale: manifest.locale,
-    wordLength: manifest.wordLength,
-    version: manifest.dictionaryVersion,
-    status: 'draft',
-    sourceLabel: manifest.sources[0]?.sourceId ?? 'safe-fixture',
-    sourceMetadata: {
-      fixtureOnly: true,
-      productionApproved: false,
-      sourcePolicy: String(manifest.policy.sourcePolicy),
-      sources: manifest.sources,
-      validation: manifest.validation,
-      generatedBy: 'apps/api/prisma/seed-fixtures.ts',
-    },
-    artifactSha256: sha256({ answer: manifest.lists.answer, guess: manifest.lists.guess, banned: manifest.lists.banned }),
-    answerCount: manifest.lists.answer.count,
-    guessCount: manifest.lists.guess.count,
-    bannedCount: manifest.lists.banned.count,
-  };
-
-  const dictionaryWords = [
-    ...mapArtifactWords(dictionaryReleaseId, 'answer', answerArtifact.words),
-    ...mapArtifactWords(dictionaryReleaseId, 'guess', guessArtifact.words),
-    ...mapArtifactWords(dictionaryReleaseId, 'banned', bannedArtifact.words),
-  ];
+  const { dictionaryRelease, dictionaryWords } = buildPreviewDictionaryPlan();
 
   const users = [
     ...Object.values(fixtureUsers).map((user): SeedUser => ({
