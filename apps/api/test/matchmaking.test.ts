@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.ts';
 import { localFixtureUsers } from '../src/auth/current-user.service.ts';
+import { StandardDictionaryService } from '../src/dictionary/standard-dictionary.service.ts';
 import { MatchmakingService } from '../src/matchmaking/matchmaking.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import { RedisReadinessService } from '../src/health/redis-readiness.service.ts';
@@ -22,7 +23,10 @@ function createMatchmakingPrismaMock() {
   let matchSequence = 0;
   let roundSequence = 0;
   let transactionTail = Promise.resolve();
-  const controls: { ratingCreateFailure: unknown | null } = { ratingCreateFailure: null };
+  const controls: { ratingCreateFailure: unknown | null; dictionaryAvailable: boolean } = {
+    ratingCreateFailure: null,
+    dictionaryAvailable: true,
+  };
   const metrics = { transactionAttempts: 0 };
 
   const users = new Map([
@@ -229,6 +233,13 @@ async function createApp() {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)
     .useValue(prisma)
+    .overrideProvider(StandardDictionaryService)
+    .useValue({
+      selectStandardDictionary: async () => prisma.state.controls.dictionaryAvailable
+        ? { releaseId, version: 'en-5-test-vfixture.001', policy: 'preview_fixture_exception', answerCount: 20 }
+        : null,
+      checkStandardDictionary: async () => ({ status: 'ok', checkedAt: new Date().toISOString() }),
+    })
     .overrideProvider(RedisReadinessService)
     .useValue({ checkRedis: async () => ({ status: 'not_checked_stub', checkedAt: new Date().toISOString() }) })
     .compile();
@@ -274,6 +285,30 @@ describe('database-backed Standard 1v1 matchmaking', () => {
     assert.equal(duplicate.body.data.ticketId, first.body.data.ticketId);
     assert.equal(prisma.state.tickets.length, 1);
     assert.equal(prisma.state.matches.length, 0);
+  });
+
+  it('returns the same safe 503 with zero side effects for sequential and concurrent missing-dictionary joins', async () => {
+    prisma.state.controls.dictionaryAvailable = false;
+    const initialRatings = prisma.state.ratings.length;
+
+    const sequential = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(503);
+    const replay = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(503);
+    const [left, right] = await Promise.all([
+      request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestTwo)),
+      request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').set('x-wordle-dev-user-id', localFixtureUsers.guestPlayer).send(body(requestThree)),
+    ]);
+
+    for (const response of [sequential, replay, left, right]) {
+      assert.equal(response.status, 503);
+      assert.equal(response.body.error.code, 'dictionary_release_unavailable');
+      assert.equal(response.body.error.message, 'No approved dictionary release is available for Standard matchmaking.');
+    }
+    assert.equal(prisma.state.ratings.length, initialRatings);
+    assert.equal(prisma.state.tickets.length, 0);
+    assert.equal(prisma.state.matches.length, 0);
+    assert.equal(prisma.state.rounds.length, 0);
+    assert.equal(prisma.state.participants.length, 0);
+    assert.equal(prisma.state.audits.length, 0);
   });
 
   it('lets the transaction boundary retry a cold-profile P2034 instead of returning a conflict', async () => {

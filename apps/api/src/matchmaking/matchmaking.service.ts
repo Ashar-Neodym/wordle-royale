@@ -1,9 +1,12 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { defaultProvisionalGames, defaultRating, standard1v1TicketSchema } from '@wordle-royale/contracts';
 import type { CreateStandard1v1TicketRequest, Standard1v1Ticket } from '@wordle-royale/contracts';
+import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
+import type { StandardDictionarySelection } from '../dictionary/standard-dictionary.service.ts';
 import { GameplayPersistenceService } from '../gameplay/gameplay-persistence.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { STANDARD_1V1_RATING_ALGORITHM, STANDARD_1V1_RATING_ALGORITHM_VERSION } from '../rating/standard-1v1-rating.ts';
+import { standardQueueEnabled } from './matchmaking-config.ts';
 
 const QUEUE_TTL_MS = 60_000;
 const INITIAL_RATING_WINDOW = 100;
@@ -72,16 +75,12 @@ function isRetryableTransactionError(error: unknown): boolean {
     && (candidate.meta?.code === '40001' || candidate.meta?.code === '40P01');
 }
 
-function queueEnabled(): boolean {
-  const value = process.env.STANDARD_1V1_QUEUE_ENABLED;
-  return value === undefined || value === '' || value === '1' || value.toLowerCase() === 'true' || value.toLowerCase() === 'yes';
-}
-
 @Injectable()
 export class MatchmakingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
+    @Inject(StandardDictionaryService) private readonly dictionary: StandardDictionaryService,
   ) {}
 
   async joinStandardQueue(userId: string, input: CreateStandard1v1TicketRequest, now = new Date()): Promise<Standard1v1Ticket> {
@@ -97,6 +96,7 @@ export class MatchmakingService {
 
     try {
       return await this.inTransaction(async (tx) => {
+        const dictionary = await this.requireDictionary(tx);
         await this.expireQueuedTickets(tx, now);
         await this.releaseCompletedMatchedTickets(tx, userId, now);
 
@@ -104,12 +104,12 @@ export class MatchmakingService {
           where: { userId_mode_idempotencyKey: { userId, mode: 'standard_1v1', idempotencyKey: input.clientRequestId } },
           include: TICKET_INCLUDE,
         }) as TicketRecord | null;
-        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, now)), created: false };
+        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, now, dictionary)), created: false };
 
         const active = await this.findActiveTicket(tx, userId);
         if (active) {
           await this.writeAudit(tx, userId, 'matchmaking_duplicate_active_ticket', active.id, null, { state: active.state });
-          return { ticket: this.toDto(await this.attemptPair(tx, active, now)), created: false };
+          return { ticket: this.toDto(await this.attemptPair(tx, active, now, dictionary)), created: false };
         }
 
         const profile = await this.findOrCreateRatingProfile(tx, userId) as RatingProfileRecord;
@@ -137,14 +137,15 @@ export class MatchmakingService {
           ratingAtQueue: profile.rating,
           provisional,
         });
-        return { ticket: this.toDto(await this.attemptPair(tx, ticket, now)), created: true };
+        return { ticket: this.toDto(await this.attemptPair(tx, ticket, now, dictionary)), created: true };
       });
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
       return await this.inTransaction(async (tx) => {
+        const dictionary = await this.requireDictionary(tx);
         const active = await this.findActiveTicket(tx, userId);
         if (!active) throw error;
-        return { ticket: this.toDto(await this.attemptPair(tx, active, now)), created: false };
+        return { ticket: this.toDto(await this.attemptPair(tx, active, now, dictionary)), created: false };
       });
     }
   }
@@ -203,7 +204,7 @@ export class MatchmakingService {
   }
 
   private assertLiveRequest(input: CreateStandard1v1TicketRequest): void {
-    if (!queueEnabled()) {
+    if (!standardQueueEnabled()) {
       throw new ServiceUnavailableException({ code: 'standard_1v1_queue_disabled', message: 'The Standard 1v1 queue is currently disabled.' });
     }
     if (input.mode !== 'standard_1v1') {
@@ -218,8 +219,9 @@ export class MatchmakingService {
     }
   }
 
-  private async attemptPair(tx: any, ticket: TicketRecord, now: Date): Promise<TicketRecord> {
+  private async attemptPair(tx: any, ticket: TicketRecord, now: Date, selectedDictionary?: StandardDictionarySelection): Promise<TicketRecord> {
     if (ticket.state !== 'queued') return ticket;
+    const dictionary = selectedDictionary ?? await this.requireDictionary(tx);
     if (asDate(ticket.expiresAt).getTime() <= now.getTime()) {
       return await tx.matchmakingTicket.update({
         where: { id: ticket.id },
@@ -325,17 +327,13 @@ export class MatchmakingService {
       const timeDelta = asDate(left.createdAt).getTime() - asDate(right.createdAt).getTime();
       return timeDelta || left.id.localeCompare(right.id);
     });
-    const dictionaryRelease = await tx.dictionaryRelease.findFirst({
-      where: { status: { in: ['active', 'draft'] }, wordLength: 5 },
-      orderBy: [{ releasedAt: 'desc' }, { createdAt: 'desc' }],
-    }) as { id: string } | null;
-    if (!dictionaryRelease) {
-      throw new ServiceUnavailableException({ code: 'dictionary_release_unavailable', message: 'No active dictionary release is available for Standard matchmaking.' });
-    }
+    await this.lockDictionaryRelease(tx, dictionary.releaseId);
+    const dictionaryRelease = await this.dictionary.selectStandardDictionary(tx, undefined, dictionary.releaseId);
+    if (!dictionaryRelease) throw this.dictionaryUnavailable();
 
     const sortedTicketIds = [ticket.id, candidate.id].sort();
     const match = await this.gameplay.startRankedMatch({
-      dictionaryReleaseId: dictionaryRelease.id,
+      dictionaryReleaseId: dictionaryRelease.releaseId,
       participantUserIds: ordered.map((entry) => entry.userId),
       idempotencyKey: `matchmaking:standard_1v1:${sortedTicketIds[0]}:${sortedTicketIds[1]}`,
       rankedMode: 'standard_1v1',
@@ -369,6 +367,24 @@ export class MatchmakingService {
     await this.writeAudit(tx, ticket.userId, 'matchmaking_matched', ticket.id, match.matchId, { opponentUserId: candidate.userId });
     await this.writeAudit(tx, candidate.userId, 'matchmaking_matched', candidate.id, match.matchId, { opponentUserId: ticket.userId });
     return await tx.matchmakingTicket.findUnique({ where: { id: ticket.id }, include: TICKET_INCLUDE }) as TicketRecord;
+  }
+
+  private async requireDictionary(tx: any): Promise<StandardDictionarySelection> {
+    try {
+      const selection = await this.dictionary.selectStandardDictionary(tx);
+      if (selection) return selection;
+    } catch {
+      // Normalize policy, schema, and database lookup failures to one public,
+      // spoiler-safe availability error. The transaction rolls back any work.
+    }
+    throw this.dictionaryUnavailable();
+  }
+
+  private dictionaryUnavailable(): ServiceUnavailableException {
+    return new ServiceUnavailableException({
+      code: 'dictionary_release_unavailable',
+      message: 'No approved dictionary release is available for Standard matchmaking.',
+    });
   }
 
   private async findOrCreateRatingProfile(tx: any, userId: string): Promise<RatingProfileRecord> {
@@ -452,6 +468,10 @@ export class MatchmakingService {
 
   private async lockTicket(tx: any, ticketId: string): Promise<void> {
     await tx.$queryRawUnsafe('SELECT "id" FROM "MatchmakingTicket" WHERE "id" = $1 FOR UPDATE', ticketId);
+  }
+
+  private async lockDictionaryRelease(tx: any, releaseId: string): Promise<void> {
+    await tx.$queryRawUnsafe('SELECT "id" FROM "DictionaryRelease" WHERE "id" = $1 FOR UPDATE', releaseId);
   }
 
   private async writeAudit(tx: any, userId: string, action: string, ticketId: string, matchId: string | null, metadata: Record<string, unknown>): Promise<void> {

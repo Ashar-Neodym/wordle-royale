@@ -20,6 +20,8 @@
     "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "db:seed:dry-run": "tsx prisma/seed-fixtures.ts --dry-run --json",
     "db:seed:local": "tsx prisma/seed-fixtures.ts --apply",
+    "db:bootstrap:preview-dictionary": "tsx prisma/bootstrap-preview-dictionary.ts",
+    "test:postgres:preview-dictionary": "node scripts/run-preview-dictionary-postgres-integration.mjs",
     "db:reset:ranked-smoke": "node ../../scripts/reset-ranked-smoke-db.mjs"
   },
   "dependencies": {

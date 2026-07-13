@@ -7,6 +7,7 @@ import request from 'supertest';
 import type { ReadinessDependency } from '@wordle-royale/contracts';
 import { AppModule } from '../src/app.module.ts';
 import { validateRuntimeConfig } from '../src/config/runtime-config.ts';
+import { StandardDictionaryService } from '../src/dictionary/standard-dictionary.service.ts';
 import { RedisReadinessService } from '../src/health/redis-readiness.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import { ApiExceptionFilter } from '../src/shared/api-exception.filter.ts';
@@ -146,6 +147,8 @@ async function createApp(options: { database?: ReadinessDependency; applicationS
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)
     .useValue(createMockPrismaService(options.database, options.applicationSchema))
+    .overrideProvider(StandardDictionaryService)
+    .useValue({ checkStandardDictionary: async () => ({ status: 'ok', checkedAt: new Date().toISOString(), message: 'Standard dictionary is available.' }) })
     .overrideProvider(RedisReadinessService)
     .useValue({ checkRedis: async () => options.redis ?? { status: 'ok', checkedAt: new Date().toISOString(), latencyMs: 1 } })
     .compile();
@@ -179,6 +182,7 @@ describe('api skeleton', () => {
     assert.equal(ready.body.data.status, 'ok');
     assert.equal(ready.body.data.dependencies.database.status, 'ok');
     assert.equal(ready.body.data.dependencies.applicationSchema.status, 'ok');
+    assert.equal(ready.body.data.dependencies.standardDictionary.status, 'ok');
     assert.equal(ready.body.data.dependencies.redis.status, 'ok');
   });
 
