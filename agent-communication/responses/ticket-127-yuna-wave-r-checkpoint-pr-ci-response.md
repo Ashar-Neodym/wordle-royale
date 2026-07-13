@@ -2,7 +2,7 @@
 
 Task: Wave R Checkpoint PR and CI
 Agent: Yuna (operations)
-Status: In progress — Ticket 133 PASS confirmed and full local gates passed; branch/PR/CI evidence pending
+Status: Completed with PR/CI blocker — branch pushed; PR creation blocked because GitHub CLI and browser are unauthenticated; CI pending PR creation
 
 ## What I understood
 
@@ -17,15 +17,29 @@ Ticket 126 originally failed with three blockers. Ticket 133 independently reche
 - Production-build reconnect resolves to idle/searching/matched and routes with the server match ID.
 - Ticket 133 explicitly states Ticket 127 may proceed.
 
-## Intended checkpoint scope
+## Checkpoint scope
 
-- Tickets/responses and evidence from Ticket 120 through Ticket 133 present in the worktree.
+The checkpoint includes all available intended Wave R implementation/evidence from Tickets 120–133:
+
+- Ticket 120/121 hosted Wave Q smoke and QA handoff evidence.
+- Tickets 122–126 Standard 1v1 architecture, implementation, UX, and initial QA evidence.
+- Tickets 127–129 checkpoint/deploy/final QA assignments.
+- Tickets 130–133 blocker fixes and focused PASS evidence.
 - Standard 1v1 matchmaking contracts and persistence decision.
 - Prisma migration and durable matchmaking ticket model.
 - DB-backed queue/matchmaker, bounded transaction retry, and PostgreSQL integration tooling.
 - Standard Glicko settlement and authoritative rating read models.
 - Live Standard queue web UX and bounded reconnect state handling.
-- Ticket 126 failure evidence, Tickets 130–132 fixes, and Ticket 133 PASS evidence.
+
+Tickets 128 and 129 are intentionally assignments only at this checkpoint; their responses do not exist because deploy/final hosted QA must occur after approved merge and successful main CI.
+
+## Files changed
+
+Checkpoint commit contains 63 intended source/migration/docs/ticket/response paths.
+
+This response:
+
+- `agent-communication/responses/ticket-127-yuna-wave-r-checkpoint-pr-ci-response.md`
 
 ## Full local gates
 
@@ -59,17 +73,24 @@ Rating tools tests: 14 pass, 0 fail.
 Web build: ✓ Compiled successfully.
 Mobile build: Done.
 API build: Done.
-API production-start smoke: migrations had no pending changes; /readyz returned status=ok.
+API production-start smoke: 3 migrations found; no pending migrations; /readyz returned status=ok.
 Local smoke passed.
 Dependency config check passed.
 Secret scan passed (205 source/config files scanned).
 ```
 
-Ticket 133 separately records successful opt-in real-PostgreSQL matchmaking and rating-read integration tests. The checkpoint gate did not rerun those destructive/disposable-schema suites because the canonical generic chain intentionally skips them unless an explicit disposable local database URL is supplied.
+Ticket 133 separately records successful opt-in real-PostgreSQL matchmaking and rating-read integration tests. The checkpoint gate did not rerun those disposable-schema suites because the generic chain intentionally skips them unless an explicit disposable local database URL is supplied.
 
-## Ignored env/generated artifacts
+## Staged/env/generated safety evidence
 
-Observed after gates:
+Before commit:
+
+```text
+staged_count=63
+blocked_staged=[]
+```
+
+Ignored/not staged after gates:
 
 ```text
 !! .env.preview.local
@@ -79,19 +100,9 @@ Observed after gates:
 !! apps/web/tsconfig.tsbuildinfo
 ```
 
-These must remain ignored and unstaged.
+A staged `git diff --cached --check` initially found trailing whitespace in three handoff responses and one architecture doc. Only trailing whitespace was normalized mechanically; the check then passed before commit.
 
-## GitHub auth precheck
-
-```text
-gh: installed but not authenticated
-GH_TOKEN: absent
-GITHUB_TOKEN: absent
-```
-
-PR creation will be attempted after push; if auth remains unavailable, exact manual PR handoff will be recorded.
-
-## Branch / PR / CI evidence
+## Branch / commit / push evidence
 
 Branch:
 
@@ -99,55 +110,125 @@ Branch:
 wave-r/standard-1v1-matchmaking
 ```
 
-Checkpoint commit:
+Main checkpoint commit before this evidence update:
 
 ```text
-PENDING
+f7ee764 feat: checkpoint wave r standard matchmaking
 ```
 
-Remote branch:
+Full checkpoint SHA:
 
 ```text
-PENDING
+f7ee7649fc7ea9d159d4a02ce5f442ffa6b64f22
 ```
 
-PR:
+Remote read-back after initial push:
 
 ```text
-PENDING
+f7ee7649fc7ea9d159d4a02ce5f442ffa6b64f22 refs/heads/wave-r/standard-1v1-matchmaking
 ```
 
-CI:
+This response is followed by a small evidence-update commit on the same branch.
+
+## PR creation result
+
+Attempted with GitHub CLI:
+
+```bash
+gh pr create \
+  --base main \
+  --head wave-r/standard-1v1-matchmaking \
+  --title "Wave R checkpoint: live Standard 1v1 matchmaking" \
+  --body "..."
+```
+
+Result:
 
 ```text
-PENDING
+To get started with GitHub CLI, please run: gh auth login
+Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.
 ```
+
+Browser fallback also redirected the PR creation URL to GitHub sign-in, so browser-side PR creation was not possible without credentials.
+
+Auth state:
+
+```text
+gh: installed but not authenticated
+GH_TOKEN: absent
+GITHUB_TOKEN: absent
+browser GitHub session: signed out
+```
+
+Unauthenticated GitHub API read-back:
+
+```text
+open_pr_count=0
+branch_run_count=0
+```
+
+Manual PR URL:
+
+```text
+https://github.com/Ashar-Neodym/wordle-royale/pull/new/wave-r/standard-1v1-matchmaking
+```
+
+Compare URL:
+
+```text
+https://github.com/Ashar-Neodym/wordle-royale/compare/main...wave-r/standard-1v1-matchmaking
+```
+
+## CI status
+
+Remote GitHub Actions has not started:
+
+```text
+branch_run_count=0
+CI pending PR creation
+```
+
+Reason:
+
+- `.github/workflows/pr-checks.yml` triggers on `pull_request` and push to `main`.
+- Wave R branch push alone does not trigger the workflow.
+- No PR exists because authenticated GitHub access is unavailable in this shell/browser.
+
+This is an auth/PR blocker, not a failing CI run. Once the PR is opened, GitHub Actions must be monitored to terminal success/failure before merge approval.
 
 ## Safety
 
-- Do not stage ignored env/generated files.
-- Do not push to `main`.
-- Do not merge.
-- Do not deploy.
-- Do not mutate provider resources or secrets.
+- Did not stage ignored env/generated files.
+- Did not push to `main`.
+- Did not merge.
+- Did not deploy.
+- Did not mutate Railway, Vercel, Supabase, or other provider resources.
+- Did not view, create, rotate, or commit secrets.
+
+## Rollback / recovery
+
+- To abandon the checkpoint before merge, close any later-created PR and delete `wave-r/standard-1v1-matchmaking` locally/remotely after Athena confirms it is no longer needed.
+- Do not reset or force-push `main`.
+- If CI fails after PR creation, patch the Wave R branch, rerun local gates, push the fix, and let GitHub Actions rerun.
+- Ticket 128 deployment remains blocked until explicit Ashar merge/deploy approval and successful main CI.
 
 ## Follow-up tickets
 
 ### Follow-up ticket 1
 
 - Target agent: Ashar/Athena or Yuna with authenticated GitHub access
-- Why that agent is needed: GitHub PR creation may be blocked by missing auth in this shell.
-- Exact task: Open the Wave R PR from `wave-r/standard-1v1-matchmaking` to `main` if this response records an auth blocker.
-- Inputs/context they need: pushed branch and manual PR URL.
-- Expected output back to Athena: PR URL and initial CI run URL.
+- Why that agent is needed: GitHub PR creation is blocked by missing auth in this shell and browser.
+- Exact task: Open PR from `wave-r/standard-1v1-matchmaking` to `main` using the manual PR URL above; do not merge.
+- Inputs/context they need: pushed branch, main checkpoint SHA, this response.
+- Expected output back to Athena: PR URL and initial GitHub Actions run URL/status.
 
 ### Follow-up ticket 2
 
-- Target agent: Jasmine
-- Why that agent is needed: independent PR/release verification.
-- Exact task: Review Wave R PR and terminal GitHub Actions status; confirm no regression from Ticket 133 PASS.
-- Inputs/context they need: PR URL, CI URL, Ticket 133 response, this Ticket 127 response.
-- Expected output back to Athena: PASS/WARN/FAIL and merge recommendation.
+- Target agent: Yuna/Jasmine with authenticated GitHub read access
+- Why that agent is needed: CI cannot start until the PR exists, and independent terminal verification is required.
+- Exact task: Monitor PR checks to terminal status, triage any failure with logs, and report success/failure without merging.
+- Inputs/context they need: PR URL and this response.
+- Expected output back to Athena: terminal CI status, Actions URL, failing step/action if any, and merge recommendation.
 
 ### Follow-up ticket 3
 
