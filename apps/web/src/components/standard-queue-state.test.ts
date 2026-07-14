@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { ApiClientResult, Standard1v1Ticket } from '../lib/api-client.ts';
+import { MATCHMAKING_DEADLINE_POLICY } from '../lib/matchmaking-deadline-policy.ts';
 import {
   CLIENT_ACTION_DEADLINE_MS,
   hrefForMatchedTicket,
@@ -61,7 +62,7 @@ describe('Standard queue reconnect resolution', () => {
       runWithClientDeadline(new Promise<never>(() => undefined), 10),
       /Queue status check timed out/,
     );
-    assert.ok(CLIENT_ACTION_DEADLINE_MS > 0);
+    assert.equal(CLIENT_ACTION_DEADLINE_MS, MATCHMAKING_DEADLINE_POLICY.browserMs);
   });
 
   it('builds matched navigation only from matchedMatchId', () => {

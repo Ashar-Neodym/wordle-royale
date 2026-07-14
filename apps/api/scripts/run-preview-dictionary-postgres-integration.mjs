@@ -37,6 +37,7 @@ try {
   run('pnpm', ['exec', 'node', '--import', 'tsx', '--test', 'test/preview-dictionary-postgres.integration.test.ts'], {
     APP_ENV: 'preview',
     DATABASE_URL: schemaDatabaseUrl,
+    MATCHMAKING_TRANSACTION_TIMEOUT_MS: '6000',
     NODE_ENV: 'test',
     PREVIEW_DICTIONARY_BOOTSTRAP_CONFIRM: PREVIEW_DICTIONARY_CONFIRMATION,
     RUN_PREVIEW_DICTIONARY_POSTGRES_INTEGRATION: '1',

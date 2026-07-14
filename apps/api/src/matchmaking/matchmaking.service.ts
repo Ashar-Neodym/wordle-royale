@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { defaultProvisionalGames, defaultRating, standard1v1TicketSchema } from '@wordle-royale/contracts';
 import type { CreateStandard1v1TicketRequest, Standard1v1Ticket } from '@wordle-royale/contracts';
 import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
@@ -7,6 +7,20 @@ import { GameplayPersistenceService } from '../gameplay/gameplay-persistence.ser
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { STANDARD_1V1_RATING_ALGORITHM, STANDARD_1V1_RATING_ALGORITHM_VERSION } from '../rating/standard-1v1-rating.ts';
 import { standardQueueEnabled } from './matchmaking-config.ts';
+import {
+  defaultMatchmakingLifecycleDependencies,
+  isPrismaUniqueConstraintError,
+  isRecognizedMatchmakingTicketUniqueError,
+  isRetryableTransactionError,
+  isTransactionExpiryError,
+  MatchmakingRecoveryPendingError,
+  MATCHMAKING_LIFECYCLE_DEPENDENCIES,
+  recognizedMatchmakingTicketUniqueError,
+  runMatchmakingLifecycle,
+} from './matchmaking-lifecycle.ts';
+import type { MatchmakingLifecycleCallbacks, MatchmakingLifecycleDependencies, MatchmakingTransactionInvoker } from './matchmaking-lifecycle.ts';
+import { matchmakingTransactionBudget } from './matchmaking-transaction-budget.ts';
+import type { MatchmakingTransactionBudget } from './matchmaking-transaction-budget.ts';
 
 const QUEUE_TTL_MS = 60_000;
 const INITIAL_RATING_WINDOW = 100;
@@ -63,115 +77,131 @@ function queueWindow(createdAt: Date | string, rating: number, now: Date) {
   return { expansionStep, minRating: rating - radius, maxRating: rating + radius };
 }
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002';
-}
-
-function isRetryableTransactionError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const candidate = error as { code?: string; meta?: { code?: string } };
-  if (candidate.code === 'P2034') return true;
-  return candidate.code === 'P2010'
-    && (candidate.meta?.code === '40001' || candidate.meta?.code === '40P01');
-}
-
 @Injectable()
 export class MatchmakingService {
+  private readonly transactionBudget: MatchmakingTransactionBudget;
+  private readonly lifecycleDependencies: MatchmakingLifecycleDependencies;
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
     @Inject(StandardDictionaryService) private readonly dictionary: StandardDictionaryService,
-  ) {}
+    @Optional() @Inject(MATCHMAKING_LIFECYCLE_DEPENDENCIES) lifecycleDependencies?: MatchmakingLifecycleDependencies,
+  ) {
+    this.transactionBudget = matchmakingTransactionBudget();
+    this.lifecycleDependencies = lifecycleDependencies ?? defaultMatchmakingLifecycleDependencies();
+  }
 
-  async joinStandardQueue(userId: string, input: CreateStandard1v1TicketRequest, now = new Date()): Promise<Standard1v1Ticket> {
+  async joinStandardQueue(userId: string, input: CreateStandard1v1TicketRequest, now?: Date): Promise<Standard1v1Ticket> {
     return (await this.joinStandardQueueWithResult(userId, input, now)).ticket;
   }
 
   async joinStandardQueueWithResult(
     userId: string,
     input: CreateStandard1v1TicketRequest,
-    now = new Date(),
+    now?: Date,
   ): Promise<{ ticket: Standard1v1Ticket; created: boolean }> {
     this.assertLiveRequest(input);
 
-    try {
-      return await this.inTransaction(async (tx) => {
+    return await this.runLifecycle({
+      initial: async (tx, context) => {
+        const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
         const dictionary = await this.requireDictionary(tx);
-        await this.expireQueuedTickets(tx, now);
-        await this.releaseCompletedMatchedTickets(tx, userId, now);
+        await this.expireQueuedTickets(tx, attemptNow);
+        await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
 
         const replay = await tx.matchmakingTicket.findUnique({
           where: { userId_mode_idempotencyKey: { userId, mode: 'standard_1v1', idempotencyKey: input.clientRequestId } },
           include: TICKET_INCLUDE,
         }) as TicketRecord | null;
-        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, now, dictionary)), created: false };
+        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, attemptNow, dictionary)), created: false };
 
         const active = await this.findActiveTicket(tx, userId);
         if (active) {
           await this.writeAudit(tx, userId, 'matchmaking_duplicate_active_ticket', active.id, null, { state: active.state });
-          return { ticket: this.toDto(await this.attemptPair(tx, active, now, dictionary)), created: false };
+          return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary)), created: false };
         }
 
         const profile = await this.findOrCreateRatingProfile(tx, userId) as RatingProfileRecord;
         const provisional = profile.provisionalRemaining > 0;
-        const expiresAt = new Date(now.getTime() + QUEUE_TTL_MS);
-        const ticket = await tx.matchmakingTicket.create({
-          data: {
-            userId,
-            mode: 'standard_1v1',
-            rated: true,
-            state: 'queued',
-            ratingAtQueue: profile.rating,
-            provisionalAtQueue: provisional,
-            allowProvisionalOpponent: input.allowProvisionalOpponent,
-            searchMinRating: profile.rating - INITIAL_RATING_WINDOW,
-            searchMaxRating: profile.rating + INITIAL_RATING_WINDOW,
-            expansionStep: 0,
-            idempotencyKey: input.clientRequestId,
-            expiresAt,
-          },
-          include: TICKET_INCLUDE,
-        }) as TicketRecord;
+        const expiresAt = new Date(attemptNow.getTime() + QUEUE_TTL_MS);
+        let ticket: TicketRecord;
+        try {
+          ticket = await tx.matchmakingTicket.create({
+            data: {
+              userId,
+              mode: 'standard_1v1',
+              rated: true,
+              state: 'queued',
+              ratingAtQueue: profile.rating,
+              provisionalAtQueue: provisional,
+              allowProvisionalOpponent: input.allowProvisionalOpponent,
+              searchMinRating: profile.rating - INITIAL_RATING_WINDOW,
+              searchMaxRating: profile.rating + INITIAL_RATING_WINDOW,
+              expansionStep: 0,
+              idempotencyKey: input.clientRequestId,
+              expiresAt,
+            },
+            include: TICKET_INCLUDE,
+          }) as TicketRecord;
+        } catch (error) {
+          if (isRecognizedMatchmakingTicketUniqueError(error)) {
+            throw recognizedMatchmakingTicketUniqueError(error);
+          }
+          if (isPrismaUniqueConstraintError(error)) {
+            throw new ConflictException({
+              code: 'matchmaking_ticket_conflict',
+              message: 'The matchmaking ticket could not be created because of a conflicting queue record.',
+            });
+          }
+          throw error;
+        }
         await this.writeAudit(tx, userId, 'matchmaking_queued', ticket.id, null, {
           mode: 'standard_1v1',
           ratingAtQueue: profile.rating,
           provisional,
         });
-        return { ticket: this.toDto(await this.attemptPair(tx, ticket, now, dictionary)), created: true };
-      });
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
-      return await this.inTransaction(async (tx) => {
+        return { ticket: this.toDto(await this.attemptPair(tx, ticket, attemptNow, dictionary)), created: true };
+      },
+      recoverUnique: async (tx, context) => {
+        const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
         const dictionary = await this.requireDictionary(tx);
-        const active = await this.findActiveTicket(tx, userId);
-        if (!active) throw error;
-        return { ticket: this.toDto(await this.attemptPair(tx, active, now, dictionary)), created: false };
-      });
-    }
+        const replay = await tx.matchmakingTicket.findUnique({
+          where: { userId_mode_idempotencyKey: { userId, mode: 'standard_1v1', idempotencyKey: input.clientRequestId } },
+          include: TICKET_INCLUDE,
+        }) as TicketRecord | null;
+        const active = replay ?? await this.findActiveTicket(tx, userId);
+        if (!active) throw new MatchmakingRecoveryPendingError();
+        return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary)), created: false };
+      },
+    });
   }
 
-  async getCurrentTicket(userId: string, now = new Date()): Promise<Standard1v1Ticket | null> {
-    return await this.inTransaction(async (tx) => {
-      await this.expireQueuedTickets(tx, now, userId);
-      await this.releaseCompletedMatchedTickets(tx, userId, now);
+  async getCurrentTicket(userId: string, now?: Date): Promise<Standard1v1Ticket | null> {
+    return await this.runLifecycle({ initial: async (tx, context) => {
+      const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+      await this.expireQueuedTickets(tx, attemptNow, userId);
+      await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
       const ticket = await this.findActiveTicket(tx, userId);
       if (!ticket) return null;
-      return this.toDto(await this.attemptPair(tx, ticket, now));
-    });
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow));
+    } });
   }
 
-  async getTicket(userId: string, ticketId: string, now = new Date()): Promise<Standard1v1Ticket> {
-    return await this.inTransaction(async (tx) => {
-      await this.expireQueuedTickets(tx, now, userId);
-      await this.releaseCompletedMatchedTickets(tx, userId, now);
+  async getTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+    return await this.runLifecycle({ initial: async (tx, context) => {
+      const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+      await this.expireQueuedTickets(tx, attemptNow, userId);
+      await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
       const ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId }, include: TICKET_INCLUDE }) as TicketRecord | null;
       if (!ticket) throw new NotFoundException({ code: 'ticket_not_found', message: 'Matchmaking ticket was not found.' });
-      return this.toDto(await this.attemptPair(tx, ticket, now));
-    });
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow));
+    } });
   }
 
-  async cancelTicket(userId: string, ticketId: string, now = new Date()): Promise<Standard1v1Ticket> {
-    return await this.inTransaction(async (tx) => {
+  async cancelTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+    return await this.runLifecycle({ initial: async (tx, context) => {
+      const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
       await this.lockTicket(tx, ticketId);
       let ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId }, include: TICKET_INCLUDE }) as TicketRecord | null;
       if (!ticket) throw new NotFoundException({ code: 'ticket_not_found', message: 'Matchmaking ticket was not found.' });
@@ -184,10 +214,10 @@ export class MatchmakingService {
         });
       }
       if (ticket.state !== 'queued') return this.toDto(ticket);
-      if (asDate(ticket.expiresAt).getTime() <= now.getTime()) {
+      if (asDate(ticket.expiresAt).getTime() <= attemptNow.getTime()) {
         ticket = await tx.matchmakingTicket.update({
           where: { id: ticket.id },
-          data: { state: 'timed_out', timedOutAt: now },
+          data: { state: 'timed_out', timedOutAt: attemptNow },
           include: TICKET_INCLUDE,
         }) as TicketRecord;
         return this.toDto(ticket);
@@ -195,12 +225,12 @@ export class MatchmakingService {
 
       ticket = await tx.matchmakingTicket.update({
         where: { id: ticket.id },
-        data: { state: 'cancelled', cancelledAt: now },
+        data: { state: 'cancelled', cancelledAt: attemptNow },
         include: TICKET_INCLUDE,
       }) as TicketRecord;
       await this.writeAudit(tx, userId, 'matchmaking_cancelled', ticket.id, null, { mode: 'standard_1v1' });
       return this.toDto(ticket);
-    });
+    } });
   }
 
   private assertLiveRequest(input: CreateStandard1v1TicketRequest): void {
@@ -373,7 +403,10 @@ export class MatchmakingService {
     try {
       const selection = await this.dictionary.selectStandardDictionary(tx);
       if (selection) return selection;
-    } catch {
+    } catch (error) {
+      // Transaction policy belongs to the lifecycle coordinator: expiry is
+      // normalized once there, while serialization/deadlock failures enter its retry ledger.
+      if (isTransactionExpiryError(error) || isRetryableTransactionError(error)) throw error;
       // Normalize policy, schema, and database lookup failures to one public,
       // spoiler-safe availability error. The transaction rolls back any work.
     }
@@ -410,11 +443,10 @@ export class MatchmakingService {
         },
       }) as RatingProfileRecord;
     } catch (error) {
-      // Serializable transaction failures must reach inTransaction(), which owns
-      // the bounded retry loop. Translating P2034 here makes a recoverable race
-      // look like a terminal rating-profile conflict to the API caller.
-      if (isRetryableTransactionError(error)) throw error;
-      if (!isUniqueConstraintError(error)) {
+      // Serializable transaction failures must reach the lifecycle coordinator,
+      // which owns the shared bounded retry ledger across initial and recovery phases.
+      if (isTransactionExpiryError(error) || isRetryableTransactionError(error)) throw error;
+      if (!isPrismaUniqueConstraintError(error)) {
         throw new ConflictException({ code: 'rating_profile_unavailable', message: 'A Standard rating profile could not be prepared for matchmaking.' });
       }
       const replay = await tx.ratingProfile.findFirst({
@@ -518,21 +550,9 @@ export class MatchmakingService {
     });
   }
 
-  private async inTransaction<T>(callback: (tx: any) => Promise<T>): Promise<T> {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        return await (this.prisma.client as any).$transaction(callback, { isolationLevel: 'Serializable' }) as T;
-      } catch (error) {
-        if (!isRetryableTransactionError(error)) throw error;
-        if (attempt === 3) {
-          throw new ServiceUnavailableException({
-            code: 'matchmaking_retry_exhausted',
-            message: 'Matchmaking was busy resolving concurrent queue activity. Retry the request.',
-          });
-        }
-        await new Promise((resolve) => setTimeout(resolve, attempt * 10));
-      }
-    }
-    throw new Error('Unreachable matchmaking transaction retry state.');
+  private async runLifecycle<T>(callbacks: MatchmakingLifecycleCallbacks<T>): Promise<T> {
+    const transaction = (async (callback: (tx: any) => Promise<unknown>, options: unknown) =>
+      await (this.prisma.client as any).$transaction(callback, options)) as MatchmakingTransactionInvoker;
+    return await runMatchmakingLifecycle(transaction, callbacks, this.transactionBudget, this.lifecycleDependencies);
   }
 }

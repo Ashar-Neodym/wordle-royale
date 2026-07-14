@@ -93,6 +93,22 @@ COMMIT;
 SQL
 ```
 
+## Hosted matchmaking timeout budgets
+
+Standard matchmaking uses one 90-second monotonic lifecycle coordinator on join, retry/recovery, reconnect/read, and cancel paths. The initial phase, bounded decorrelated-jitter sleeps, and recognized active-ticket uniqueness recovery share one four-attempt ledger and one deadline; recovery never receives a fresh loop or budget.
+
+Preferred per-attempt settings remain:
+
+- `MATCHMAKING_TRANSACTION_MAX_WAIT_MS=5000` by default, bounded to `1000–10000` ms;
+- `MATCHMAKING_TRANSACTION_TIMEOUT_MS=20000` by default, bounded to `6000–30000` ms;
+- serializable isolation on every attempt.
+
+The coordinator reserves 1 second for completion/error normalization and clamps every Prisma `maxWait`/`timeout` to the remaining lifecycle budget, with minimum clamped values of 250 ms and 1 second. Retryable serialization/deadlock conflicts use decorrelated jitter from 50–1000 ms. Invalid configuration fails startup without echoing the supplied value.
+
+Prisma `P2028` expiry is not retried and returns sanitized `503 matchmaking_transaction_timeout`; whole-lifecycle exhaustion returns `503 matchmaking_lifecycle_timeout`; four consumed concurrency attempts return `503 matchmaking_retry_exhausted`.
+
+The web/API deadline chain must remain outside the enforced 90-second backend cap. Ticket 146 owns binding the actual proxy, server-action, and browser call paths to the locked `95s/100s/110s` policy.
+
 ## CI
 
 Initial PR-check skeleton lives at `.github/workflows/pr-checks.yml`. It uses existing pnpm scaffold scripts and does not require secrets.

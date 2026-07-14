@@ -229,3 +229,38 @@ If Wave R must be disabled before the hosted data/bootstrap defect is fixed:
 - Exact task: Keep Ticket 129 blocked until Ticket 128 re-smoke passes; then independently verify hosted Standard queue, shared match, reconnect, spoiler safety, and rating read convergence.
 - Inputs/context they need: corrected Ticket 128 response and hosted URLs.
 - Expected output back to Athena: final hosted Wave R PASS/WARN/FAIL.
+
+## Athena/Yuna resumed hosted execution — approved dictionary bootstrap
+
+Ashar explicitly approved the reviewed hosted preview dictionary-only bootstrap after PR #7 merged and main CI passed.
+
+Verified operation:
+
+```text
+first apply result = created
+release = en-5-test-vfixture.001
+counts = 20 answer / 40 guess / 3 banned / 63 total
+fixtureOnly = true
+productionApproved = false
+second apply result = unchanged
+```
+
+Hosted readiness then transitioned to:
+
+```text
+/healthz = 200 ok
+/readyz = 200 ok
+database = ok
+applicationSchema = ok
+standardDictionary = ok
+```
+
+No `db:seed:local`, fixture user seed, provider setting change, or production dictionary approval occurred.
+
+### New hosted blocker after bootstrap
+
+Two distinct preview sessions started successfully, but concurrent queue joins returned `500/500`; sequential join also returned `500 internal_server_error`, and no current ticket persisted. A local API process pointed at the same hosted Supabase database reproduced a single join failure at approximately 5.1 seconds. The dictionary selector alone took approximately 2.0 seconds through the hosted pooler.
+
+`MatchmakingService.inTransaction()` currently passes only serializable isolation to Prisma. Prisma therefore applies its default 5-second interactive-transaction timeout. Hosted dictionary verification plus profile/ticket/audit/locking/candidate work exceeds that budget and rolls back.
+
+Ticket 128 remains **FAIL/BLOCKED** pending Tickets 138–140 and a new hosted smoke. The dictionary bootstrap itself is accepted and does not need to be rerun except as an idempotent `unchanged` verification.
