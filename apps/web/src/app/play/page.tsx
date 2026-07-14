@@ -12,6 +12,9 @@ import { rankedActionState, resolveSearchParams, searchValue, type SearchParamsI
 import styles from '../../components/web-shell.module.css';
 
 export const dynamic = 'force-dynamic';
+// Next route-segment config requires a statically analyzable literal. The policy test
+// asserts this value equals MATCHMAKING_DEADLINE_POLICY.serverActionMaxDurationSeconds.
+export const maxDuration = 100;
 
 const rankedModeChoices = [
   { label: 'Standard', mode: 'standard_1v1', detail: 'Live automatic rated 1v1 queue with server-owned pairing and match creation.', availability: 'Live queue' },

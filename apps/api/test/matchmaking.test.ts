@@ -17,17 +17,35 @@ const answerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const requestOne = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const requestTwo = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const requestThree = 'cccccccc-3333-4333-8333-cccccccccccc';
+const expectedTransactionOptions = {
+  isolationLevel: 'Serializable',
+  maxWait: 5_000,
+  timeout: 20_000,
+};
 
 function createMatchmakingPrismaMock() {
   let ticketSequence = 0;
   let matchSequence = 0;
   let roundSequence = 0;
   let transactionTail = Promise.resolve();
-  const controls: { ratingCreateFailure: unknown | null; dictionaryAvailable: boolean } = {
+  const controls: {
+    ratingCreateFailure: unknown | null;
+    dictionarySelectionFailure: unknown | null;
+    dictionaryAvailable: boolean;
+    transactionLatencyMs: number;
+    ticketCreateFailure: unknown | null;
+    uniqueAfterCreateFailure: boolean;
+    expireAfterCallback: boolean;
+  } = {
     ratingCreateFailure: null,
+    dictionarySelectionFailure: null,
     dictionaryAvailable: true,
+    transactionLatencyMs: 0,
+    ticketCreateFailure: null,
+    uniqueAfterCreateFailure: false,
+    expireAfterCallback: false,
   };
-  const metrics = { transactionAttempts: 0 };
+  const metrics = { transactionAttempts: 0, transactionOptions: [] as any[] };
 
   const users = new Map([
     [localFixtureUsers.playerOne, { id: localFixtureUsers.playerOne, displayName: 'Player One', profile: { publicHandle: 'player_one' } }],
@@ -50,6 +68,9 @@ function createMatchmakingPrismaMock() {
   const participants: any[] = [];
   const rounds: any[] = [];
   const audits: any[] = [];
+  const restore = (target: any[], snapshot: any[]): void => {
+    target.splice(0, target.length, ...snapshot);
+  };
 
   const hydrate = (ticket: any) => ({
     ...ticket,
@@ -70,14 +91,40 @@ function createMatchmakingPrismaMock() {
   };
 
   const client: any = {
-    $transaction: async (callback: (tx: any) => Promise<any>) => {
+    $transaction: async (callback: (tx: any) => Promise<any>, options: any) => {
       metrics.transactionAttempts += 1;
+      metrics.transactionOptions.push({ ...options });
+      if (controls.transactionLatencyMs > options.timeout) {
+        throw Object.assign(new Error('mock interactive transaction expired'), { code: 'P2028' });
+      }
+      if (controls.transactionLatencyMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, controls.transactionLatencyMs));
+      }
       const previous = transactionTail;
       let release!: () => void;
       transactionTail = new Promise<void>((resolve) => { release = resolve; });
       await previous;
+      const snapshots = {
+        ratings: structuredClone(ratings),
+        tickets: structuredClone(tickets),
+        matches: structuredClone(matches),
+        participants: structuredClone(participants),
+        rounds: structuredClone(rounds),
+        audits: structuredClone(audits),
+      };
       try {
-        return await callback(client);
+        const result = await callback(client);
+        if (controls.expireAfterCallback) {
+          controls.expireAfterCallback = false;
+          restore(ratings, snapshots.ratings);
+          restore(tickets, snapshots.tickets);
+          restore(matches, snapshots.matches);
+          restore(participants, snapshots.participants);
+          restore(rounds, snapshots.rounds);
+          restore(audits, snapshots.audits);
+          throw Object.assign(new Error('mock post-write transaction expiry'), { code: 'P2028' });
+        }
+        return result;
       } finally {
         release();
       }
@@ -129,8 +176,16 @@ function createMatchmakingPrismaMock() {
         ? Object.fromEntries(Object.keys(args.select).map((key) => [key, row[key]]))
         : hydrate(row)),
       create: async (args: any) => {
+        if (controls.ticketCreateFailure) {
+          const failure = controls.ticketCreateFailure;
+          controls.ticketCreateFailure = null;
+          throw failure;
+        }
         if (tickets.some((row) => row.userId === args.data.userId && row.mode === args.data.mode && ['queued', 'matched'].includes(row.state))) {
-          throw Object.assign(new Error('active ticket unique constraint'), { code: 'P2002' });
+          throw Object.assign(new Error('active ticket unique constraint'), {
+            code: 'P2002',
+            meta: { target: 'matchmaking_ticket_one_active_per_user_mode' },
+          });
         }
         ticketSequence += 1;
         const id = `10000000-0000-4000-8000-${String(ticketSequence).padStart(12, '0')}`;
@@ -150,6 +205,13 @@ function createMatchmakingPrismaMock() {
           updatedAt: createdAt,
         };
         tickets.push(ticket);
+        if (controls.uniqueAfterCreateFailure) {
+          controls.uniqueAfterCreateFailure = false;
+          throw Object.assign(new Error('simulated external active-ticket winner'), {
+            code: 'P2002',
+            meta: { target: 'matchmaking_ticket_one_active_per_user_mode' },
+          });
+        }
         return hydrate(ticket);
       },
       update: async (args: any) => {
@@ -235,9 +297,16 @@ async function createApp() {
     .useValue(prisma)
     .overrideProvider(StandardDictionaryService)
     .useValue({
-      selectStandardDictionary: async () => prisma.state.controls.dictionaryAvailable
-        ? { releaseId, version: 'en-5-test-vfixture.001', policy: 'preview_fixture_exception', answerCount: 20 }
-        : null,
+      selectStandardDictionary: async () => {
+        if (prisma.state.controls.dictionarySelectionFailure) {
+          const error = prisma.state.controls.dictionarySelectionFailure;
+          prisma.state.controls.dictionarySelectionFailure = null;
+          throw error;
+        }
+        return prisma.state.controls.dictionaryAvailable
+          ? { releaseId, version: 'en-5-test-vfixture.001', policy: 'preview_fixture_exception', answerCount: 20 }
+          : null;
+      },
       checkStandardDictionary: async () => ({ status: 'ok', checkedAt: new Date().toISOString() }),
     })
     .overrideProvider(RedisReadinessService)
@@ -287,6 +356,137 @@ describe('database-backed Standard 1v1 matchmaking', () => {
     assert.equal(prisma.state.matches.length, 0);
   });
 
+  it('uses one explicit bounded transaction budget for join, read, by-id, and cancel paths', async () => {
+    const queued = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(201);
+    await request(app.getHttpServer()).get('/matchmaking/standard-1v1/tickets/current').expect(200);
+    await request(app.getHttpServer()).get(`/matchmaking/standard-1v1/tickets/${queued.body.data.ticketId}`).expect(200);
+    await request(app.getHttpServer()).delete(`/matchmaking/standard-1v1/tickets/${queued.body.data.ticketId}`).expect(200);
+
+    assert.equal(prisma.state.metrics.transactionOptions.length, 4);
+    for (const options of prisma.state.metrics.transactionOptions) {
+      assert.deepEqual(options, expectedTransactionOptions);
+    }
+  });
+
+  it('keeps the explicit budget on active-ticket uniqueness recovery', async () => {
+    prisma.state.controls.uniqueAfterCreateFailure = true;
+    const recovered = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(200);
+
+    assert.equal(recovered.body.data.state, 'queued');
+    assert.equal(prisma.state.metrics.transactionAttempts, 2);
+    assert.deepEqual(prisma.state.metrics.transactionOptions, [expectedTransactionOptions, expectedTransactionOptions]);
+    assert.equal(prisma.state.tickets.length, 1);
+  });
+
+  it('maps unrelated ticket-create P2002 without entering active-ticket recovery', async () => {
+    prisma.state.controls.ticketCreateFailure = Object.assign(new Error('P2002 secret primary-key detail'), {
+      code: 'P2002',
+      meta: { target: ['id'] },
+    });
+
+    const conflict = await request(app.getHttpServer())
+      .post('/matchmaking/standard-1v1/tickets')
+      .send(body(requestOne))
+      .expect(409);
+
+    assert.equal(conflict.body.error.code, 'matchmaking_ticket_conflict');
+    assert.equal(conflict.body.error.message, 'The matchmaking ticket could not be created because of a conflicting queue record.');
+    assert.equal(JSON.stringify(conflict.body).includes('P2002'), false);
+    assert.equal(JSON.stringify(conflict.body).includes('primary-key'), false);
+    assert.equal(prisma.state.metrics.transactionAttempts, 1);
+    assert.equal(prisma.state.tickets.length, 0);
+  });
+
+  it('allows a hosted-latency-shaped transaction beyond five seconds and sanitizes budget expiry', async () => {
+    prisma.state.controls.transactionLatencyMs = 6_000;
+    const startedAt = Date.now();
+    const joined = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(201);
+    assert.ok(Date.now() - startedAt >= 5_900);
+    assert.equal(joined.body.data.state, 'queued');
+    assert.ok(prisma.state.controls.transactionLatencyMs > 5_000);
+    assert.ok(prisma.state.controls.transactionLatencyMs < prisma.state.metrics.transactionOptions[0].timeout);
+
+    prisma.state.controls.transactionLatencyMs = 20_001;
+    const expired = await request(app.getHttpServer()).get('/matchmaking/standard-1v1/tickets/current').expect(503);
+    assert.equal(expired.body.error.code, 'matchmaking_transaction_timeout');
+    assert.equal(expired.body.error.message, 'Matchmaking took too long to complete. Retry the request.');
+    assert.equal(JSON.stringify(expired.body).includes('P2028'), false);
+    assert.equal(JSON.stringify(expired.body).includes('mock interactive transaction expired'), false);
+  });
+
+  it('rolls back post-write timeout work without duplicate tickets, ratings, matches, or audits', async () => {
+    const profileIndex = prisma.state.ratings.findIndex((profile) => profile.userId === localFixtureUsers.playerOne);
+    prisma.state.ratings.splice(profileIndex, 1);
+    const initialRatingCount = prisma.state.ratings.length;
+    prisma.state.controls.expireAfterCallback = true;
+
+    const expired = await request(app.getHttpServer()).post('/matchmaking/standard-1v1/tickets').send(body(requestOne)).expect(503);
+
+    assert.equal(expired.body.error.code, 'matchmaking_transaction_timeout');
+    assert.equal(prisma.state.ratings.length, initialRatingCount);
+    assert.equal(prisma.state.ratings.some((profile) => profile.userId === localFixtureUsers.playerOne), false);
+    assert.equal(prisma.state.tickets.length, 0);
+    assert.equal(prisma.state.matches.length, 0);
+    assert.equal(prisma.state.participants.length, 0);
+    assert.equal(prisma.state.rounds.length, 0);
+    assert.equal(prisma.state.audits.length, 0);
+  });
+
+  for (const operation of ['dictionary selection', 'rating-profile creation'] as const) {
+    it(`preserves inner P2028 from ${operation} for sanitized outer timeout normalization`, async () => {
+      const sensitiveDetail = 'P2028 transaction expired with SQL and credential detail';
+      const expiry = Object.assign(new Error(sensitiveDetail), { code: 'P2028' });
+      if (operation === 'dictionary selection') {
+        prisma.state.controls.dictionarySelectionFailure = expiry;
+      } else {
+        const profileIndex = prisma.state.ratings.findIndex((profile) => profile.userId === localFixtureUsers.playerOne);
+        prisma.state.ratings.splice(profileIndex, 1);
+        prisma.state.controls.ratingCreateFailure = expiry;
+      }
+
+      const response = await request(app.getHttpServer())
+        .post('/matchmaking/standard-1v1/tickets')
+        .send(body(requestOne))
+        .expect(503);
+
+      assert.deepEqual(response.body.error, {
+        code: 'matchmaking_transaction_timeout',
+        message: 'Matchmaking took too long to complete. Retry the request.',
+        details: {},
+      });
+      assert.equal(JSON.stringify(response.body).includes('P2028'), false);
+      assert.equal(JSON.stringify(response.body).includes('credential'), false);
+      assert.equal(prisma.state.metrics.transactionAttempts, 1);
+      assert.equal(prisma.state.tickets.length, 0);
+      assert.equal(prisma.state.matches.length, 0);
+      assert.equal(prisma.state.audits.length, 0);
+    });
+  }
+
+  for (const transactionFailure of [
+    { name: 'P2034', error: Object.assign(new Error('serialization failure'), { code: 'P2034' }) },
+    { name: 'PostgreSQL 40001', error: Object.assign(new Error('serialization failure'), { code: 'P2010', meta: { code: '40001' } }) },
+    { name: 'PostgreSQL 40P01', error: Object.assign(new Error('deadlock detected'), { code: 'P2010', meta: { code: '40P01' } }) },
+  ]) {
+    for (const operation of ['dictionary selection', 'rating-profile creation'] as const) {
+      it(`preserves inner ${transactionFailure.name} from ${operation} for the bounded outer retry`, async () => {
+        if (operation === 'dictionary selection') {
+          prisma.state.controls.dictionarySelectionFailure = transactionFailure.error;
+        } else {
+          const profileIndex = prisma.state.ratings.findIndex((profile) => profile.userId === localFixtureUsers.playerOne);
+          prisma.state.ratings.splice(profileIndex, 1);
+          prisma.state.controls.ratingCreateFailure = transactionFailure.error;
+        }
+
+        const joined = await matchmaking.joinStandardQueue(localFixtureUsers.playerOne, body(requestOne));
+
+        assert.equal(joined.state, 'queued');
+        assert.equal(prisma.state.metrics.transactionAttempts, 2);
+        assert.deepEqual(prisma.state.metrics.transactionOptions, [expectedTransactionOptions, expectedTransactionOptions]);
+      });
+    }
+  }
+
   it('returns the same safe 503 with zero side effects for sequential and concurrent missing-dictionary joins', async () => {
     prisma.state.controls.dictionaryAvailable = false;
     const initialRatings = prisma.state.ratings.length;
@@ -320,8 +520,32 @@ describe('database-backed Standard 1v1 matchmaking', () => {
 
     assert.equal(joined.state, 'queued');
     assert.equal(prisma.state.metrics.transactionAttempts, 2);
+    assert.deepEqual(prisma.state.metrics.transactionOptions, [expectedTransactionOptions, expectedTransactionOptions]);
     assert.ok(prisma.state.ratings.some((profile) => profile.userId === localFixtureUsers.playerOne
       && profile.algorithmConfigVersion === 'standard_1v1_glicko_v1'));
+  });
+
+  it('refreshes the real service wall clock after retry before assigning the full queue TTL', async () => {
+    const profileIndex = prisma.state.ratings.findIndex((profile) => profile.userId === localFixtureUsers.playerOne);
+    prisma.state.ratings.splice(profileIndex, 1);
+    prisma.state.controls.ratingCreateFailure = Object.assign(new Error('serialization failure'), { code: 'P2034' });
+    const firstAttemptAt = new Date('2026-07-14T12:00:00.000Z');
+    const committedAttemptAt = new Date('2026-07-14T12:01:10.000Z');
+    const wallTimes = [firstAttemptAt, committedAttemptAt];
+    let monotonicNow = 0;
+    (matchmaking as any).lifecycleDependencies = {
+      monotonicNowMs: () => monotonicNow,
+      wallNow: () => new Date((wallTimes.shift() ?? committedAttemptAt).getTime()),
+      random: () => 0,
+      sleep: async (milliseconds: number) => { monotonicNow += milliseconds; },
+    };
+
+    const joined = await matchmaking.joinStandardQueue(localFixtureUsers.playerOne, body(requestOne));
+    const stored = prisma.state.tickets.find((ticket) => ticket.id === joined.ticketId);
+
+    assert.equal(prisma.state.metrics.transactionAttempts, 2);
+    assert.equal(stored.expiresAt.toISOString(), new Date(committedAttemptAt.getTime() + 60_000).toISOString());
+    assert.notEqual(stored.expiresAt.toISOString(), new Date(firstAttemptAt.getTime() + 60_000).toISOString());
   });
 
   it('atomically pairs two authenticated users into one shared server-authoritative match', async () => {

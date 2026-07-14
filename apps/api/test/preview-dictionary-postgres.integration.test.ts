@@ -185,4 +185,56 @@ describe('preview dictionary bootstrap and readiness on fresh PostgreSQL', { ski
     assert.equal(matches[0].participants.length, 2);
     assert.equal(new Set(matches[0].participants.map((participant: any) => participant.userId)).size, 2);
   });
+
+  it('returns a sanitized timeout and rolls back real PostgreSQL writes when final dictionary revalidation exceeds budget', async () => {
+    await prisma.auditLog.deleteMany();
+    await prisma.matchRound.deleteMany();
+    await prisma.matchParticipant.deleteMany();
+    await prisma.matchmakingTicket.deleteMany();
+    await prisma.match.deleteMany();
+    await prisma.ratingProfile.deleteMany({
+      where: { userId: { in: [playerOne, playerTwo] }, mode: 'standard_1v1' },
+    });
+
+    await matchmaking.joinStandardQueue(playerOne, requestBody('13500000-0000-4000-8000-000000000031'));
+    const beforeCounts = {
+      ratings: await prisma.ratingProfile.count(),
+      tickets: await prisma.matchmakingTicket.count(),
+      matches: await prisma.match.count(),
+      rounds: await prisma.matchRound.count(),
+      participants: await prisma.matchParticipant.count(),
+      audits: await prisma.auditLog.count(),
+    };
+    assert.deepEqual(beforeCounts, { ratings: 1, tickets: 1, matches: 0, rounds: 0, participants: 0, audits: 1 });
+
+    const delayedDictionary = {
+      selectStandardDictionary: async (client: any, appEnv?: string, requiredReleaseId?: string) => {
+        if (requiredReleaseId) await client.$executeRawUnsafe('SELECT pg_sleep(7)');
+        return await dictionary.selectStandardDictionary(client, appEnv, requiredReleaseId);
+      },
+    } as StandardDictionaryService;
+    const delayedMatchmaker = new MatchmakingService(
+      prismaService,
+      new GameplayPersistenceService(prismaService),
+      delayedDictionary,
+    );
+
+    const error = await delayedMatchmaker
+      .joinStandardQueue(playerTwo, requestBody('13500000-0000-4000-8000-000000000032'))
+      .then(() => null, (failure) => failure);
+    assert.ok(error instanceof ServiceUnavailableException);
+    assert.deepEqual(error.getResponse(), {
+      code: 'matchmaking_transaction_timeout',
+      message: 'Matchmaking took too long to complete. Retry the request.',
+    });
+    assert.equal(JSON.stringify(error.getResponse()).includes('P2028'), false);
+    assert.deepEqual({
+      ratings: await prisma.ratingProfile.count(),
+      tickets: await prisma.matchmakingTicket.count(),
+      matches: await prisma.match.count(),
+      rounds: await prisma.matchRound.count(),
+      participants: await prisma.matchParticipant.count(),
+      audits: await prisma.auditLog.count(),
+    }, beforeCounts);
+  });
 });

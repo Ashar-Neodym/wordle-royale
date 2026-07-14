@@ -1,4 +1,9 @@
 import type { ApiClientResult, Standard1v1Ticket } from '../lib/api-client';
+import {
+  MATCHMAKING_DEADLINE_POLICY,
+  matchmakingDeadlinePolicyFor,
+  type MatchmakingOperation,
+} from '../lib/matchmaking-deadline-policy';
 
 export type QueueUiState =
   | 'signed_out'
@@ -19,7 +24,7 @@ export type QueueResolution = {
   error: string | null;
 };
 
-export const CLIENT_ACTION_DEADLINE_MS = 7000;
+export const CLIENT_ACTION_DEADLINE_MS = MATCHMAKING_DEADLINE_POLICY.browserMs;
 
 export function stateFromTicket(ticket: Standard1v1Ticket): QueueUiState {
   if (ticket.state === 'queued') return 'searching';
@@ -52,7 +57,7 @@ export function queueResolutionFromResult(
 
 export async function runWithClientDeadline<T>(
   operation: Promise<T>,
-  deadlineMs = CLIENT_ACTION_DEADLINE_MS,
+  deadlineMs: number = CLIENT_ACTION_DEADLINE_MS,
   timeoutMessage = 'Queue status check timed out. Your server ticket may still exist; check status again.',
 ): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -66,6 +71,18 @@ export async function runWithClientDeadline<T>(
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+export function runMatchmakingOperationWithDeadline<T>(
+  operation: MatchmakingOperation,
+  operationPromise: Promise<T>,
+  timeoutMessage?: string,
+): Promise<T> {
+  return runWithClientDeadline(
+    operationPromise,
+    matchmakingDeadlinePolicyFor(operation).browserMs,
+    timeoutMessage,
+  );
 }
 
 export function hrefForMatchedTicket(ticket: Standard1v1Ticket | null): string | null {

@@ -102,7 +102,7 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 125 | Luna | Live Standard 1v1 Queue UX | Complete; reconnect blocker fixed by 132 and verified by 133 |
 | 126 | Jasmine | Wave R Standard Queue Integration QA | Complete; original FAIL superseded by Ticket 133 PASS |
 | 127 | Yuna | Wave R Checkpoint PR and CI | Complete; PR #6 merged, post-merge main CI passed |
-| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | FAIL/BLOCKED; hosted dictionary data missing |
+| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | FAIL/BLOCKED; dictionary fixed, hosted transaction exceeds Prisma 5-second default |
 | 129 | Jasmine | Final Hosted Wave R QA | Blocked pending corrected Ticket 128 PASS |
 
 ## Wave R-Fix — Ticket 126 blocker remediation
@@ -121,21 +121,46 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 134 | Elisa | Preview Dictionary Bootstrap and Readiness Contract | Complete; preview-only policy locked |
 | 135 | Freya | Dictionary-Only Preview Bootstrap and Operational Readiness | Complete; Athena verified full gates and fresh PostgreSQL harness |
 | 136 | Jasmine | Preview Dictionary Bootstrap Independent QA | Complete; PASS; false hosted-approval claim corrected by Athena |
-| 137 | Yuna | Wave R Hosted-Fix Checkpoint PR and CI | Ready now |
+| 137 | Yuna | Wave R Hosted-Fix Checkpoint PR and CI | Complete; PR #7 merged, main CI passed, bootstrap applied and readiness ok |
+
+## Wave R-Hosted-Timeout-Fix — Ticket 128 transaction blocker
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 138 | Freya | Hosted Matchmaking Transaction Budget | Complete; 20-second budget works, but Ticket 139 found two contract blockers |
+| 139 | Jasmine | Matchmaking Transaction Budget Independent QA | Complete; FAIL on inner P2028 mapping and browser/server deadline ordering |
+| 140 | Yuna | Wave R Hosted Timeout-Fix Checkpoint PR and CI | Blocked on Ticket 143 PASS |
+
+## Wave R-Hosted-Timeout-Recheck — Ticket 139 blocker remediation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 141 | Freya | Preserve Inner Transaction Expiry Semantics | Complete; Ticket 143 confirmed original P2028 blocker fixed |
+| 142 | Luna | Correct Cross-Layer Matchmaking Deadlines | Complete; original ordering fixed, but complete-path budget remains unresolved |
+| 143 | Jasmine | Focused Transaction Timeout Contract Recheck | Complete; FAIL on PostgreSQL retry flake and second-loop lifecycle budget |
+
+## Wave R-Hosted-Lifecycle-Fix — Ticket 143 blocker remediation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 144 | Elisa | Complete Matchmaking Lifecycle Budget and Retry Contract | Complete; 90-second lifecycle and shared four-attempt contract locked |
+| 145 | Freya | Stable Concurrent Retry and Shared Lifecycle Budget | Complete; 10/10 delayed fresh-schema PostgreSQL runs passed |
+| 146 | Luna | Bind Web Deadlines to Complete Matchmaking Lifecycle | Ready now |
+| 147 | Jasmine | Final Local Matchmaking Lifecycle Recheck | Blocked on 146 |
 
 ## Recommended order
 
-Wave Q and the local Wave R implementation are complete. PR #6 is merged and main CI passed, but Ticket 128 found a hosted data-bootstrap blocker.
+Wave Q and local Wave R are complete. The approved dictionary bootstrap/readiness are healthy, and Tickets 141–142 fixed the original timeout-classification and simple deadline-ordering defects. Ticket 143 found a deeper complete-lifecycle issue: lockstep serializable retries can exhaust, and late uniqueness recovery can start a second full budget.
 
-Wave R-Hosted-Fix recommended execution:
+Wave R-Hosted-Lifecycle-Fix execution:
 
-1. RHF.0: 134 (Elisa preview/production dictionary and readiness contract).
-2. RHF.1 after 134: 135 (Freya dictionary-only bootstrap/readiness implementation).
-3. RHF.2 after 135: 136 (Jasmine fresh-Postgres independent QA).
-4. RHF.3 only after 136 PASS: 137 (Yuna checkpoint branch/PR/CI; no merge).
-5. Approval gate: Ashar approves PR merge in chat; Athena/Yuna merges and monitors main CI.
-6. Separate data-mutation approval gate: Ashar approves running the reviewed dictionary-only bootstrap against hosted preview.
-7. Resume 128 (Yuna hosted bootstrap + two-session smoke).
+1. RHL.0: 144 (Elisa locks one complete lifecycle/attempt/jitter contract).
+2. RHL.1 after 144: 145 (Freya implements stable retry and shared backend lifecycle budget).
+3. RHL.2 after 145: 146 (Luna binds web deadlines to the enforced complete backend cap).
+4. RHL.3 after 144–146: 147 (Jasmine final local recheck, including 10 consecutive fresh-schema runs).
+5. RHL.4 only after 147 PASS: 140 (Yuna checkpoint branch/PR/CI; no merge).
+6. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/Railway deployment.
+7. Resume 128 hosted two-session queue/match/reconnect smoke; do not replace the approved dictionary.
 8. Then 129 (Jasmine final hosted QA).
 
 ## Persistent constraints

@@ -17,6 +17,7 @@ import type {
   MatchHistoryList,
 } from '@wordle-royale/contracts';
 import { cookies } from 'next/headers';
+import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
 
@@ -239,22 +240,26 @@ export async function createStandard1v1Ticket(body: CreateStandard1v1TicketReque
   return requestEnvelope<Standard1v1Ticket>('/matchmaking/standard-1v1/tickets', {
     method: 'POST',
     body: JSON.stringify(body),
-    timeoutMs: 5000,
+    timeoutMs: matchmakingDeadlinePolicyFor('join').apiProxyMs,
   });
 }
 
 export async function getCurrentStandard1v1Ticket(): Promise<ApiClientResult<Standard1v1Ticket>> {
-  return requestEnvelope<Standard1v1Ticket>('/matchmaking/standard-1v1/tickets/current', { timeoutMs: 5000 });
+  return requestEnvelope<Standard1v1Ticket>('/matchmaking/standard-1v1/tickets/current', {
+    timeoutMs: matchmakingDeadlinePolicyFor('reconnect').apiProxyMs,
+  });
 }
 
 export async function getStandard1v1Ticket(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
-  return requestEnvelope<Standard1v1Ticket>(`/matchmaking/standard-1v1/tickets/${encodeURIComponent(ticketId)}`, { timeoutMs: 5000 });
+  return requestEnvelope<Standard1v1Ticket>(`/matchmaking/standard-1v1/tickets/${encodeURIComponent(ticketId)}`, {
+    timeoutMs: matchmakingDeadlinePolicyFor('current_ticket').apiProxyMs,
+  });
 }
 
 export async function cancelStandard1v1Ticket(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
   return requestEnvelope<Standard1v1Ticket>(`/matchmaking/standard-1v1/tickets/${encodeURIComponent(ticketId)}`, {
     method: 'DELETE',
-    timeoutMs: 5000,
+    timeoutMs: matchmakingDeadlinePolicyFor('cancel').apiProxyMs,
   });
 }
 

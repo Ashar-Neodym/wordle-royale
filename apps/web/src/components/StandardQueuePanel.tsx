@@ -13,7 +13,7 @@ import styles from './web-shell.module.css';
 import {
   hrefForMatchedTicket,
   queueResolutionFromResult,
-  runWithClientDeadline,
+  runMatchmakingOperationWithDeadline,
   stateFromTicket,
   type QueueUiState,
 } from './standard-queue-state';
@@ -78,7 +78,7 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
     setState('reconnecting');
     setError(null);
     try {
-      const result = await runWithClientDeadline(getCurrentStandard1v1TicketAction());
+      const result = await runMatchmakingOperationWithDeadline('reconnect', getCurrentStandard1v1TicketAction());
       if (attempt !== actionAttempt.current) return;
       const resolution = queueResolutionFromResult(result);
       setTicket(resolution.ticket);
@@ -97,9 +97,9 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
     setState('joining');
     setError(null);
     try {
-      const result = await runWithClientDeadline(
+      const result = await runMatchmakingOperationWithDeadline(
+        'join',
         createStandard1v1TicketAction(),
-        undefined,
         'Joining the queue timed out. A server ticket may still exist; check queue status before retrying.',
       );
       if (attempt !== actionAttempt.current) return;
@@ -122,9 +122,9 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
     setState('cancelling');
     setError(null);
     try {
-      const result = await runWithClientDeadline(
+      const result = await runMatchmakingOperationWithDeadline(
+        'cancel',
         cancelStandard1v1TicketAction(ticket.ticketId),
-        undefined,
         'Cancellation timed out. The ticket may still be active; check queue status before trying again.',
       );
       if (attempt !== actionAttempt.current) return;
@@ -157,9 +157,9 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
       if (polling) return;
       polling = true;
       try {
-        const result = await runWithClientDeadline(
+        const result = await runMatchmakingOperationWithDeadline(
+          'current_ticket',
           getStandard1v1TicketAction(ticket.ticketId),
-          undefined,
           'Queue polling timed out. Your server ticket may still be active.',
         );
         if (disposed) return;
