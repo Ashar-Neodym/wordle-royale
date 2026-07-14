@@ -2,7 +2,7 @@
 
 Task: Hosted Timeout-Fix Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 147 PASS and local gates confirmed; branch/PR/remote checks pending
+Status: Completed — checkpoint pushed, PR opened, and initial GitHub/Vercel checks passed; not merged or deployed
 
 ## What I understood
 
@@ -122,7 +122,41 @@ No hosted URL credentials, database URL, cookie, token, dictionary answer, or ge
 
 ## Git / PR / CI evidence
 
-Pending branch creation, safety inspection, push, PR creation, and terminal check monitoring.
+```text
+branch = wave-r/hosted-matchmaking-transaction-budget
+checkpoint commit = 1ac3580f97379b263634006b2fc2b30f237cc0e6
+remote checkpoint read-back = 1ac3580f97379b263634006b2fc2b30f237cc0e6
+staged_count = 42
+blocked_staged = []
+```
+
+Nine handoff/review Markdown files received mechanical trailing-whitespace normalization before commit; no semantic content was altered.
+
+Pull request:
+
+```text
+PR #8
+https://github.com/Ashar-Neodym/wordle-royale/pull/8
+base = main
+head = wave-r/hosted-matchmaking-transaction-budget
+state = open
+```
+
+Initial terminal checks:
+
+```text
+Workspace checks = pass (1m7s)
+https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29323852629/job/87055326977
+
+Vercel = pass
+https://vercel.com/ashar-neodyms-projects/wordle-royale-web/9c2MjkQ7qP3aNCfhQarFLTHHk5jf
+
+Vercel Preview Comments = pass
+```
+
+The Vercel result is an automatic PR Preview check only. No production Vercel deployment, Railway API deployment, Supabase mutation, or provider configuration change was requested or performed.
+
+A final documentation-only evidence commit follows the main checkpoint and retriggers checks. Current terminal status must be read from PR #8 before merge consideration.
 
 ## Safety boundary
 
