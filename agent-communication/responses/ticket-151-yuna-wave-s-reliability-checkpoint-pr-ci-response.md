@@ -2,7 +2,7 @@
 
 Task: Wave S Reliability Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 156 PASS and local gates confirmed; branch/PR/remote checks pending
+Status: Completed — checkpoint pushed, PR opened, and initial GitHub/Vercel checks passed; not merged or deployed
 
 ## What I understood
 
@@ -102,7 +102,41 @@ No cookie, token, connection string, provider credential, or environment secret 
 
 ## Git / PR / CI evidence
 
-Pending branch creation, staged-path safety inspection, commit, push, PR creation, and latest-head terminal check monitoring.
+```text
+branch = wave-s/hosted-read-reliability-polish
+checkpoint commit = eaedc0b7d89e0cab0fb84ad7a3d43988809f9fc2
+remote checkpoint read-back = eaedc0b7d89e0cab0fb84ad7a3d43988809f9fc2
+staged_count = 37
+blocked_staged = []
+```
+
+Six handoff/QA Markdown files received mechanical trailing-whitespace normalization before commit; no semantic content was changed.
+
+Pull request:
+
+```text
+PR #9
+https://github.com/Ashar-Neodym/wordle-royale/pull/9
+base = main
+head = wave-s/hosted-read-reliability-polish
+state = open
+```
+
+Initial terminal checks:
+
+```text
+Workspace checks = pass (1m11s)
+https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29408844669/job/87330811116
+
+Vercel = pass
+https://vercel.com/ashar-neodyms-projects/wordle-royale-web/GvWWabrurriERocqzsrphuFdFd88
+
+Vercel Preview Comments = pass
+```
+
+The Vercel result is an automatic PR Preview only. No production Vercel deployment, Railway deployment, hosted database operation, or provider setting change was requested or performed.
+
+A final evidence-only documentation commit follows the main checkpoint and retriggers the checks. PR #9's current latest-head checks must be terminal before merge consideration.
 
 ## Safety boundary
 
