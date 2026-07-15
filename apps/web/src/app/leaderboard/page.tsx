@@ -13,7 +13,7 @@ export default async function LeaderboardPage(): Promise<ReactElement> {
       <PageHeader eyebrow="Ratings" title="Leaderboard">
         <p>Ranked rows come from the local server when available. Fixture rows stay labeled as preview data when the server/read model has no live ratings.</p>
       </PageHeader>
-      <ProfileLeaderboard leaderboard={api.leaderboard} ratedProfile={api.ratedProfile} />
+      <ProfileLeaderboard leaderboard={api.leaderboard} />
       <section className={styles.section} aria-labelledby="leaderboard-actions-heading">
         <article className={styles.panelWide}>
           <h2 id="leaderboard-actions-heading">Play for rating</h2>

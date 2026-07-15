@@ -2,8 +2,10 @@ import type { ReactElement } from 'react';
 import type { ApiClientResult } from '../lib/api-client';
 import type { CurrentProfileSummary, MatchHistoryList, MatchHistorySummary, PublicProfileSummary } from '@wordle-royale/contracts';
 import { rank, score } from '../lib/tokens';
+import { profileReadFallback } from '../lib/read-fallback';
 import { TokenBadge } from './StatusPanels';
 import styles from './web-shell.module.css';
+import { ServerReadRetryButton } from './ServerReadRetryButton';
 
 type ProfileSummary = CurrentProfileSummary | PublicProfileSummary;
 
@@ -198,14 +200,23 @@ export function ModeRatingCards({ profile }: { profile: ProfileSummary | null })
   );
 }
 
-export function ProfileSummaryCard({ profile, fallbackMessage }: { profile: ProfileSummary | null; fallbackMessage?: string }): ReactElement {
+export function ProfileSummaryCard({
+  profile,
+  fallbackMessage,
+}: {
+  profile: ProfileSummary | null;
+  fallbackMessage?: string;
+}): ReactElement {
   if (!profile) {
+    const fallback = profileReadFallback();
     return (
       <article className={styles.panelWide}>
-        <h2>Profile unavailable</h2>
-        <p className={styles.muted}>{fallbackMessage ?? 'Live profile summary is not reachable. Showing navigation only.'}</p>
+        <h2>{fallback.title}</h2>
+        <p className={styles.muted}>{fallbackMessage ?? fallback.message}</p>
+        <p className={styles.warningText}>{fallback.message}</p>
         <div className={styles.actionRow}>
-          <a className={styles.primaryButton} href="/play">Play rated</a>
+          <ServerReadRetryButton label={fallback.retryLabel} />
+          <a className={styles.secondaryButton} href="/play">Play rated</a>
           <a className={styles.secondaryButton} href="/leaderboard">Ratings</a>
         </div>
       </article>
@@ -266,6 +277,7 @@ export function HistoryStatusPanel({ history }: { history: ApiClientResult<Match
     <article className={styles.errorPanel} aria-live="polite">
       <strong>History API unavailable</strong>
       <p>{history.error ?? 'The local API is offline. No fixture match history is shown here because history should not pretend to be real.'}</p>
+      <ServerReadRetryButton label="Retry history" />
     </article>
   );
 }

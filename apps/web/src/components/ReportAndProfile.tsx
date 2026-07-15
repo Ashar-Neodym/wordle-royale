@@ -1,10 +1,13 @@
 import type { ReactElement } from 'react';
 import type { RankedMatchResultSummary } from '@wordle-royale/contracts';
 import { rank, score } from '../lib/tokens';
+import { leaderboardReadFallback } from '../lib/read-fallback';
+import { leaderboardDisplayMode } from '../lib/profile-read-presentation';
 import { leaderboardFixtures, matchReportFixtures } from '../lib/fixtures';
-import type { ApiClientResult, LeaderboardPayload, RatedProfilePayload } from '../lib/api-client';
+import type { ApiClientResult, LeaderboardPayload } from '../lib/api-client';
 import { userById } from './data';
 import { TokenBadge } from './StatusPanels';
+import { ServerReadRetryButton } from './ServerReadRetryButton';
 import styles from './web-shell.module.css';
 
 type ActionState = {
@@ -86,37 +89,35 @@ export function MatchReport({ matchResult, actionState }: { matchResult: ApiClie
 
 export function ProfileLeaderboard({
   leaderboard,
-  ratedProfile,
   compactForLiveMatch = false,
 }: {
   leaderboard: ApiClientResult<LeaderboardPayload>;
-  ratedProfile: ApiClientResult<RatedProfilePayload>;
   compactForLiveMatch?: boolean;
 }): ReactElement {
   const liveRows = leaderboard.status === 'connected' ? leaderboard.data?.entries ?? [] : [];
   const fixtureRows = leaderboardFixtures.populated;
-  const rows = liveRows.length > 0 ? liveRows : fixtureRows;
-  const usingLiveRows = liveRows.length > 0;
-  const liveProfile = ratedProfile.status === 'connected' ? ratedProfile.data : null;
+  const displayMode = leaderboardDisplayMode(leaderboard.status, liveRows.length);
+  const readUnavailable = displayMode === 'unavailable';
+  const rows = readUnavailable ? [] : liveRows.length > 0 ? liveRows : fixtureRows;
+  const usingLiveRows = displayMode === 'live';
+  const fallback = leaderboardReadFallback();
   return (
     <section id="leaderboard" className={compactForLiveMatch ? `${styles.section} ${styles.liveRatingsSection}` : styles.section} aria-labelledby="leaderboard-heading">
       <div className={styles.sectionHeader}>
-        <p className={styles.eyebrow}>{usingLiveRows ? 'Live ratings' : compactForLiveMatch ? 'Ratings preview' : 'Leaderboard preview'}</p>
+        <p className={styles.eyebrow}>{readUnavailable ? 'Live read unavailable' : usingLiveRows ? 'Live ratings' : compactForLiveMatch ? 'Ratings preview' : 'Leaderboard preview'}</p>
         <h2 id="leaderboard-heading">{compactForLiveMatch ? 'Ratings after this match' : 'Leaderboard'}</h2>
-        <p>{usingLiveRows ? `Generated ${leaderboard.data?.generatedAt ?? ''}` : compactForLiveMatch ? 'No finalized leaderboard rows yet; keeping the live match page focused and showing a quiet preview.' : 'Fixture rows shown until the local rating read model has ranked players.'}</p>
+        <p>{readUnavailable ? fallback.message : usingLiveRows ? `Generated ${leaderboard.data?.generatedAt ?? ''}` : compactForLiveMatch ? 'No finalized leaderboard rows yet; keeping the live match page focused and showing a clearly labeled fixture preview.' : 'Clearly labeled fixture rows are shown only because the live read succeeded with no ranked players.'}</p>
       </div>
-      {liveProfile ? (
-        <article className={styles.profileCard}>
-          <div>
-            <p className={styles.eyebrow}>Profile</p>
-            <strong>{liveProfile.displayName}</strong>
-            <p className={styles.muted}>@{liveProfile.handle} · {liveProfile.rating} rating · {liveProfile.matchesPlayed} rated games</p>
-          </div>
-          <TokenBadge label={liveProfile.provisional ? `${liveProfile.provisionalRemaining} provisional` : 'Rated'} bg={liveProfile.provisional ? rank.color.provisional.bg : rank.color.rated.bg} border={liveProfile.provisional ? rank.color.provisional.border : rank.color.rated.border} text={liveProfile.provisional ? rank.color.provisional.text : rank.color.rated.text} />
+
+      {readUnavailable ? (
+        <article className={styles.errorPanel} aria-live="polite">
+          <strong>{fallback.title}</strong>
+          <p>{leaderboard.error ?? fallback.message}</p>
+          <p className={styles.warningText}>{fallback.message}</p>
+          <ServerReadRetryButton label={fallback.retryLabel} />
         </article>
       ) : null}
-      {leaderboard.status === 'unavailable' ? <p className={styles.warningText}>Leaderboard API unavailable: {leaderboard.error ?? 'offline'}. Showing fixture preview.</p> : null}
-      <div className={styles.leaderboard}>
+      {!readUnavailable ? <div className={styles.leaderboard}>
         {rows.map((row) => {
           const displayName = 'displayName' in row ? row.displayName : userById(row.userId).displayName;
           const badge = row.provisional ? rank.color.provisional : rank.color.rated;
@@ -131,7 +132,7 @@ export function ProfileLeaderboard({
             </article>
           );
         })}
-      </div>
+      </div> : null}
     </section>
   );
 }

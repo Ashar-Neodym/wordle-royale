@@ -116,7 +116,7 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           />
         </div>
       </div>
-      <ProfileLeaderboard leaderboard={api.leaderboard} ratedProfile={api.ratedProfile} compactForLiveMatch={hasLiveMatch} />
+      <ProfileLeaderboard leaderboard={api.leaderboard} compactForLiveMatch={hasLiveMatch} />
     </PageFrame>
   );
 }
