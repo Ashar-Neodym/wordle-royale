@@ -102,8 +102,8 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 125 | Luna | Live Standard 1v1 Queue UX | Complete; reconnect blocker fixed by 132 and verified by 133 |
 | 126 | Jasmine | Wave R Standard Queue Integration QA | Complete; original FAIL superseded by Ticket 133 PASS |
 | 127 | Yuna | Wave R Checkpoint PR and CI | Complete; PR #6 merged, post-merge main CI passed |
-| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | FAIL/BLOCKED; dictionary fixed, hosted transaction exceeds Prisma 5-second default |
-| 129 | Jasmine | Final Hosted Wave R QA | Blocked pending corrected Ticket 128 PASS |
+| 128 | Yuna | Hosted Preview Wave R Deploy and Smoke | Complete; PASS after PR #8 deployment |
+| 129 | Jasmine | Final Hosted Wave R QA | Complete; PASS with two non-blocking web warnings |
 
 ## Wave R-Fix — Ticket 126 blocker remediation
 
@@ -129,7 +129,7 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 |---|---|---|---|
 | 138 | Freya | Hosted Matchmaking Transaction Budget | Complete; 20-second budget works, but Ticket 139 found two contract blockers |
 | 139 | Jasmine | Matchmaking Transaction Budget Independent QA | Complete; FAIL on inner P2028 mapping and browser/server deadline ordering |
-| 140 | Yuna | Wave R Hosted Timeout-Fix Checkpoint PR and CI | Blocked on Ticket 143 PASS |
+| 140 | Yuna | Wave R Hosted Timeout-Fix Checkpoint PR and CI | Complete; PR #8 merged and main CI passed |
 
 ## Wave R-Hosted-Timeout-Recheck — Ticket 139 blocker remediation
 
@@ -145,23 +145,40 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 |---|---|---|---|
 | 144 | Elisa | Complete Matchmaking Lifecycle Budget and Retry Contract | Complete; 90-second lifecycle and shared four-attempt contract locked |
 | 145 | Freya | Stable Concurrent Retry and Shared Lifecycle Budget | Complete; 10/10 delayed fresh-schema PostgreSQL runs passed |
-| 146 | Luna | Bind Web Deadlines to Complete Matchmaking Lifecycle | Ready now |
-| 147 | Jasmine | Final Local Matchmaking Lifecycle Recheck | Blocked on 146 |
+| 146 | Luna | Bind Web Deadlines to Complete Matchmaking Lifecycle | Complete; 90/95/100/110-second policy verified |
+| 147 | Jasmine | Final Local Matchmaking Lifecycle Recheck | Complete; PASS including 10/10 fresh-schema runs |
+
+## Wave S — Hosted Reliability Polish
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 148 | Luna | Hosted Server-Read Reliability and Retry UX | Complete; Ticket 150 found two UX/truthfulness blockers |
+| 149 | Luna | Favicon and Application Metadata Polish | Complete; Ticket 150 verified PASS |
+| 150 | Jasmine | Wave S Reliability Polish Independent QA | Complete; FAIL on inert retry links and unrelated Alice fallback |
+| 151 | Yuna | Wave S Reliability Checkpoint PR and CI | Blocked on Ticket 156 PASS |
+| 152 | Yuna | Hosted Wave S Reliability Smoke | Blocked on approved 151 merge/main CI |
+| 153 | Jasmine | Final Hosted Wave S QA | Blocked on 152 PASS |
+
+## Wave S-Fix — Ticket 150 blocker remediation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 154 | Luna | Real Server-Read Retry Controls | Ready now |
+| 155 | Luna | Remove Unrelated Fixture Identity from Live Failure States | Ready now |
+| 156 | Jasmine | Focused Wave S Blocker Recheck | Blocked on 154–155 |
 
 ## Recommended order
 
-Wave Q and local Wave R are complete. The approved dictionary bootstrap/readiness are healthy, and Tickets 141–142 fixed the original timeout-classification and simple deadline-ordering defects. Ticket 143 found a deeper complete-lifecycle issue: lockstep serializable retries can exhaust, and late uniqueness recovery can start a second full budget.
+Wave R is complete. Wave S implementation passed its read-policy, mutation-safety, lifecycle, build, favicon, metadata, and security gates, but Ticket 150 found two narrow release blockers: retry anchors do not refetch, and an unrelated hard-coded Alice profile can leak into current-user/unavailable states.
 
-Wave R-Hosted-Lifecycle-Fix execution:
+Wave S-Fix execution:
 
-1. RHL.0: 144 (Elisa locks one complete lifecycle/attempt/jitter contract).
-2. RHL.1 after 144: 145 (Freya implements stable retry and shared backend lifecycle budget).
-3. RHL.2 after 145: 146 (Luna binds web deadlines to the enforced complete backend cap).
-4. RHL.3 after 144–146: 147 (Jasmine final local recheck, including 10 consecutive fresh-schema runs).
-5. RHL.4 only after 147 PASS: 140 (Yuna checkpoint branch/PR/CI; no merge).
-6. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/Railway deployment.
-7. Resume 128 hosted two-session queue/match/reconnect smoke; do not replace the approved dictionary.
-8. Then 129 (Jasmine final hosted QA).
+1. SF.0: 154 + 155 (Luna; may be completed together while preserving separate responses).
+2. SF.1 after both: 156 (Jasmine focused recheck).
+3. SF.2 only after 156 PASS: 151 (Yuna checkpoint branch/PR/CI; no merge).
+4. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/deployment.
+5. SF.3 after deployed: 152 (Yuna hosted reliability smoke).
+6. SF.4 after 152 PASS: 153 (Jasmine final hosted Wave S QA).
 
 ## Persistent constraints
 

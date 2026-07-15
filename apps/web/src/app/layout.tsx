@@ -1,12 +1,10 @@
-import type { Metadata } from 'next';
 import type { ReactElement, ReactNode } from 'react';
+import { APPLICATION_METADATA, APPLICATION_VIEWPORT } from '../lib/application-metadata';
 import { cssVariables } from '../lib/tokens';
 import './globals.css';
 
-export const metadata: Metadata = {
-  title: 'Wordle Royale — Rated word games',
-  description: 'Human, game-first Wordle Royale web shell with ranked lobbies and fixture-safe fallback state.',
-};
+export const metadata = APPLICATION_METADATA;
+export const viewport = APPLICATION_VIEWPORT;
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>): ReactElement {
   return (

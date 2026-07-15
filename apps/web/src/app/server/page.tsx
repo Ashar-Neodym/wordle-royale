@@ -24,7 +24,7 @@ export default async function ServerPage(): Promise<ReactElement> {
             <div><strong>Readiness</strong><span>{api.readiness.data?.status ?? api.readiness.status}</span></div>
             <div><strong>Lobbies</strong><span>{api.lobbies.status}</span></div>
             <div><strong>Leaderboard</strong><span>{api.leaderboard.status}</span></div>
-            <div><strong>Profile</strong><span>{api.ratedProfile.status}</span></div>
+            <div><strong>Current profile</strong><span>{api.profile.status}</span></div>
           </div>
           {Object.keys(dependencies).length > 0 ? (
             <div className={styles.serverRows} aria-label="Dependency status">

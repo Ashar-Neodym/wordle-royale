@@ -124,12 +124,30 @@ export type WebApiSnapshot = {
   profile: ApiClientResult<PublicProfileDto>;
   lobbies: ApiClientResult<LobbyListPayload>;
   leaderboard: ApiClientResult<LeaderboardPayload>;
-  ratedProfile: ApiClientResult<RatedProfilePayload>;
 };
 
 type ApiEnvelope<T> = SuccessEnvelope<T> | { data: null; error: { code: string; message: string; details?: Record<string, unknown> }; requestId: string };
 
 type RequestOptions = RequestInit & { timeoutMs?: number };
+
+type ReadPolicy = {
+  timeoutMs: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+};
+
+export const HOSTED_READ_POLICY: ReadPolicy = Object.freeze({
+  timeoutMs: 5_000,
+  maxAttempts: 2,
+  retryDelayMs: 200,
+});
+
+class ApiRequestFailure extends Error {
+  constructor(message: string, readonly retryableRead: boolean) {
+    super(message);
+    this.name = 'ApiRequestFailure';
+  }
+}
 
 async function forwardedCookieHeader(): Promise<string | undefined> {
   try {
@@ -155,7 +173,12 @@ function unavailable<T>(apiUrl: string, error: unknown): ApiClientResult<T> {
   };
 }
 
-async function requestEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiClientResult<T>> {
+type RequestAttempt<T> = {
+  result: ApiClientResult<T>;
+  retryableRead: boolean;
+};
+
+async function requestEnvelopeAttempt<T>(path: string, options: RequestOptions): Promise<RequestAttempt<T>> {
   const apiUrl = getApiBaseUrl();
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 1200;
@@ -178,47 +201,82 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
           controller.abort();
-          reject(new Error(`API request timed out after ${timeoutMs}ms`));
+          reject(new ApiRequestFailure(`API request timed out after ${timeoutMs}ms`, true));
         }, timeoutMs);
       }),
     ]);
 
     if (response.status === 204) {
-      return { status: 'connected', apiUrl, data: null, requestId: response.headers.get('x-request-id'), error: null };
+      return {
+        result: { status: 'connected', apiUrl, data: null, requestId: response.headers.get('x-request-id'), error: null },
+        retryableRead: false,
+      };
     }
 
-    const envelope = (await response.json()) as ApiEnvelope<T>;
+    let envelope: ApiEnvelope<T>;
+    try {
+      envelope = (await response.json()) as ApiEnvelope<T>;
+    } catch {
+      throw new ApiRequestFailure(`API returned an unreadable response with HTTP ${response.status}.`, true);
+    }
     if (!response.ok || envelope.error) {
       const code = envelope.error?.code ? `${envelope.error.code}: ` : '';
-      throw new Error(`${code}${envelope.error?.message ?? `API request failed with HTTP ${response.status}`}`);
+      throw new ApiRequestFailure(
+        `${code}${envelope.error?.message ?? `API request failed with HTTP ${response.status}`}`,
+        response.status === 408 || response.status === 429 || response.status >= 500,
+      );
     }
 
-    return { status: 'connected', apiUrl, data: envelope.data, requestId: envelope.requestId, error: null };
+    return {
+      result: { status: 'connected', apiUrl, data: envelope.data, requestId: envelope.requestId, error: null },
+      retryableRead: false,
+    };
   } catch (error) {
-    return unavailable<T>(apiUrl, error);
+    return {
+      result: unavailable<T>(apiUrl, error),
+      retryableRead: error instanceof ApiRequestFailure ? error.retryableRead : error instanceof TypeError || controller.signal.aborted,
+    };
   } finally {
     if (timeout) clearTimeout(timeout);
   }
 }
 
+async function requestEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiClientResult<T>> {
+  return (await requestEnvelopeAttempt<T>(path, options)).result;
+}
+
+async function requestReadEnvelope<T>(path: string, options: RequestInit = {}): Promise<ApiClientResult<T>> {
+  for (let attempt = 1; attempt <= HOSTED_READ_POLICY.maxAttempts; attempt += 1) {
+    const outcome = await requestEnvelopeAttempt<T>(path, {
+      ...options,
+      timeoutMs: HOSTED_READ_POLICY.timeoutMs,
+    });
+    if (outcome.result.status === 'connected'
+      || !outcome.retryableRead
+      || attempt === HOSTED_READ_POLICY.maxAttempts) return outcome.result;
+    await new Promise((resolve) => setTimeout(resolve, HOSTED_READ_POLICY.retryDelayMs));
+  }
+  throw new Error('Hosted read attempt accounting failed.');
+}
+
 export async function getHealth(): Promise<ApiClientResult<ApiHealthPayload>> {
-  return requestEnvelope<ApiHealthPayload>('/healthz');
+  return requestReadEnvelope<ApiHealthPayload>('/healthz');
 }
 
 export async function getReadiness(): Promise<ApiClientResult<ApiHealthPayload>> {
-  return requestEnvelope<ApiHealthPayload>('/readyz');
+  return requestReadEnvelope<ApiHealthPayload>('/readyz');
 }
 
 export async function getCurrentUser(): Promise<ApiClientResult<CurrentUserDto>> {
-  return requestEnvelope<CurrentUserDto>('/auth/me');
+  return requestReadEnvelope<CurrentUserDto>('/auth/me');
 }
 
 export async function getProfile(): Promise<ApiClientResult<PublicProfileDto>> {
-  return requestEnvelope<PublicProfileDto>('/profile/me');
+  return requestReadEnvelope<PublicProfileDto>('/profile/me');
 }
 
 export async function listLobbies(): Promise<ApiClientResult<LobbyListPayload>> {
-  return requestEnvelope<LobbyListPayload>('/lobbies');
+  return requestReadEnvelope<LobbyListPayload>('/lobbies');
 }
 
 export async function createLobby(body: CreateLobbyRequest): Promise<ApiClientResult<LobbyDto>> {
@@ -268,7 +326,7 @@ export async function startRankedMatch(body: StartRankedMatchRequest): Promise<A
 }
 
 export async function getRankedMatchState(matchId: string): Promise<ApiClientResult<CurrentRankedMatchStateResponseData>> {
-  return requestEnvelope<CurrentRankedMatchStateResponseData>(`/matches/${encodeURIComponent(matchId)}/state`);
+  return requestReadEnvelope<CurrentRankedMatchStateResponseData>(`/matches/${encodeURIComponent(matchId)}/state`);
 }
 
 export async function submitGuess(body: SubmitGuessRequest): Promise<ApiClientResult<GuessResult>> {
@@ -286,41 +344,40 @@ export async function completeRankedMatch(body: CompleteRankedMatchRequest): Pro
 }
 
 export async function getRankedMatchResult(matchId: string): Promise<ApiClientResult<RankedMatchResultSummary>> {
-  return requestEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(matchId)}/result`);
+  return requestReadEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(matchId)}/result`);
 }
 
 export async function getLeaderboard(limit = 20): Promise<ApiClientResult<LeaderboardPayload>> {
-  return requestEnvelope<LeaderboardPayload>(`/leaderboard?limit=${encodeURIComponent(String(limit))}`);
+  return requestReadEnvelope<LeaderboardPayload>(`/leaderboard?limit=${encodeURIComponent(String(limit))}`);
 }
 
-export async function getRatedProfile(handle = 'alice'): Promise<ApiClientResult<RatedProfilePayload>> {
-  return requestEnvelope<RatedProfilePayload>(`/profiles/${encodeURIComponent(handle)}/rating`);
+export async function getRatedProfile(handle: string): Promise<ApiClientResult<RatedProfilePayload>> {
+  return requestReadEnvelope<RatedProfilePayload>(`/profiles/${encodeURIComponent(handle)}/rating`);
 }
 
 export async function getCurrentProfileSummary(): Promise<ApiClientResult<CurrentProfileSummary>> {
-  return requestEnvelope<CurrentProfileSummary>('/profiles/me/summary');
+  return requestReadEnvelope<CurrentProfileSummary>('/profiles/me/summary');
 }
 
 export async function getPublicProfileSummary(handle: string): Promise<ApiClientResult<PublicProfileSummary>> {
-  return requestEnvelope<PublicProfileSummary>(`/profiles/${encodeURIComponent(handle)}/summary`);
+  return requestReadEnvelope<PublicProfileSummary>(`/profiles/${encodeURIComponent(handle)}/summary`);
 }
 
 export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiClientResult<MatchHistoryList>> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
-  return requestEnvelope<MatchHistoryList>(`/matches/history/me?${params.toString()}`);
+  return requestReadEnvelope<MatchHistoryList>(`/matches/history/me?${params.toString()}`);
 }
 
 export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
-  const [health, readiness, currentUser, profile, lobbies, leaderboard, ratedProfile] = await Promise.all([
+  const [health, readiness, currentUser, profile, lobbies, leaderboard] = await Promise.all([
     getHealth(),
     getReadiness(),
     getCurrentUser(),
     getProfile(),
     listLobbies(),
     getLeaderboard(20),
-    getRatedProfile('alice'),
   ]);
 
-  return { health, readiness, currentUser, profile, lobbies, leaderboard, ratedProfile };
+  return { health, readiness, currentUser, profile, lobbies, leaderboard };
 }

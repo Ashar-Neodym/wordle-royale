@@ -5,6 +5,7 @@ import { startPreviewDemoSessionAction } from '../actions';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
+import { currentProfilePageTitle } from '../../lib/profile-read-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +13,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
   const [api, profileSummary] = await Promise.all([getWebApiSnapshot(), getCurrentProfileSummary()]);
   const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
   const authLimited = isAuthLimited(profileSummary.error);
-  const ratedFallback = api.ratedProfile.status === 'connected' ? api.ratedProfile.data : null;
-  const title = profile?.displayName ?? ratedFallback?.displayName ?? (authLimited ? 'Preview profile' : 'Preview player');
+  const title = currentProfilePageTitle(profile, authLimited);
 
   return (
     <PageFrame>
@@ -50,7 +50,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
         </div>
         <MatchHistoryRows matches={profile?.recentMatches ?? []} emptyLabel={profile ? 'No rated matches for this profile yet.' : 'Profile summary unavailable, so recent matches are hidden rather than faked.'} />
       </section>
-      <ProfileLeaderboard leaderboard={api.leaderboard} ratedProfile={api.ratedProfile} />
+      <ProfileLeaderboard leaderboard={api.leaderboard} />
     </PageFrame>
   );
 }
