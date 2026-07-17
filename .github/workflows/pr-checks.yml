@@ -43,6 +43,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Prisma's generated client must reflect the checked-out schema before
+      # TypeScript evaluates database delegates in API source and tests.
+      - name: Generate Prisma client
+        run: pnpm --filter @wordle-royale/api db:generate
+
       - name: Lint
         run: pnpm lint
 
