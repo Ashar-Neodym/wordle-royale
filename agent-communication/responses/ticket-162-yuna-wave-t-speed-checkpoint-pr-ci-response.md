@@ -2,7 +2,7 @@
 
 Task: Wave T Speed Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 175 PASS and local/PostgreSQL gates confirmed; PR/remote CI evidence pending
+Status: Completed — checkpoint pushed, PR opened, CI generation defect corrected, and latest implementation-head GitHub/Vercel checks passed; not merged or deployed to production
 
 ## What I understood
 
@@ -89,7 +89,49 @@ temporary_container_absent=true
 
 ## Git / PR / CI evidence
 
-Pending branch creation, staging audit, commit, push, PR creation, and final-head CI monitoring.
+```text
+branch = wave-t/live-speed-1v1
+primary checkpoint = 79b5911de5cb7d27cedbe0cdbf38406840ea1ac8
+CI fix head = 870aef2
+PR = https://github.com/Ashar-Neodym/wordle-royale/pull/10
+base = main
+state = OPEN
+```
+
+The initial PR run reached the build step and failed because the clean GitHub runner had not generated a Prisma client from Wave T's changed schema. The stale local generated client had masked this ordering requirement. Failure evidence:
+
+```text
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29558792584
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29558792584/job/87816634314
+failure = TypeScript implicit-any errors in PostgreSQL tests because new Prisma delegates were unavailable
+```
+
+Yuna made one narrow CI/devops correction in `.github/workflows/pr-checks.yml`: run `pnpm --filter @wordle-royale/api db:generate` immediately after the frozen install and before lint/typecheck/tests/build. No product behavior changed.
+
+Local verification of the correction:
+
+```text
+CI=true pnpm install --frozen-lockfile
+CI=true pnpm --filter @wordle-royale/api db:generate
+CI=true pnpm typecheck
+CI=true pnpm --filter @wordle-royale/api test   — 149/149 passed
+CI=true pnpm build
+all exit 0
+```
+
+Latest implementation-head remote checks:
+
+```text
+Workspace checks = PASS (1m30s)
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29558929452
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29558929452/job/87817031988
+
+Vercel PR Preview = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/5uXAwfd7vZK3teNJssfX53V3i18s
+Vercel Preview Comments = PASS
+```
+
+The Vercel check is an automatic PR Preview, not production deployment. This evidence response will be committed after the implementation-head pass, changing the branch head once more; final chat evidence must confirm the resulting documentation-only head and its rerun checks.
 
 ## Safety
 
