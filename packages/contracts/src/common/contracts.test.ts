@@ -47,7 +47,7 @@ test('REST success and error envelopes validate request metadata', () => {
   assert.equal(error.error.code, 'validation_failed');
 });
 
-test('profile rating summaries identify the authoritative Standard algorithm without claiming prepared ladders are live', () => {
+test('profile rating summaries identify authoritative Standard and Speed algorithms without claiming prepared ladders are live', () => {
   const standard = profileRatingSummarySchema.parse({
     mode: 'ranked',
     rankedMode: 'standard_1v1',
@@ -58,9 +58,19 @@ test('profile rating summaries identify the authoritative Standard algorithm wit
     algorithmConfigVersion: 'standard_1v1_glicko_v1',
     rank: 1,
   });
-  const prepared = profileRatingSummarySchema.parse({
+  const speed = profileRatingSummarySchema.parse({
     mode: 'ranked',
     rankedMode: 'speed_1v1',
+    rating: 1514,
+    matchesPlayed: 1,
+    provisional: true,
+    algorithm: 'speed_1v1_glicko_v1',
+    algorithmConfigVersion: 'speed_1v1_glicko_v1',
+    rank: 1,
+  });
+  const prepared = profileRatingSummarySchema.parse({
+    mode: 'ranked',
+    rankedMode: 'classic_1v1',
     rating: 1500,
     matchesPlayed: 0,
     provisional: true,
@@ -71,9 +81,9 @@ test('profile rating summaries identify the authoritative Standard algorithm wit
   });
 
   assert.equal(standard.algorithm, 'standard_1v1_glicko_v1');
-  assert.equal(standard.algorithmConfigVersion, 'standard_1v1_glicko_v1');
+  assert.equal(speed.algorithm, 'speed_1v1_glicko_v1');
   assert.equal(authoritativeRatingAlgorithmByMode.standard_1v1.algorithm, 'standard_1v1_glicko_v1');
-  assert.equal(authoritativeRatingAlgorithmByMode.speed_1v1, null);
+  assert.equal(authoritativeRatingAlgorithmByMode.speed_1v1.algorithm, 'speed_1v1_glicko_v1');
   assert.equal(authoritativeRatingAlgorithmByMode.classic_1v1, null);
   assert.equal(authoritativeRatingAlgorithmByMode.multiplayer_lobby, null);
   assert.equal(prepared.algorithm, null);
@@ -223,6 +233,80 @@ test('ranked match result summary includes spoiler-safe post-match action afford
   assert.equal(summary.resultActions.rematch.available, false);
   assert.equal(summary.resultActions.links.nextRankedHref, '/lobbies?mode=ranked&status=waiting');
   assert.doesNotMatch(JSON.stringify(summary.resultActions), /answer|answerWordHash|answerWordSaltRef|crane/i);
+});
+
+test('completed Speed result exposes authoritative rules, adjudication, timing, and rating identity', () => {
+  const summary = rankedMatchResultSummarySchema.parse({
+    matchId,
+    state: 'completed',
+    rankedMode: 'speed_1v1',
+    rulesetVersion: 'speed_1v1_v1_75s',
+    speedCompletionReason: 'all_players_terminal',
+    ratingAlgorithm: 'speed_1v1_glicko_v1',
+    ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1',
+    completedAt: ts,
+    completionReason: 'all_players_terminal',
+    finalStandings: [
+      { userId: userA, placement: 1, totalScore: 0, roundsSolved: 1, totalValidGuesses: 4, totalSolveMs: 24000, result: 'win', terminalReason: 'solved', guessesUsed: 4, solveElapsedMs: 24000 },
+      { userId: userB, placement: 2, totalScore: 0, roundsSolved: 1, totalValidGuesses: 4, totalSolveMs: 24100, result: 'loss', terminalReason: 'solved', guessesUsed: 4, solveElapsedMs: 24100 },
+    ],
+    ratingEvent: null,
+    resultActions: {
+      rematch: { available: false, reason: 'not_implemented', label: 'Create rematch lobby' },
+      share: { spoilerSafe: true, text: 'Speed result', path: `/matches/${matchId}` },
+      links: { matchHref: `/matches/${matchId}`, historyHref: '/history', leaderboardHref: '/leaderboard', nextRankedHref: '/lobbies?mode=ranked&status=waiting', profileHrefTemplate: '/profile/{handle}' },
+    },
+  });
+  assert.equal(summary.rankedMode, 'speed_1v1');
+  assert.equal(summary.finalStandings[0]?.result, 'win');
+  assert.equal(summary.finalStandings[0]?.solveElapsedMs, 24000);
+});
+
+test('completed Speed result keeps the persisted completion identity in both public reason fields', () => {
+  for (const completionReason of ['all_players_terminal', 'deadline', 'forfeit', 'ready_timeout', 'operator_void'] as const) {
+    const parsed = rankedMatchResultSummarySchema.safeParse({
+      matchId,
+      state: 'completed',
+      rankedMode: 'speed_1v1',
+      rulesetVersion: 'speed_1v1_v1_75s',
+      speedCompletionReason: completionReason,
+      ratingAlgorithm: 'speed_1v1_glicko_v1',
+      ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1',
+      completedAt: ts,
+      completionReason,
+      finalStandings: [
+        { userId: userA, placement: 1, totalScore: 0, roundsSolved: 0, totalValidGuesses: 0, totalSolveMs: 0 },
+        { userId: userB, placement: 2, totalScore: 0, roundsSolved: 0, totalValidGuesses: 0, totalSolveMs: 0 },
+      ],
+      ratingEvent: null,
+      resultActions: {
+        rematch: { available: false, reason: 'not_implemented', label: 'Create rematch lobby' },
+        share: { spoilerSafe: true, text: 'Speed result', path: `/matches/${matchId}` },
+        links: { matchHref: `/matches/${matchId}`, historyHref: '/history', leaderboardHref: '/leaderboard', nextRankedHref: '/lobbies?mode=ranked&status=waiting', profileHrefTemplate: '/profile/{handle}' },
+      },
+    });
+
+    assert.equal(parsed.success, true, `expected ${completionReason} to remain a valid immutable public identity`);
+    if (parsed.success) assert.equal(parsed.data.completionReason, parsed.data.speedCompletionReason);
+  }
+
+  const common = {
+    matchId,
+    state: 'completed' as const,
+    completedAt: ts,
+    finalStandings: [
+      { userId: userA, placement: 1, totalScore: 0, roundsSolved: 0, totalValidGuesses: 0, totalSolveMs: 0 },
+      { userId: userB, placement: 2, totalScore: 0, roundsSolved: 0, totalValidGuesses: 0, totalSolveMs: 0 },
+    ],
+    ratingEvent: null,
+    resultActions: {
+      rematch: { available: false, reason: 'not_implemented' as const, label: 'Create rematch lobby' },
+      share: { spoilerSafe: true as const, text: 'Result', path: `/matches/${matchId}` },
+      links: { matchHref: `/matches/${matchId}`, historyHref: '/history' as const, leaderboardHref: '/leaderboard' as const, nextRankedHref: '/lobbies?mode=ranked&status=waiting' as const, profileHrefTemplate: '/profile/{handle}' as const },
+    },
+  };
+  assert.equal(rankedMatchResultSummarySchema.safeParse({ ...common, rankedMode: 'speed_1v1', speedCompletionReason: 'deadline', completionReason: 'all_players_terminal' }).success, false);
+  assert.equal(rankedMatchResultSummarySchema.safeParse({ ...common, rankedMode: 'standard_1v1', speedCompletionReason: null, completionReason: 'deadline' }).success, false);
 });
 
 test('server event names are exported string literals', () => {

@@ -1,11 +1,12 @@
 import type { ReactElement } from 'react';
 import type { CurrentRankedMatchStateResponseData, RankedMatchResultSummary } from '@wordle-royale/contracts';
-import type { ApiClientResult } from '../lib/api-client';
+import type { ApiClientResult, LiveMatchState } from '../lib/api-client';
 import { connectionStates } from '../lib/tokens';
 import { gameplayFixtures } from '../lib/fixtures';
 import { formatState, userById } from './data';
 import { TokenBadge } from './StatusPanels';
 import { EmptyTileRow, WordTile } from './WordTile';
+import { SpeedGameplayPanel } from './SpeedGameplayPanel';
 import styles from './web-shell.module.css';
 
 type GameplayActionState = {
@@ -20,7 +21,7 @@ type GameplayActionState = {
 type FormAction = (formData: FormData) => Promise<void>;
 
 type GameplayScreenProps = {
-  matchState: ApiClientResult<CurrentRankedMatchStateResponseData> | null;
+  matchState: ApiClientResult<LiveMatchState> | null;
   matchResult: ApiClientResult<RankedMatchResultSummary> | null;
   actionState: GameplayActionState;
   submitRankedGuessAction: FormAction;
@@ -147,7 +148,9 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
               <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
               <div>
                 <strong>{standing.userId.slice(0, 8)}</strong>
-                <p>{standing.totalScore} pts · {standing.totalValidGuesses} guesses · {standing.roundsSolved} solved</p>
+                <p>{result.rankedMode === 'speed_1v1'
+                  ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}`
+                  : `${standing.totalScore} pts · ${standing.totalValidGuesses} guesses · ${standing.roundsSolved} solved`}</p>
               </div>
               <span className={delta && delta.ratingDelta >= 0 ? styles.ratingDeltaPositive : styles.ratingDeltaNegative}>
                 {delta ? `${delta.ratingBefore} → ${delta.ratingAfter} (${delta.ratingDelta >= 0 ? '+' : ''}${delta.ratingDelta})` : 'unrated'}
@@ -167,6 +170,7 @@ export function GameplayScreen({ matchState, matchResult, actionState, submitRan
   const connectionToken = connectionStates[gameplay.connection];
   const reconnectToken = connectionStates[reconnect.connection];
   const hasLiveMatch = Boolean(matchState);
+  const speedMatch = (matchState?.data as { mode?: string } | null)?.mode === 'speed_1v1';
 
   return (
     <section id="gameplay" className={styles.section} aria-labelledby="gameplay-heading">
@@ -175,7 +179,10 @@ export function GameplayScreen({ matchState, matchResult, actionState, submitRan
         <h2 id="gameplay-heading">Current game</h2>
         <p>{hasLiveMatch ? 'Server state is shown here when available. Practice boards are kept out of the live match view.' : 'Fixture preview. Live guesses and results appear here when a ranked match is open.'}</p>
       </div>
-      {matchState ? <LiveGameplayPanel matchState={matchState} actionState={actionState} submitRankedGuessAction={submitRankedGuessAction} completeRankedMatchAction={completeRankedMatchAction} /> : null}
+      {matchState ? speedMatch
+        ? <SpeedGameplayPanel initialState={matchState} />
+        : <LiveGameplayPanel matchState={matchState as ApiClientResult<CurrentRankedMatchStateResponseData>} actionState={actionState} submitRankedGuessAction={submitRankedGuessAction} completeRankedMatchAction={completeRankedMatchAction} />
+        : null}
       <ResultPanel matchResult={matchResult} />
       {hasLiveMatch ? (
         <aside className={styles.practiceNote} aria-label="Practice preview hidden">

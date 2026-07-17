@@ -4,6 +4,7 @@ import { PageFrame, PageHeader } from '../../../components/PageFrame';
 import { TokenBadge } from '../../../components/StatusPanels';
 import { rank, score } from '../../../lib/tokens';
 import styles from '../../../components/web-shell.module.css';
+import type { CurrentRankedMatchStateResponseData } from '@wordle-royale/contracts';
 
 type MatchDetailPageProps = {
   params: Promise<{ matchId: string }> | { matchId: string };
@@ -24,6 +25,8 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
   const liveResult = result.status === 'connected' ? result.data : null;
   const liveState = state.status === 'connected' ? state.data : null;
   const status = liveResult ? 'completed' : liveState ? liveState.state : 'unavailable';
+  const speedState = liveState && 'roundId' in liveState ? liveState : null;
+  const standardState = liveState && !speedState ? liveState as CurrentRankedMatchStateResponseData : null;
   const deltas = new Map(liveResult?.ratingEvent?.participants.map((participant) => [participant.userId, participant]) ?? []);
   const resultActions = liveResult?.resultActions ?? null;
   const shareSummary = resultActions ? `${resultActions.share.text} ${absoluteShareUrl(resultActions.share.path)}` : '';
@@ -56,7 +59,7 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
                   <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
                   <div>
                     <strong>{standing.userId.slice(0, 8)}</strong>
-                    <p>{standing.totalScore} pts · {standing.totalValidGuesses} valid guesses · {standing.roundsSolved} solved</p>
+                    <p>{liveResult.rankedMode === 'speed_1v1' ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}` : `${standing.totalScore} pts · ${standing.totalValidGuesses} valid guesses · ${standing.roundsSolved} solved`}</p>
                   </div>
                   {delta ? <TokenBadge label={`${delta.ratingAfter} (${formatSigned(delta.ratingDelta)})`} bg={token.bg} border={token.text} text={token.text} /> : <TokenBadge label="No rating" bg={rank.color.provisional.bg} border={rank.color.provisional.border} text={rank.color.provisional.text} />}
                 </div>
@@ -106,8 +109,8 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
           <article className={styles.panelWide}>
             <div className={styles.serverRows}>
               <div><strong>State</strong><span>{liveState.state}</span></div>
-              <div><strong>Round</strong><span>{liveState.currentRound?.roundNumber ?? '—'}</span></div>
-              <div><strong>Participants</strong><span>{liveState.standings.length}</span></div>
+              <div><strong>Round</strong><span>{speedState ? speedState.rulesetVersion : standardState?.currentRound?.roundNumber ?? '—'}</span></div>
+              <div><strong>{speedState ? 'Ready / guesses' : 'Participants'}</strong><span>{speedState ? `${speedState.readiness.readyCount}/2 · you ${speedState.myState.acceptedGuesses.length}/6 · opponent ${speedState.opponentProgress.acceptedGuessCount}/6` : standardState?.standings.length ?? 0}</span></div>
             </div>
             <p className={styles.warningText}>Active match detail intentionally omits answer/hash/salt and other hidden player authority.</p>
           </article>

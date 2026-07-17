@@ -155,30 +155,64 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 148 | Luna | Hosted Server-Read Reliability and Retry UX | Complete; Ticket 150 found two UX/truthfulness blockers |
 | 149 | Luna | Favicon and Application Metadata Polish | Complete; Ticket 150 verified PASS |
 | 150 | Jasmine | Wave S Reliability Polish Independent QA | Complete; FAIL on inert retry links and unrelated Alice fallback |
-| 151 | Yuna | Wave S Reliability Checkpoint PR and CI | Blocked on Ticket 156 PASS |
-| 152 | Yuna | Hosted Wave S Reliability Smoke | Blocked on approved 151 merge/main CI |
-| 153 | Jasmine | Final Hosted Wave S QA | Blocked on 152 PASS |
+| 151 | Yuna | Wave S Reliability Checkpoint PR and CI | Complete; PR #9 merged and main CI passed |
+| 152 | Yuna | Hosted Wave S Reliability Smoke | Complete; PASS with Railway revision observability warning |
+| 153 | Jasmine | Final Hosted Wave S QA | Complete; PASS with no blockers |
 
 ## Wave S-Fix — Ticket 150 blocker remediation
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 154 | Luna | Real Server-Read Retry Controls | Ready now |
-| 155 | Luna | Remove Unrelated Fixture Identity from Live Failure States | Ready now |
-| 156 | Jasmine | Focused Wave S Blocker Recheck | Blocked on 154–155 |
+| 154 | Luna | Real Server-Read Retry Controls | Complete; Ticket 156 verified PASS |
+| 155 | Luna | Remove Unrelated Fixture Identity from Live Failure States | Complete; Ticket 156 verified PASS |
+| 156 | Jasmine | Focused Wave S Blocker Recheck | Complete; PASS |
+
+## Wave T — Live Speed/Blitz Ranked 1v1
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 157 | Elisa | Live Speed/Blitz 1v1 Contract | Complete; Ashar approved 75s/20s/3s/100ms Speed v1 constants |
+| 158 | Freya | Server-Authoritative Speed Queue and Gameplay | Complete; independently verified, remains fail-closed |
+| 159 | Ruby | Speed Rating Settlement and Read Models | Complete; independently verified including fresh-PostgreSQL convergence |
+| 160 | Luna | Live Speed Queue and Countdown UX | Complete; Ticket 161 found one mutation-correlation blocker |
+| 161 | Jasmine | Wave T Speed Integration QA | Complete; FAIL with four release blockers |
+| 162 | Yuna | Wave T Speed Checkpoint PR and CI | Blocked on focused post-172 Jasmine PASS |
+| 163 | Yuna | Hosted Wave T Speed Deploy and Smoke | Blocked on approved 162 merge/main CI |
+| 164 | Jasmine | Final Hosted Wave T Speed QA | Blocked on 163 PASS |
+| 165 | Yuna | Railway Revision Observability | Backlog; non-blocking |
+
+## Wave T-Fix — Ticket 161 release blockers
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 166 | Freya | Fail-Closed Speed Catalog and Locked Identity | Complete; operational catalog and all Speed paths fail closed |
+| 167 | Freya | Viewer Guess Operation Correlation | Complete; durable participant-scoped operation IDs verified across repeated words/reconnect |
+| 168 | Luna | Preserve Uncertain Repeated-Word Guess Identity | Complete; production browser retry identity verified by Ticket 171 |
+| 169 | Ruby | Immutable Speed Completion Identity on Reads | Complete; persisted identity and repeated-read convergence verified |
+| 170 | Freya | Deterministic PostgreSQL Speed Timing Proof | Complete; deterministic fresh-schema PostgreSQL proof passed 4/4 |
+| 171 | Jasmine | Focused Wave T Release-Blocker Recheck | Complete; FAIL on unbounded hung-reconciler health, remediated by Ticket 172 |
+| 172 | Freya | Bounded Freshness-Aware Speed Reconciler Health | Complete; stale/hung detection works, but Ticket 173 found obsolete completion revival |
+| 173 | Jasmine | Final Reconciler Health Focused Recheck | Complete; FAIL on missing scheduler/pass generation fence |
+| 174 | Freya | Generation-Fenced Speed Reconciler Completion | Complete; epoch/pass fencing and late success/failure rejection independently reviewed PASS |
+| 175 | Jasmine | Adversarial Reconciler Generation-Fence Recheck | Ready now |
 
 ## Recommended order
 
-Wave R is complete. Wave S implementation passed its read-policy, mutation-safety, lifecycle, build, favicon, metadata, and security gates, but Ticket 150 found two narrow release blockers: retry anchors do not refetch, and an unrelated hard-coded Alice profile can leak into current-user/unavailable states.
+Wave S is complete. Wave T core implementation is substantial, but Ticket 161 correctly blocked release on catalog readiness, repeated-word mutation correlation, immutable completion identity, and deterministic PostgreSQL timing proof.
 
-Wave S-Fix execution:
+Wave T-Fix execution:
 
-1. SF.0: 154 + 155 (Luna; may be completed together while preserving separate responses).
-2. SF.1 after both: 156 (Jasmine focused recheck).
-3. SF.2 only after 156 PASS: 151 (Yuna checkpoint branch/PR/CI; no merge).
-4. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/deployment.
-5. SF.3 after deployed: 152 (Yuna hosted reliability smoke).
-6. SF.4 after 152 PASS: 153 (Jasmine final hosted Wave S QA).
+1. TF.0 parallel: 166 + 167 + 170 (Freya, one backend pass with separate responses) and 169 (Ruby).
+2. TF.1: 168 completed the authoritative uncertain-operation retry behavior.
+3. TF.2: 171 passed the original four blockers but found an unbounded hung-reconciler health blocker.
+4. TF.2a: 172 added freshness/hung detection; 173 found obsolete completion can revive health.
+5. TF.2b: 174 completed scheduler/pass generation fencing; 175 adversarial recheck is next.
+6. TF.3 only after 175 PASS: 162 (Yuna checkpoint branch/PR/CI; no merge).
+7. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/deployment.
+8. TF.4 after deployed: 163 (Yuna hosted Speed smoke).
+9. TF.5 after 163 PASS: 164 (Jasmine final hosted QA).
+
+Ticket 165 remains optional operational backlog and does not block Speed.
 
 ## Persistent constraints
 

@@ -32,7 +32,9 @@ function LiveResultRows({ result }: { result: RankedMatchResultSummary }): React
             <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
             <div>
               <strong>{standing.userId.slice(0, 8)}</strong>
-              <p>{standing.totalScore} pts · {standing.totalValidGuesses} guesses · {standing.roundsSolved} solved</p>
+              <p>{result.rankedMode === 'speed_1v1'
+                ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}`
+                : `${standing.totalScore} pts · ${standing.totalValidGuesses} guesses · ${standing.roundsSolved} solved`}</p>
             </div>
             <span className={delta && delta.ratingDelta >= 0 ? styles.ratingDeltaPositive : styles.ratingDeltaNegative}>
               {delta ? `${delta.ratingAfter} (${formatSigned(delta.ratingDelta)})` : 'unrated'}
@@ -98,15 +100,16 @@ export function ProfileLeaderboard({
   const fixtureRows = leaderboardFixtures.populated;
   const displayMode = leaderboardDisplayMode(leaderboard.status, liveRows.length);
   const readUnavailable = displayMode === 'unavailable';
-  const rows = readUnavailable ? [] : liveRows.length > 0 ? liveRows : fixtureRows;
+  const speedLeaderboard = leaderboard.data?.mode === 'speed_1v1';
+  const rows = readUnavailable ? [] : liveRows.length > 0 ? liveRows : speedLeaderboard ? [] : fixtureRows;
   const usingLiveRows = displayMode === 'live';
   const fallback = leaderboardReadFallback();
   return (
     <section id="leaderboard" className={compactForLiveMatch ? `${styles.section} ${styles.liveRatingsSection}` : styles.section} aria-labelledby="leaderboard-heading">
       <div className={styles.sectionHeader}>
         <p className={styles.eyebrow}>{readUnavailable ? 'Live read unavailable' : usingLiveRows ? 'Live ratings' : compactForLiveMatch ? 'Ratings preview' : 'Leaderboard preview'}</p>
-        <h2 id="leaderboard-heading">{compactForLiveMatch ? 'Ratings after this match' : 'Leaderboard'}</h2>
-        <p>{readUnavailable ? fallback.message : usingLiveRows ? `Generated ${leaderboard.data?.generatedAt ?? ''}` : compactForLiveMatch ? 'No finalized leaderboard rows yet; keeping the live match page focused and showing a clearly labeled fixture preview.' : 'Clearly labeled fixture rows are shown only because the live read succeeded with no ranked players.'}</p>
+        <h2 id="leaderboard-heading">{compactForLiveMatch ? 'Ratings after this match' : `${speedLeaderboard ? 'Speed' : 'Standard'} leaderboard`}</h2>
+        <p>{readUnavailable ? fallback.message : usingLiveRows ? `Generated ${leaderboard.data?.generatedAt ?? ''} · ${leaderboard.data?.algorithmConfigVersion ?? 'rating identity unavailable'}` : speedLeaderboard ? 'The live Speed read succeeded, but no players have a finalized Speed rating yet.' : compactForLiveMatch ? 'No finalized leaderboard rows yet; keeping the live match page focused and showing a clearly labeled fixture preview.' : 'Clearly labeled fixture rows are shown only because the live read succeeded with no ranked players.'}</p>
       </div>
 
       {readUnavailable ? (
@@ -117,7 +120,8 @@ export function ProfileLeaderboard({
           <ServerReadRetryButton label={fallback.retryLabel} />
         </article>
       ) : null}
-      {!readUnavailable ? <div className={styles.leaderboard}>
+      {!readUnavailable && speedLeaderboard && rows.length === 0 ? <article className={styles.panelWide}><strong>No Speed ratings yet</strong><p className={styles.muted}>Complete a live rated Speed match to create authoritative mode-specific standings.</p></article> : null}
+      {!readUnavailable && rows.length > 0 ? <div className={styles.leaderboard}>
         {rows.map((row) => {
           const displayName = 'displayName' in row ? row.displayName : userById(row.userId).displayName;
           const badge = row.provisional ? rank.color.provisional : rank.color.rated;

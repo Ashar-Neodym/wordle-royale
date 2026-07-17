@@ -99,6 +99,37 @@ enum MatchmakingTicketState {
   failed
 }
 
+enum SpeedTerminalReason {
+  solved
+  max_guesses
+  deadline_timeout
+  forfeit
+  awarded_forfeit_win
+  no_contest
+  operator_void
+}
+
+enum SpeedParticipantResult {
+  win
+  loss
+  draw
+  void
+}
+
+enum SpeedCompletionReason {
+  all_players_terminal
+  deadline
+  forfeit
+  ready_timeout
+  operator_void
+}
+
+enum MatchMutationKind {
+  speed_ready
+  speed_guess
+  speed_forfeit
+}
+
 model UserAccount {
   id          String            @id @default(uuid())
   email       String?           @unique
@@ -219,6 +250,11 @@ model Match {
   rankedMode             RankedMode?
   status                 MatchStatus @default(pending)
   algorithmConfigVersion String?
+  rulesetVersion         String?
+  readyDeadlineAt        DateTime?
+  adjudicatedAt          DateTime?
+  adjudicationVersion    String?
+  completionReason       SpeedCompletionReason?
   idempotencyKey         String      @unique
   startedAt              DateTime?
   completedAt            DateTime?
@@ -238,6 +274,7 @@ model Match {
   analyticsEvents    AnalyticsEvent[]
   auditLogs          AuditLog[]
   matchmakingTickets MatchmakingTicket[]
+  mutationRequests   MatchMutationRequest[]
 
   @@index([status, mode, createdAt])
   @@index([rankedMode, status, createdAt])
@@ -253,6 +290,7 @@ model MatchRound {
   answerWordSaltRef   String?
   maxAttempts         Int       @default(6)
   startedAt           DateTime?
+  deadlineAt          DateTime?
   completedAt         DateTime?
   createdAt           DateTime  @default(now())
 
@@ -272,20 +310,46 @@ model MatchParticipant {
   seatNumber  Int
   outcome     ParticipantOutcome @default(pending)
   placement   Int?
-  finalScore  Int                @default(0)
-  joinedAt    DateTime           @default(now())
-  abandonedAt DateTime?
-  metadata    Json?
+  finalScore      Int                     @default(0)
+  joinedAt       DateTime                @default(now())
+  abandonedAt    DateTime?
+  readyAt         DateTime?
+  lastServerEventAt DateTime?
+  terminalAt      DateTime?
+  terminalReason  SpeedTerminalReason?
+  guessesUsed     Int?
+  solveElapsedMs  Int?
+  solveTimeBucket Int?
+  result           SpeedParticipantResult?
+  metadata        Json?
 
   match           Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
   user            UserAccount      @relation(fields: [userId], references: [id])
   guessAttempts   GuessAttempt[]
   scoreBreakdowns ScoreBreakdown[]
-  ratingEvents    RatingEvent[]
+  ratingEvents     RatingEvent[]
+  mutationRequests MatchMutationRequest[]
 
   @@unique([matchId, userId])
   @@unique([matchId, seatNumber])
   @@index([userId, joinedAt])
+}
+
+model MatchMutationRequest {
+  id              String            @id @default(uuid())
+  matchId         String
+  participantId   String
+  kind            MatchMutationKind
+  clientRequestId String
+  requestHash     String
+  resultSnapshot  Json?
+  createdAt       DateTime          @default(now())
+
+  match       Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  participant MatchParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, kind, clientRequestId])
+  @@index([matchId, createdAt])
 }
 
 model GuessAttempt {

@@ -28,6 +28,7 @@ describe('generic profile and leaderboard identity presentation', () => {
         '/leaderboard',
         '/lobbies',
         '/profile/me',
+        '/ranked/modes',
         '/readyz',
       ]);
       assert.equal(paths.some((path) => path.startsWith('/profiles/')), false);

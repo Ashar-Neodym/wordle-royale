@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { calculateRoundScore, isSolved, scoreGuess, validateGuess } from '@wordle-royale/game-engine';
-import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, defaultProvisionalGames, defaultRankedMode, defaultRating, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, rejectedGuessResultSchema } from '@wordle-royale/contracts';
+import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, defaultProvisionalGames, defaultRankedMode, defaultRating, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, rejectedGuessResultSchema, speedCompletionReasonSchema } from '@wordle-royale/contracts';
 import type { AcceptedGuessResult, CurrentRankedMatchStateResponseData, GuessResult, RankedMatchResultSummary, RankedMatchStartResponseData, RatingEventContract, RejectedGuessResult } from '@wordle-royale/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.ts';
@@ -10,6 +10,13 @@ import {
   STANDARD_1V1_RATING_ALGORITHM,
   STANDARD_1V1_RATING_ALGORITHM_VERSION,
 } from '../rating/standard-1v1-rating.ts';
+import {
+  calculateSpeed1v1Settlement,
+  SPEED_1V1_RATING_ALGORITHM,
+  SPEED_1V1_RATING_ALGORITHM_VERSION,
+  validateSpeedAdjudication,
+} from '../rating/speed-1v1-rating.ts';
+import { SPEED_1V1_ADJUDICATION_VERSION, SPEED_1V1_RULESET_VERSION } from './speed-1v1-rules.ts';
 
 const ANSWER_SALT_REF = 'fixture-local-v1';
 const ROUND_TIME_MS = 120_000;
@@ -44,6 +51,11 @@ type MatchParticipantRecord = {
   outcome: string;
   placement?: number | null;
   finalScore: number;
+  result?: 'win' | 'loss' | 'draw' | 'void' | null;
+  terminalReason?: string | null;
+  guessesUsed?: number | null;
+  solveTimeBucket?: number | null;
+  solveElapsedMs?: number | null;
 };
 
 export interface StartRankedMatchInput {
@@ -51,7 +63,7 @@ export interface StartRankedMatchInput {
   participantUserIds: string[];
   idempotencyKey: string;
   lobbyId?: string | null;
-  rankedMode?: 'standard_1v1';
+  rankedMode?: 'standard_1v1' | 'speed_1v1';
   now?: Date;
 }
 
@@ -81,6 +93,24 @@ export interface FinalizeRankedMatchRatingsInput {
 
 export interface CompleteRankedMatchInput extends FinalizeRankedMatchRatingsInput {}
 
+function finalizeReasonFromPersistedSpeedCompletion(completionReason: string | null | undefined): NonNullable<FinalizeRankedMatchRatingsInput['reason']> {
+  const authoritativeReason = speedCompletionReasonSchema.safeParse(completionReason);
+  if (!authoritativeReason.success) {
+    throw new BadRequestException({
+      code: 'speed_completion_identity_invalid',
+      message: 'Completed Speed results require a recognized persisted completion identity.',
+    });
+  }
+
+  switch (authoritativeReason.data) {
+    case 'all_players_terminal': return 'all_players_final';
+    case 'deadline': return 'timeout';
+    case 'forfeit': return 'forfeit';
+    case 'ready_timeout':
+    case 'operator_void': return 'voided';
+  }
+}
+
 export interface DevTerminalizeParticipantInput {
   matchId: string;
   userId: string;
@@ -95,6 +125,10 @@ type MatchRecord = {
   rankedMode?: string | null;
   status: string;
   algorithmConfigVersion?: string | null;
+  rulesetVersion?: string | null;
+  adjudicationVersion?: string | null;
+  adjudicatedAt?: Date | string | null;
+  completionReason?: string | null;
   completedAt?: Date | string | null;
 };
 
@@ -190,6 +224,27 @@ function buildFinalStandings(participants: MatchParticipantRecord[]): FinalStand
   });
 }
 
+function buildSpeedFinalStandings(participants: MatchParticipantRecord[]): FinalStandingDraft[] {
+  const outcome = validateSpeedAdjudication(participants.map((participant) => ({
+    id: participant.id,
+    result: participant.result,
+    terminalReason: participant.terminalReason,
+    guessesUsed: participant.guessesUsed,
+    solveTimeBucket: participant.solveTimeBucket,
+  })));
+  const sorted = [...participants].sort((left, right) => {
+    if (outcome.draw) return left.seatNumber - right.seatNumber;
+    if (left.id === outcome.winnerId) return -1;
+    if (right.id === outcome.winnerId) return 1;
+    return left.seatNumber - right.seatNumber;
+  });
+  return sorted.map((participant, index) => ({
+    participant,
+    placement: outcome.draw ? 1 : index + 1,
+    placementGroup: outcome.draw ? 1 : index + 1,
+  }));
+}
+
 function placementDelta(placement: number, participantCount: number): number {
   if (participantCount <= 1) return 0;
   const midpoint = (participantCount + 1) / 2;
@@ -226,22 +281,22 @@ function isTerminalParticipantOutcome(outcome: string): boolean {
   return outcome === 'solved' || outcome === 'failed' || outcome === 'abandoned' || outcome === 'voided';
 }
 
-async function upsertRatingProfile(tx: any, userId: string, algorithmVersion: string): Promise<RatingProfileRecord> {
+async function upsertRatingProfile(tx: any, userId: string, algorithmVersion: string, mode: string = defaultRankedMode): Promise<RatingProfileRecord> {
   const existing = await tx.ratingProfile.findUnique({
-    where: { userId_mode_algorithmConfigVersion: { userId, mode: defaultRankedMode, algorithmConfigVersion: algorithmVersion } },
+    where: { userId_mode_algorithmConfigVersion: { userId, mode, algorithmConfigVersion: algorithmVersion } },
   }) as RatingProfileRecord | null;
   if (existing) return existing;
 
-  const standard1v1 = algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION;
+  const glicko1v1 = algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION || algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION;
   return await tx.ratingProfile.create({
     data: {
       userId,
-      mode: defaultRankedMode,
+      mode,
       rating: defaultRating,
       matchesPlayed: 0,
       provisionalRemaining: defaultProvisionalGames,
       ratingDeviation: STANDARD_1V1_INITIAL_RATING_DEVIATION,
-      algorithm: standard1v1 ? STANDARD_1V1_RATING_ALGORITHM : 'placement_mmr_v1',
+      algorithm: glicko1v1 ? STANDARD_1V1_RATING_ALGORITHM : 'placement_mmr_v1',
       algorithmConfigVersion: algorithmVersion,
       status: 'active',
     },
@@ -262,7 +317,19 @@ function eventMetadata(event: RatingEventRecord): {
 }
 
 function ratingEventFromRows(matchId: string, idempotencyKey: string, events: RatingEventRecord[]): RatingEventContract {
-  const firstEvent = events[0];
+  const orderedEvents = [...events].sort((left, right) => {
+    const leftMetadata = eventMetadata(left);
+    const rightMetadata = eventMetadata(right);
+    const placementDelta = (leftMetadata.placement ?? Number.MAX_SAFE_INTEGER) - (rightMetadata.placement ?? Number.MAX_SAFE_INTEGER);
+    if (placementDelta !== 0) return placementDelta;
+    const groupDelta = (leftMetadata.placementGroup ?? Number.MAX_SAFE_INTEGER) - (rightMetadata.placementGroup ?? Number.MAX_SAFE_INTEGER);
+    if (groupDelta !== 0) return groupDelta;
+    const userDelta = (leftMetadata.userId ?? '').localeCompare(rightMetadata.userId ?? '');
+    if (userDelta !== 0) return userDelta;
+    const participantDelta = (left.participantId ?? '').localeCompare(right.participantId ?? '');
+    return participantDelta !== 0 ? participantDelta : left.id.localeCompare(right.id);
+  });
+  const firstEvent = orderedEvents[0];
   if (!firstEvent) {
     throw new BadRequestException({ code: 'rating_event_missing', message: 'Rating event rows were expected but none were found.' });
   }
@@ -271,12 +338,20 @@ function ratingEventFromRows(matchId: string, idempotencyKey: string, events: Ra
   return ratingEventContractSchema.parse({
     eventId: firstMetadata.logicalEventId ?? firstEvent.id,
     matchId,
-    kind: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION ? 'standard_1v1_glicko_v1' : 'placement_mmr_v1',
+    kind: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION
+      ? 'standard_1v1_glicko_v1'
+      : firstEvent.algorithmConfigVersion === SPEED_1V1_RATING_ALGORITHM_VERSION
+        ? 'speed_1v1_glicko_v1'
+        : 'placement_mmr_v1',
     status: 'applied',
     idempotencyKey: firstMetadata.logicalIdempotencyKey ?? idempotencyKey,
-    algorithmVersion: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION ? STANDARD_1V1_RATING_ALGORITHM_VERSION : 'placement_mmr_v1',
+    algorithmVersion: firstEvent.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION
+      ? STANDARD_1V1_RATING_ALGORITHM_VERSION
+      : firstEvent.algorithmConfigVersion === SPEED_1V1_RATING_ALGORITHM_VERSION
+        ? SPEED_1V1_RATING_ALGORITHM_VERSION
+        : 'placement_mmr_v1',
     defaultRating,
-    participants: events.map((event) => {
+    participants: orderedEvents.map((event) => {
       const metadata = eventMetadata(event);
       return {
         userId: metadata.userId,
@@ -320,7 +395,9 @@ export class GameplayPersistenceService {
         status: 'active',
         algorithmConfigVersion: input.rankedMode === 'standard_1v1'
           ? STANDARD_1V1_RATING_ALGORITHM_VERSION
-          : 'placement_mmr_v1',
+          : input.rankedMode === 'speed_1v1'
+            ? SPEED_1V1_RATING_ALGORITHM_VERSION
+            : 'placement_mmr_v1',
         idempotencyKey: input.idempotencyKey,
         startedAt: now,
       },
@@ -570,7 +647,8 @@ export class GameplayPersistenceService {
     if (match.mode !== 'ranked') {
       throw new BadRequestException({ code: 'match_not_ranked', message: 'Only ranked matches produce result summaries.' });
     }
-    if (match.status !== 'completed') {
+    const terminalSpeedResult = match.rankedMode === 'speed_1v1' && match.status === 'voided' && Boolean(match.adjudicatedAt);
+    if (match.status !== 'completed' && !terminalSpeedResult) {
       throw new BadRequestException({
         code: 'match_result_not_ready',
         message: 'Result summary is only available after ranked match completion.',
@@ -578,14 +656,17 @@ export class GameplayPersistenceService {
     }
 
     const report = await (this.prisma.client as any).matchReport.findUnique?.({ where: { matchId } }) as MatchReportRecord | null;
-    if (report?.publicSummary) {
+    if (report?.publicSummary && match.rankedMode !== 'speed_1v1') {
       return rankedMatchResultSummarySchema.parse(report.publicSummary);
     }
 
-    return await this.finalizeRankedMatchRatings({ matchId, reason: 'all_players_final' });
+    const reason = match.rankedMode === 'speed_1v1'
+      ? finalizeReasonFromPersistedSpeedCompletion(match.completionReason)
+      : 'all_players_final';
+    return await this.finalizeRankedMatchRatings({ matchId, reason });
   }
 
-  private async finalizeRankedMatchRatingsInTransaction(
+  async finalizeRankedMatchRatingsInTransaction(
     tx: any,
     matchId: string,
     reason: NonNullable<FinalizeRankedMatchRatingsInput['reason']>,
@@ -600,32 +681,54 @@ export class GameplayPersistenceService {
     }
 
     const algorithmVersion = match.algorithmConfigVersion ?? 'placement_mmr_v1';
-    if (algorithmVersion !== 'placement_mmr_v1' && algorithmVersion !== STANDARD_1V1_RATING_ALGORITHM_VERSION) {
+    if (algorithmVersion !== 'placement_mmr_v1' && algorithmVersion !== STANDARD_1V1_RATING_ALGORITHM_VERSION && algorithmVersion !== SPEED_1V1_RATING_ALGORITHM_VERSION) {
       throw new BadRequestException({ code: 'unsupported_rating_algorithm', message: 'Unsupported rating algorithm.' });
     }
-    if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION && match.rankedMode !== 'standard_1v1') {
-      throw new BadRequestException({ code: 'unsupported_ranked_mode_settlement', message: 'Only standard_1v1 settlement is active.' });
+    const expectedMode = algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION
+      ? 'standard_1v1'
+      : algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION
+        ? 'speed_1v1'
+        : null;
+    if (expectedMode && match.rankedMode !== expectedMode) {
+      throw new BadRequestException({ code: 'ranked_mode_algorithm_mismatch', message: `Rating algorithm ${algorithmVersion} does not match ranked mode ${match.rankedMode ?? 'none'}.` });
+    }
+    if (algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION && (
+      match.rulesetVersion !== SPEED_1V1_RULESET_VERSION
+      || match.adjudicationVersion !== SPEED_1V1_ADJUDICATION_VERSION
+      || !match.adjudicatedAt
+      || !match.completionReason
+      || !['completed', 'voided'].includes(match.status)
+    )) {
+      throw new BadRequestException({ code: 'speed_settlement_unavailable', message: 'Speed rating settlement requires a completed authoritative Speed adjudication.' });
     }
 
     const participants = await tx.matchParticipant.findMany({ where: { matchId }, orderBy: [{ finalScore: 'desc' }, { seatNumber: 'asc' }] }) as MatchParticipantRecord[];
-    if (participants.length < 2) {
-      throw new BadRequestException({ code: 'not_enough_players', message: 'Ranked rating finalization requires at least two participants.' });
+    if (participants.length < 2 || (algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION && participants.length !== 2)) {
+      throw new BadRequestException({ code: 'not_enough_players', message: algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION ? 'Speed rating settlement requires exactly two participants.' : 'Ranked rating finalization requires at least two participants.' });
     }
 
-    const standings = buildFinalStandings(participants);
+    const speedNoContest = algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION
+      && participants.some((participant) => participant.result === 'void' || participant.terminalReason === 'no_contest' || participant.terminalReason === 'operator_void');
+    const standings = algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION && !speedNoContest
+      ? buildSpeedFinalStandings(participants)
+      : buildFinalStandings(participants);
     const idempotencyKey = ratingIdempotencyKey(matchId, algorithmVersion);
     const existingEvents = await tx.ratingEvent.findMany({
       where: { matchId, algorithmConfigVersion: algorithmVersion, type: 'apply' },
       orderBy: { createdAt: 'asc' },
     }) as RatingEventRecord[];
 
-    const shouldSkipRating = reason === 'voided' || match.status === 'voided' || participants.some((participant) => participant.outcome === 'voided');
+    const shouldSkipRating = reason === 'voided' || match.status === 'voided' || speedNoContest || participants.some((participant) => participant.outcome === 'voided');
     if (existingEvents.length > 0) {
-      if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION && existingEvents.length !== 2) {
+      if ((algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION || algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION) && existingEvents.length !== 2) {
         throw new BadRequestException({
-          code: 'incomplete_standard_1v1_rating_settlement',
-          message: 'Standard 1v1 rating settlement is incomplete and requires operator repair.',
+          code: 'incomplete_1v1_rating_settlement',
+          message: '1v1 rating settlement is incomplete and requires operator repair.',
         });
+      }
+      const existingReport = await tx.matchReport.findUnique?.({ where: { matchId } }) as MatchReportRecord | null | undefined;
+      if (existingReport?.publicSummary && match.rankedMode !== 'speed_1v1') {
+        return rankedMatchResultSummarySchema.parse(existingReport.publicSummary);
       }
       const existingRatingEvent = ratingEventFromRows(matchId, idempotencyKey, existingEvents);
       return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, existingRatingEvent);
@@ -633,6 +736,11 @@ export class GameplayPersistenceService {
 
     if (shouldSkipRating) {
       return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, null);
+    }
+
+    if (algorithmVersion === SPEED_1V1_RATING_ALGORITHM_VERSION) {
+      const ratingEvent = await this.applySpeed1v1Settlement(tx, matchId, now, standings, idempotencyKey);
+      return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, ratingEvent);
     }
 
     if (algorithmVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION) {
@@ -720,6 +828,132 @@ export class GameplayPersistenceService {
     });
 
     return await this.persistRankedMatchResultSummary(tx, matchId, reason, now, standings, ratingEvent);
+  }
+
+  private async applySpeed1v1Settlement(
+    tx: any,
+    matchId: string,
+    now: Date,
+    standings: FinalStandingDraft[],
+    idempotencyKey: string,
+  ): Promise<RatingEventContract> {
+    if (standings.length !== 2) {
+      throw new BadRequestException({ code: 'speed_1v1_requires_two_players', message: 'Speed 1v1 rating settlement requires exactly two players.' });
+    }
+    const outcome = validateSpeedAdjudication(standings.map((standing) => ({
+      id: standing.participant.id,
+      result: standing.participant.result,
+      terminalReason: standing.participant.terminalReason,
+      guessesUsed: standing.participant.guessesUsed,
+      solveTimeBucket: standing.participant.solveTimeBucket,
+    })));
+    const profiles = await Promise.all(standings.map((standing) => upsertRatingProfile(
+      tx,
+      standing.participant.userId,
+      SPEED_1V1_RATING_ALGORITHM_VERSION,
+      'speed_1v1',
+    )));
+    const settlement = calculateSpeed1v1Settlement({
+      players: standings.map((standing, index) => ({
+        id: standing.participant.id,
+        rating: profiles[index]?.rating ?? defaultRating,
+        ratingDeviation: profiles[index]?.ratingDeviation ?? STANDARD_1V1_INITIAL_RATING_DEVIATION,
+        provisionalRemaining: profiles[index]?.provisionalRemaining ?? defaultProvisionalGames,
+        inactiveDays: elapsedDays(profiles[index]?.lastRatedAt, now),
+      })),
+      outcome,
+    });
+
+    const logicalEventId = randomUUID();
+    const ratingParticipants = [] as RatingEventContract['participants'];
+    for (let index = 0; index < standings.length; index += 1) {
+      const standing = standings[index]!;
+      const profile = profiles[index]!;
+      const playerSettlement = settlement.players[index]!;
+      const event = await tx.ratingEvent.create({
+        data: {
+          ratingProfileId: profile.id,
+          matchId,
+          participantId: standing.participant.id,
+          type: 'apply',
+          idempotencyKey: `${idempotencyKey}:${standing.participant.id}`,
+          ratingBefore: playerSettlement.ratingBefore,
+          ratingAfter: playerSettlement.ratingAfter,
+          delta: playerSettlement.delta,
+          algorithm: SPEED_1V1_RATING_ALGORITHM,
+          algorithmConfigVersion: SPEED_1V1_RATING_ALGORITHM_VERSION,
+          metadata: {
+            logicalEventId,
+            logicalIdempotencyKey: idempotencyKey,
+            kind: SPEED_1V1_RATING_ALGORITHM_VERSION,
+            status: 'applied',
+            mode: 'speed_1v1',
+            userId: standing.participant.userId,
+            placement: standing.placement,
+            placementGroup: standing.placementGroup,
+            provisional: playerSettlement.provisionalBefore,
+            ratingDeviationBefore: playerSettlement.ratingDeviationBefore,
+            ratingDeviationAfter: playerSettlement.ratingDeviationAfter,
+            expectedScore: playerSettlement.expectedScore,
+            actualScore: playerSettlement.actualScore,
+            roundingPolicy: settlement.roundingPolicy,
+            settlementTotalDelta: settlement.totalDelta,
+            settlementDriftBound: settlement.driftBound,
+            terminalReason: standing.participant.terminalReason,
+            guessesUsed: standing.participant.guessesUsed,
+            solveTimeBucket: standing.participant.solveTimeBucket,
+            persistedResult: standing.participant.result,
+          },
+          voidedByEventId: null,
+          reversalOfEventId: null,
+          createdAt: now,
+        },
+      }) as RatingEventRecord;
+
+      const isForfeit = standing.participant.terminalReason === 'forfeit';
+      const isWin = !outcome.draw && outcome.winnerId === standing.participant.id;
+      const isLoss = !outcome.draw && outcome.loserId === standing.participant.id;
+      await tx.ratingProfile.update({
+        where: { id: profile.id },
+        data: {
+          rating: playerSettlement.ratingAfter,
+          ratingDeviation: playerSettlement.ratingDeviationAfter,
+          matchesPlayed: { increment: 1 },
+          provisionalRemaining: playerSettlement.provisionalRemainingAfter,
+          wins: { increment: isWin ? 1 : 0 },
+          losses: { increment: isLoss ? 1 : 0 },
+          draws: { increment: outcome.draw ? 1 : 0 },
+          abandons: { increment: isForfeit ? 1 : 0 },
+          peakRating: Math.max(profile.peakRating ?? profile.rating, playerSettlement.ratingAfter),
+          lastRatedAt: now,
+        },
+      });
+
+      ratingParticipants.push({
+        userId: standing.participant.userId,
+        ratingBefore: playerSettlement.ratingBefore,
+        ratingAfter: playerSettlement.ratingAfter,
+        ratingDelta: event.delta,
+        placement: standing.placement,
+        placementGroup: standing.placementGroup,
+        provisional: playerSettlement.provisionalBefore,
+        ratingDeviationBefore: playerSettlement.ratingDeviationBefore,
+        ratingDeviationAfter: playerSettlement.ratingDeviationAfter,
+      });
+    }
+
+    return ratingEventContractSchema.parse({
+      eventId: logicalEventId,
+      matchId,
+      kind: SPEED_1V1_RATING_ALGORITHM_VERSION,
+      status: 'applied',
+      idempotencyKey,
+      algorithmVersion: SPEED_1V1_RATING_ALGORITHM_VERSION,
+      defaultRating,
+      participants: ratingParticipants,
+      createdAt: iso(now),
+      appliedAt: iso(now),
+    });
   }
 
   private async applyStandard1v1Settlement(
@@ -863,6 +1097,10 @@ export class GameplayPersistenceService {
     standings: FinalStandingDraft[],
     ratingEvent: RatingEventContract | null,
   ): Promise<RankedMatchResultSummary> {
+    const match = await tx.match.findUnique({ where: { id: matchId } }) as MatchRecord | null;
+    if (!match) {
+      throw new NotFoundException({ code: 'match_not_found', message: 'Match was not found.' });
+    }
     for (const standing of standings) {
       await tx.matchParticipant.update({
         where: { id: standing.participant.id },
@@ -870,11 +1108,12 @@ export class GameplayPersistenceService {
       });
     }
 
+    const completedAt = match.completedAt ?? now;
     await tx.match.update({
       where: { id: matchId },
       data: {
-        status: 'completed',
-        completedAt: now,
+        status: match.status === 'voided' ? 'voided' : 'completed',
+        completedAt,
         voidReason: reason === 'voided' ? 'Rating not applied because match was voided.' : undefined,
       },
     });
@@ -885,18 +1124,36 @@ export class GameplayPersistenceService {
       placementGroup: standing.placementGroup,
       totalScore: standing.participant.finalScore,
       roundsSolved: standing.participant.outcome === 'solved' ? 1 : 0,
-      totalValidGuesses: 0,
-      totalSolveMs: 0,
+      totalValidGuesses: standing.participant.guessesUsed ?? 0,
+      totalSolveMs: standing.participant.solveElapsedMs ?? 0,
       ratingBefore: ratingEvent?.participants.find((participant) => participant.userId === standing.participant.userId)?.ratingBefore ?? null,
       ratingAfter: ratingEvent?.participants.find((participant) => participant.userId === standing.participant.userId)?.ratingAfter ?? null,
       ratingDelta: ratingEvent?.participants.find((participant) => participant.userId === standing.participant.userId)?.ratingDelta ?? null,
+      ...(match.rankedMode === 'speed_1v1' ? {
+        result: standing.participant.result ?? null,
+        terminalReason: standing.participant.terminalReason ?? null,
+        guessesUsed: standing.participant.guessesUsed ?? null,
+        solveElapsedMs: standing.participant.solveElapsedMs ?? null,
+      } : {}),
     }));
 
+    const publicCompletionReason = match.rankedMode === 'speed_1v1'
+      ? speedCompletionReasonSchema.parse(match.completionReason)
+      : reason;
     const summary = rankedMatchResultSummarySchema.parse({
       matchId,
       state: 'completed',
-      completedAt: iso(now),
-      completionReason: reason,
+      rankedMode: match.rankedMode ?? null,
+      rulesetVersion: match.rulesetVersion ?? null,
+      speedCompletionReason: match.rankedMode === 'speed_1v1' ? match.completionReason ?? null : null,
+      ratingAlgorithm: match.algorithmConfigVersion === SPEED_1V1_RATING_ALGORITHM_VERSION
+        ? SPEED_1V1_RATING_ALGORITHM_VERSION
+        : match.algorithmConfigVersion === STANDARD_1V1_RATING_ALGORITHM_VERSION
+          ? STANDARD_1V1_RATING_ALGORITHM_VERSION
+          : ratingEvent?.algorithmVersion ?? null,
+      ratingAlgorithmConfigVersion: match.algorithmConfigVersion ?? ratingEvent?.algorithmVersion ?? null,
+      completedAt: iso(completedAt instanceof Date ? completedAt : new Date(completedAt)),
+      completionReason: publicCompletionReason,
       finalStandings,
       ratingEvent,
       resultActions: buildResultActions(matchId, finalStandings),

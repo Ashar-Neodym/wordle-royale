@@ -23,6 +23,11 @@ function outcomeLabel(match: MatchHistorySummary): string {
   const viewer = match.viewer;
   if (!viewer) return match.status;
   const placement = viewer.placement ? `#${viewer.placement}` : '—';
+  if (match.rankedMode === 'speed_1v1') {
+    const participant = match.participants.find((entry) => entry.userId === viewer.userId);
+    const solve = participant?.solveElapsedMs === null || participant?.solveElapsedMs === undefined ? 'no solve time' : `${(participant.solveElapsedMs / 1000).toFixed(1)}s`;
+    return `${placement} · ${participant?.result ?? viewer.outcome} · ${participant?.guessesUsed ?? '—'} guesses · ${solve}`;
+  }
   return `${placement} · ${viewer.outcome} · ${viewer.finalScore} pts`;
 }
 
@@ -91,24 +96,17 @@ type ModeDefinition = Pick<ModeCard, 'id' | 'label' | 'subtitle' | 'status' | 'p
 
 const modeFallbacks: ModeDefinition[] = [
   { id: 'standard_1v1', label: 'Standard', subtitle: '1v1 · fewer guesses wins; same guesses draw', status: 'unavailable', provisionalGamesTotal: 10 },
-  { id: 'speed_1v1', label: 'Speed / Blitz', subtitle: '1v1 · same guesses use server solve time', status: 'prepared', provisionalGamesTotal: 10 },
+  { id: 'speed_1v1', label: 'Speed / Blitz', subtitle: '1v1 · 75 seconds · same guesses use server solve time', status: 'unavailable', provisionalGamesTotal: 10 },
   { id: 'classic_1v1', label: 'Classic', subtitle: '1v1 · calmer clock; draw on same guesses', status: 'prepared', provisionalGamesTotal: 10 },
   { id: 'multiplayer_lobby', label: 'Multiplayer', subtitle: '2–4 player lobby ladder; pairwise placement rating', status: 'prepared', provisionalGamesTotal: 10 },
 ];
 
-function summarizeStandardMode(profile: ProfileSummary): Pick<ModeCard, 'wins' | 'losses' | 'draws' | 'abandons' | 'recentDelta' | 'graph'> {
-  const recent = profile.recentMatches.slice(0, 8);
+function summarizeLiveMode(profile: ProfileSummary, mode: ModeDefinition['id'], rating: ProfileSummary['rating']): Pick<ModeCard, 'wins' | 'losses' | 'draws' | 'abandons' | 'recentDelta' | 'graph'> {
+  const recent = profile.recentMatches.filter((match) => match.rankedMode === mode).slice(0, 8);
   const recentDelta = recent.find((match) => match.viewer?.ratingDelta !== null && match.viewer?.ratingDelta !== undefined)?.viewer?.ratingDelta ?? null;
   const deltas = recent.map((match) => match.viewer?.ratingDelta ?? 0).reverse();
-  const graph = deltas.length > 0 ? deltas.reduce<number[]>((points, delta) => [...points, points[points.length - 1]! + delta], [profile.rating.rating - deltas.reduce((sum, delta) => sum + delta, 0)]).slice(-6) : [profile.rating.rating, profile.rating.rating, profile.rating.rating];
-  return {
-    wins: profile.rating.wins,
-    losses: profile.rating.losses,
-    draws: profile.rating.draws,
-    abandons: profile.rating.abandons,
-    recentDelta,
-    graph,
-  };
+  const graph = deltas.length > 0 ? deltas.reduce<number[]>((points, delta) => [...points, points[points.length - 1]! + delta], [rating.rating - deltas.reduce((sum, delta) => sum + delta, 0)]).slice(-6) : [rating.rating, rating.rating, rating.rating];
+  return { wins: rating.wins, losses: rating.losses, draws: rating.draws, abandons: rating.abandons, recentDelta, graph };
 }
 
 function emptyModeCard(mode: ModeDefinition): ModeCard {
@@ -128,15 +126,15 @@ function emptyModeCard(mode: ModeDefinition): ModeCard {
 
 function modeCards(profile: ProfileSummary | null): ModeCard[] {
   return modeFallbacks.map((mode) => {
-    if (profile && mode.id === 'standard_1v1') {
-      const summary = summarizeStandardMode(profile);
-      return {
+    if (profile && (mode.id === 'standard_1v1' || mode.id === 'speed_1v1')) {
+      const rating = profile.ratings.find((entry) => entry.rankedMode === mode.id) ?? (profile.rating.rankedMode === mode.id ? profile.rating : null);
+      if (rating) return {
         ...mode,
-        rating: profile.rating.rating,
-        gamesPlayed: profile.rating.matchesPlayed,
-        provisionalGamesPlayed: Math.max(0, mode.provisionalGamesTotal - profile.rating.provisionalRemaining),
+        rating: rating.rating,
+        gamesPlayed: rating.matchesPlayed,
+        provisionalGamesPlayed: Math.max(0, mode.provisionalGamesTotal - rating.provisionalRemaining),
         status: 'live',
-        ...summary,
+        ...summarizeLiveMode(profile, mode.id, rating),
       };
     }
     return emptyModeCard(mode);
@@ -147,7 +145,7 @@ function graphBars(points: number[]): ReactElement {
   const min = Math.min(...points);
   const max = Math.max(...points);
   return (
-    <div className={styles.ratingSparkline} aria-label="Rating history from live Standard read model">
+    <div className={styles.ratingSparkline} aria-label="Rating history from live mode read model">
       {points.map((point, index) => {
         const height = max === min ? 45 : 22 + ((point - min) / (max - min)) * 46;
         return <span key={`${point}-${index}`} style={{ height: `${height}px` }} title={`${point}`} />;

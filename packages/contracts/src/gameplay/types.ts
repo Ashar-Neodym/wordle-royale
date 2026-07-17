@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, guessResultSchema, matchDetailSummarySchema, matchHistoryListSchema, matchHistoryParticipantSchema, matchHistorySummarySchema, matchHistoryViewerSchema, matchSnapshotSchema, participantStandingSchema, rankedModeSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
+import { acceptedGuessResultSchema, completeRankedMatchRequestSchema, currentRankedMatchStateResponseDataSchema, forfeitSpeedMatchRequestSchema, guessResultSchema, markSpeedMatchReadyRequestSchema, matchDetailSummarySchema, matchHistoryListSchema, matchHistoryParticipantSchema, matchHistorySummarySchema, matchHistoryViewerSchema, matchSnapshotSchema, participantStandingSchema, rankedModeSchema, rankedMatchResultSummarySchema, rankedMatchStartResponseDataSchema, ratingEventContractSchema, ratingParticipantDeltaSchema, rejectedGuessResultSchema, roundSnapshotSchema, scoreBreakdownSchema, speedCompletionReasonSchema, speedMatchSnapshotSchema, speedMatchStateSchema, speedParticipantResultSchema, speedRankedModeIdentitySchema, speedRankedModeTimeControlSchema, speedRulesetVersionSchema, speedTerminalReasonSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from './schemas.ts';
 
 export type RankedMode = z.infer<typeof rankedModeSchema>;
 export type ScoreBreakdown = z.infer<typeof scoreBreakdownSchema>;
@@ -10,6 +10,16 @@ export type SubmitGuessRequest = z.infer<typeof submitGuessRequestSchema>;
 export type AcceptedGuessResult = z.infer<typeof acceptedGuessResultSchema>;
 export type RejectedGuessResult = z.infer<typeof rejectedGuessResultSchema>;
 export type GuessResult = z.infer<typeof guessResultSchema>;
+export type SpeedRulesetVersion = z.infer<typeof speedRulesetVersionSchema>;
+export type SpeedMatchState = z.infer<typeof speedMatchStateSchema>;
+export type SpeedTerminalReason = z.infer<typeof speedTerminalReasonSchema>;
+export type SpeedParticipantResult = z.infer<typeof speedParticipantResultSchema>;
+export type SpeedCompletionReason = z.infer<typeof speedCompletionReasonSchema>;
+export type MarkSpeedMatchReadyRequest = z.infer<typeof markSpeedMatchReadyRequestSchema>;
+export type ForfeitSpeedMatchRequest = z.infer<typeof forfeitSpeedMatchRequestSchema>;
+export type SpeedMatchSnapshot = z.infer<typeof speedMatchSnapshotSchema>;
+export type SpeedRankedModeTimeControl = z.infer<typeof speedRankedModeTimeControlSchema>;
+export type SpeedRankedModeIdentity = z.infer<typeof speedRankedModeIdentitySchema>;
 
 export type StartRankedMatchRequest = z.infer<typeof startRankedMatchRequestSchema>;
 export type RankedMatchStartResponseData = z.infer<typeof rankedMatchStartResponseDataSchema>;

@@ -39,6 +39,7 @@ function createLeaderboardApiPrismaMock() {
         return user ? { ...user.profile, user } : null;
       },
     },
+    match: { findMany: async () => [] },
   };
 
   return {
@@ -102,6 +103,17 @@ describe('leaderboard REST read models', () => {
   it('serves ranked mode metadata and all per-mode profile ratings', async () => {
     const modes = await request(app.getHttpServer()).get('/ranked/modes').expect(200);
     assert.deepEqual(modes.body.data.modes.map((mode: any) => mode.id), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
+    const speedMode = modes.body.data.modes.find((mode: any) => mode.id === 'speed_1v1');
+    assert.equal(speedMode.enabled, false);
+    assert.equal(speedMode.queueEnabled, false);
+    assert.equal(speedMode.rulesetVersion, 'speed_1v1_v1_75s');
+    assert.equal(speedMode.ratingAlgorithmConfigVersion, 'speed_1v1_glicko_v1');
+    assert.equal(speedMode.timeControl.roundTimeSeconds, 75);
+    assert.equal(speedMode.timeControl.readyWindowSeconds, 20);
+    assert.equal(speedMode.timeControl.countdownSeconds, 3);
+    assert.equal(speedMode.timeControl.maxGuesses, 6);
+    assert.equal(speedMode.timeControl.solveTimeBucketMs, 100);
+    assert.equal(speedMode.timeControl.tieBreaker, 'server_solve_time_bucket');
     assert.equal(modes.body.data.modes.find((mode: any) => mode.id === 'multiplayer_lobby').enabled, false);
 
     const ratings = await request(app.getHttpServer()).get('/profiles/ada/ratings').expect(200);
@@ -109,6 +121,11 @@ describe('leaderboard REST read models', () => {
     assert.deepEqual(ratings.body.data.ratings.map((rating: any) => rating.mode), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'standard_1v1').unrated, false);
     assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').unrated, true);
-    assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').algorithm, null);
+    assert.equal(ratings.body.data.ratings.find((rating: any) => rating.mode === 'speed_1v1').algorithm, 'speed_1v1_glicko_v1');
+
+    const speedHistory = await request(app.getHttpServer()).get('/profiles/ada/ratings/speed_1v1/history').expect(200);
+    assert.deepEqual(speedHistory.body.data.items, []);
+    const speedMatches = await request(app.getHttpServer()).get('/profiles/ada/matches?mode=speed_1v1').expect(200);
+    assert.deepEqual(speedMatches.body.data.items, []);
   });
 });
