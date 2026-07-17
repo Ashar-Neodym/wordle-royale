@@ -1,14 +1,20 @@
 import { z } from 'zod';
 import { clientRequestSchema, idSchema, timestampSchema } from '../common/schemas.ts';
-import { rankedModeSchema } from '../gameplay/schemas.ts';
 
 export const matchmakingTicketStates = ['queued', 'matched', 'cancelled', 'timed_out', 'failed'] as const;
 export const matchmakingTicketStateSchema = z.enum(matchmakingTicketStates);
 
-export const createStandard1v1TicketRequestSchema = clientRequestSchema.extend({
-  mode: rankedModeSchema,
+const automaticTicketRequestBaseSchema = clientRequestSchema.extend({
   rated: z.boolean(),
   allowProvisionalOpponent: z.boolean().default(true),
+});
+
+export const createStandard1v1TicketRequestSchema = automaticTicketRequestBaseSchema.extend({
+  mode: z.enum(['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']),
+});
+
+export const createSpeed1v1TicketRequestSchema = automaticTicketRequestBaseSchema.extend({
+  mode: z.literal('speed_1v1'),
 });
 
 export const matchmakingOpponentSchema = z.object({
@@ -19,10 +25,9 @@ export const matchmakingOpponentSchema = z.object({
   provisional: z.boolean(),
 });
 
-export const standard1v1TicketSchema = z.object({
+export const matchmakingTicketBaseSchema = z.object({
   ticketId: idSchema,
   state: matchmakingTicketStateSchema,
-  mode: z.literal('standard_1v1'),
   rated: z.literal(true),
   userId: idSchema,
   ratingAtQueue: z.number().int(),
@@ -42,4 +47,9 @@ export const standard1v1TicketSchema = z.object({
   timedOutAt: timestampSchema.nullable(),
 });
 
+export const standard1v1TicketSchema = matchmakingTicketBaseSchema.extend({ mode: z.literal('standard_1v1') });
+export const speed1v1TicketSchema = matchmakingTicketBaseSchema.extend({ mode: z.literal('speed_1v1') });
+export const automaticMatchmakingTicketSchema = z.discriminatedUnion('mode', [standard1v1TicketSchema, speed1v1TicketSchema]);
+
 export const currentStandard1v1TicketSchema = standard1v1TicketSchema.nullable();
+export const currentSpeed1v1TicketSchema = speed1v1TicketSchema.nullable();

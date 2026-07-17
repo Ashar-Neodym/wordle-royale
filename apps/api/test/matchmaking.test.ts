@@ -130,17 +130,19 @@ function createMatchmakingPrismaMock() {
       }
     },
     $queryRawUnsafe: async (query: string, ...params: any[]) => {
+      if (query.includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+      if (query.includes('pg_advisory_xact_lock')) return [{ lock: '1' }];
       if (!query.includes('FROM "MatchmakingTicket"') || query.includes('WHERE "id" =')) return [];
-      const [userId, now, minRating, maxRating, requesterRating, allowProvisional, requesterProvisional, algorithmVersion, cooldownCutoff, requesterRelaxed] = params;
+      const [userId, now, minRating, maxRating, requesterRating, allowProvisional, requesterProvisional, algorithmVersion, cooldownCutoff, requesterRelaxed, queueMode] = params;
       return tickets
-        .filter((ticket) => ticket.state === 'queued' && ticket.mode === 'standard_1v1' && ticket.rated)
+        .filter((ticket) => ticket.state === 'queued' && ticket.mode === queueMode && ticket.rated)
         .filter((ticket) => ticket.userId !== userId && ticket.expiresAt.getTime() > now.getTime())
         .filter((ticket) => ticket.ratingAtQueue >= minRating && ticket.ratingAtQueue <= maxRating)
         .filter((ticket) => requesterRating >= ticket.searchMinRating && requesterRating <= ticket.searchMaxRating)
         .filter((ticket) => allowProvisional || !ticket.provisionalAtQueue)
         .filter((ticket) => ticket.allowProvisionalOpponent || !requesterProvisional)
         .filter((ticket) => ratings.some((profile) => profile.userId === ticket.userId
-          && profile.mode === 'standard_1v1'
+          && profile.mode === queueMode
           && profile.status === 'active'
           && profile.algorithmConfigVersion === algorithmVersion))
         .filter((ticket) => {

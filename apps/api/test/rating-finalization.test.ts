@@ -13,7 +13,11 @@ function createRatingPrismaMock(options: {
   algorithmConfigVersion?: string;
   rankedMode?: string | null;
   mode?: string;
+  speedCompletionReason?: 'all_players_terminal' | 'deadline' | 'forfeit' | 'ready_timeout' | 'operator_void';
+  status?: 'completed' | 'voided';
+  reverseRatingEventReads?: boolean;
 } = {}) {
+  const speed = options.algorithmConfigVersion === 'speed_1v1_glicko_v1';
   const created: {
     match: any[];
     matchParticipant: any[];
@@ -25,9 +29,13 @@ function createRatingPrismaMock(options: {
       id: matchId,
       mode: options.mode ?? 'ranked',
       rankedMode: options.rankedMode ?? null,
-      status: 'active',
+      status: speed ? options.status ?? 'completed' : 'active',
       algorithmConfigVersion: options.algorithmConfigVersion ?? 'placement_mmr_v1',
-      completedAt: null,
+      rulesetVersion: speed ? 'speed_1v1_v1_75s' : null,
+      adjudicationVersion: speed ? 'speed_1v1_adjudication_v1' : null,
+      adjudicatedAt: speed ? new Date('2026-07-16T00:01:00.000Z') : null,
+      completionReason: speed ? options.speedCompletionReason ?? 'all_players_terminal' : null,
+      completedAt: speed ? new Date('2026-07-16T00:01:00.000Z') : null,
     }],
     matchParticipant: [
       { id: participantOneId, matchId, userId: userOneId, seatNumber: 1, outcome: 'solved', placement: null, finalScore: 820 },
@@ -39,6 +47,7 @@ function createRatingPrismaMock(options: {
   };
 
   let transactionTail = Promise.resolve();
+  let nonEmptyRatingEventReadCount = 0;
   const client: any = {
     $transaction: async (callback: (tx: any) => Promise<any>) => {
       const prior = transactionTail;
@@ -98,12 +107,19 @@ function createRatingPrismaMock(options: {
       },
     },
     ratingEvent: {
-      findMany: async (args: any) => created.ratingEvent.filter((row) => {
-        if (args.where.matchId && row.matchId !== args.where.matchId) return false;
-        if (args.where.algorithmConfigVersion && row.algorithmConfigVersion !== args.where.algorithmConfigVersion) return false;
-        if (args.where.type && row.type !== args.where.type) return false;
-        return true;
-      }),
+      findMany: async (args: any) => {
+        const rows = created.ratingEvent.filter((row) => {
+          if (args.where.matchId && row.matchId !== args.where.matchId) return false;
+          if (args.where.algorithmConfigVersion && row.algorithmConfigVersion !== args.where.algorithmConfigVersion) return false;
+          if (args.where.type && row.type !== args.where.type) return false;
+          return true;
+        });
+        if (rows.length > 0 && options.reverseRatingEventReads) {
+          nonEmptyRatingEventReadCount += 1;
+          return nonEmptyRatingEventReadCount % 2 === 0 ? [...rows].reverse() : rows;
+        }
+        return rows;
+      },
       create: async (args: any) => {
         const row = { id: `55555555-5555-4555-8555-55555555555${created.ratingEvent.length + 1}`, createdAt: new Date('2026-06-29T00:00:00.000Z'), ...args.data };
         created.ratingEvent.push(row);
@@ -111,6 +127,7 @@ function createRatingPrismaMock(options: {
       },
     },
     matchReport: {
+      findUnique: async (args: any) => created.matchReport.find((row) => row.matchId === args.where.matchId) ?? null,
       upsert: async (args: any) => {
         const existingIndex = created.matchReport.findIndex((row) => row.matchId === args.where.matchId);
         if (existingIndex >= 0) {
@@ -172,7 +189,7 @@ describe('GameplayPersistenceService rating finalization', () => {
     const first = await service.finalizeRankedMatchRatings({ matchId, reason: 'all_players_final', now: new Date('2026-06-29T00:00:00.000Z') });
     const second = await service.finalizeRankedMatchRatings({ matchId, reason: 'all_players_final', now: new Date('2026-06-29T00:05:00.000Z') });
 
-    assert.deepEqual(second.ratingEvent, first.ratingEvent);
+    assert.deepEqual(second, first);
     assert.equal(created.ratingEvent.length, 2);
     assert.deepEqual(created.ratingProfile.map((profile) => ({ userId: profile.userId, rating: profile.rating, matchesPlayed: profile.matchesPlayed })), [
       { userId: userOneId, rating: 1516, matchesPlayed: 1 },
@@ -208,7 +225,7 @@ describe('GameplayPersistenceService rating finalization', () => {
     assert.equal(first.ratingEvent?.algorithmVersion, 'standard_1v1_glicko_v1');
     assert.deepEqual(first.ratingEvent?.participants.map((participant) => participant.ratingDelta), [14, -14]);
     assert.ok((first.ratingEvent?.participants[0]?.ratingDeviationAfter ?? 999) < 350);
-    assert.deepEqual(replay.ratingEvent, first.ratingEvent);
+    assert.deepEqual(replay, first);
     assert.equal(created.ratingEvent.length, 2);
     assert.deepEqual(created.ratingProfile.map((profile) => ({
       mode: profile.mode,
@@ -252,12 +269,135 @@ describe('GameplayPersistenceService rating finalization', () => {
       service.completeRankedMatch({ matchId, now: new Date('2026-07-10T00:00:00.000Z') }),
     ]);
 
-    assert.deepEqual(second.ratingEvent, first.ratingEvent);
+    assert.deepEqual(second, first);
     assert.equal(created.ratingEvent.length, 2);
     assert.deepEqual(created.ratingProfile.map((profile) => profile.matchesPlayed), [1, 1]);
   });
 
-  it('does not rate unranked matches or non-standard Glicko-tagged matches', async () => {
+  it('settles speed_1v1 exactly once from persisted adjudication without using finalScore ordering', async () => {
+    const { client, created } = createRatingPrismaMock({
+      algorithmConfigVersion: 'speed_1v1_glicko_v1',
+      rankedMode: 'speed_1v1',
+    });
+    Object.assign(created.matchParticipant[0], {
+      result: 'loss', terminalReason: 'solved', guessesUsed: 4, solveTimeBucket: 241, finalScore: 9999,
+    });
+    Object.assign(created.matchParticipant[1], {
+      result: 'win', terminalReason: 'solved', guessesUsed: 4, solveTimeBucket: 240, finalScore: 0,
+    });
+    const service = new GameplayPersistenceService({ client } as any);
+
+    const first = await service.finalizeRankedMatchRatings({ matchId, now: new Date('2026-07-16T00:00:00.000Z') });
+    const replay = await service.finalizeRankedMatchRatings({ matchId, now: new Date('2026-07-16T00:01:00.000Z') });
+
+    assert.equal(first.ratingEvent?.kind, 'speed_1v1_glicko_v1');
+    assert.equal(first.finalStandings[0]?.userId, userTwoId);
+    assert.deepEqual(first.ratingEvent?.participants.map((participant) => participant.ratingDelta), [14, -14]);
+    assert.deepEqual(replay, first);
+    assert.equal(created.ratingEvent.length, 2);
+    assert.deepEqual(created.ratingProfile.map((profile) => ({ userId: profile.userId, mode: profile.mode, version: profile.algorithmConfigVersion })), [
+      { userId: userTwoId, mode: 'speed_1v1', version: 'speed_1v1_glicko_v1' },
+      { userId: userOneId, mode: 'speed_1v1', version: 'speed_1v1_glicko_v1' },
+    ]);
+  });
+
+  it('settles Speed draws and forfeits while skipping void/no-contest adjudications', async () => {
+    const drawMock = createRatingPrismaMock({ algorithmConfigVersion: 'speed_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    Object.assign(drawMock.created.matchParticipant[0], { result: 'draw', terminalReason: 'deadline_timeout', guessesUsed: null, solveTimeBucket: null });
+    Object.assign(drawMock.created.matchParticipant[1], { result: 'draw', terminalReason: 'deadline_timeout', guessesUsed: null, solveTimeBucket: null });
+    const draw = await new GameplayPersistenceService({ client: drawMock.client } as any).finalizeRankedMatchRatings({ matchId });
+    assert.deepEqual(draw.ratingEvent?.participants.map((participant) => participant.ratingDelta), [0, 0]);
+    assert.deepEqual(drawMock.created.ratingProfile.map((profile) => profile.draws), [1, 1]);
+
+    const forfeitMock = createRatingPrismaMock({ algorithmConfigVersion: 'speed_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    Object.assign(forfeitMock.created.matchParticipant[0], { result: 'loss', terminalReason: 'forfeit', guessesUsed: null, solveTimeBucket: null });
+    Object.assign(forfeitMock.created.matchParticipant[1], { result: 'win', terminalReason: 'awarded_forfeit_win', guessesUsed: null, solveTimeBucket: null });
+    await new GameplayPersistenceService({ client: forfeitMock.client } as any).finalizeRankedMatchRatings({ matchId, reason: 'forfeit' });
+    assert.deepEqual(forfeitMock.created.ratingProfile.map((profile) => ({ userId: profile.userId, wins: profile.wins, losses: profile.losses, abandons: profile.abandons })), [
+      { userId: userTwoId, wins: 1, losses: 0, abandons: 0 },
+      { userId: userOneId, wins: 0, losses: 1, abandons: 1 },
+    ]);
+
+    const voidMock = createRatingPrismaMock({ algorithmConfigVersion: 'speed_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    for (const participant of voidMock.created.matchParticipant) Object.assign(participant, { result: 'void', terminalReason: 'no_contest' });
+    const noContest = await new GameplayPersistenceService({ client: voidMock.client } as any).finalizeRankedMatchRatings({ matchId });
+    assert.equal(noContest.ratingEvent, null);
+    assert.equal(voidMock.created.ratingEvent.length, 0);
+    assert.equal(voidMock.created.ratingProfile.length, 0);
+  });
+
+  it('keeps persisted Speed forfeit, deadline, and no-contest completion identity immutable across result reads and stale-report repair', async () => {
+    const cases = [
+      { completionReason: 'forfeit' as const, status: 'completed' as const, result: ['loss', 'win'], terminal: ['forfeit', 'awarded_forfeit_win'], expectedEvents: 2 },
+      { completionReason: 'deadline' as const, status: 'completed' as const, result: ['draw', 'draw'], terminal: ['deadline_timeout', 'deadline_timeout'], expectedEvents: 2 },
+      { completionReason: 'ready_timeout' as const, status: 'voided' as const, result: ['void', 'void'], terminal: ['no_contest', 'no_contest'], expectedEvents: 0 },
+    ];
+
+    for (const scenario of cases) {
+      const mock = createRatingPrismaMock({
+        algorithmConfigVersion: 'speed_1v1_glicko_v1',
+        rankedMode: 'speed_1v1',
+        speedCompletionReason: scenario.completionReason,
+        status: scenario.status,
+        reverseRatingEventReads: true,
+      });
+      Object.assign(mock.created.matchParticipant[0], { result: scenario.result[0], terminalReason: scenario.terminal[0], guessesUsed: null, solveTimeBucket: null });
+      Object.assign(mock.created.matchParticipant[1], { result: scenario.result[1], terminalReason: scenario.terminal[1], guessesUsed: null, solveTimeBucket: null });
+      const service = new GameplayPersistenceService({ client: mock.client } as any);
+
+      await service.finalizeRankedMatchRatings({ matchId, reason: scenario.status === 'voided' ? 'voided' : scenario.completionReason === 'deadline' ? 'timeout' : 'forfeit' });
+      mock.created.matchReport[0].publicSummary = { ...mock.created.matchReport[0].publicSummary, completionReason: 'all_players_final' };
+
+      const firstRead = await service.getRankedMatchResult(matchId);
+      const persistedAfterFirstRead = structuredClone(mock.created.matchReport[0].publicSummary);
+      const replay = await service.getRankedMatchResult(matchId);
+
+      assert.equal(firstRead.completionReason, scenario.completionReason);
+      assert.equal(firstRead.speedCompletionReason, scenario.completionReason);
+      assert.equal(mock.created.match[0].completionReason, scenario.completionReason);
+      assert.equal(mock.created.matchReport[0].publicSummary.completionReason, scenario.completionReason);
+      assert.deepEqual(replay, firstRead);
+      assert.deepEqual(mock.created.matchReport[0].publicSummary, persistedAfterFirstRead);
+      assert.equal(mock.created.ratingEvent.length, scenario.expectedEvents);
+    }
+  });
+
+  it('serializes concurrent Speed settlement attempts without duplicate events', async () => {
+    const { client, created } = createRatingPrismaMock({ algorithmConfigVersion: 'speed_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    Object.assign(created.matchParticipant[0], { result: 'win', terminalReason: 'solved', guessesUsed: 3, solveTimeBucket: 200 });
+    Object.assign(created.matchParticipant[1], { result: 'loss', terminalReason: 'solved', guessesUsed: 4, solveTimeBucket: 180 });
+    const service = new GameplayPersistenceService({ client } as any);
+
+    const [first, replay] = await Promise.all([
+      service.finalizeRankedMatchRatings({ matchId }),
+      service.finalizeRankedMatchRatings({ matchId }),
+    ]);
+    assert.deepEqual(replay, first);
+    assert.equal(created.ratingEvent.length, 2);
+    assert.deepEqual(created.ratingProfile.map((profile) => profile.matchesPlayed), [1, 1]);
+  });
+
+  it('fails closed when Speed immutable ruleset or adjudication identity is missing', async () => {
+    const { client, created } = createRatingPrismaMock({ algorithmConfigVersion: 'speed_1v1_glicko_v1', rankedMode: 'speed_1v1' });
+    Object.assign(created.matchParticipant[0], { result: 'win', terminalReason: 'solved', guessesUsed: 3, solveTimeBucket: 200 });
+    Object.assign(created.matchParticipant[1], { result: 'loss', terminalReason: 'deadline_timeout', guessesUsed: null, solveTimeBucket: null });
+    created.match[0].rulesetVersion = 'wrong_ruleset';
+    await assert.rejects(
+      () => new GameplayPersistenceService({ client } as any).finalizeRankedMatchRatings({ matchId }),
+      /completed authoritative Speed adjudication/,
+    );
+    assert.equal(created.ratingEvent.length, 0);
+
+    created.match[0].rulesetVersion = 'speed_1v1_v1_75s';
+    created.match[0].adjudicatedAt = null;
+    await assert.rejects(
+      () => new GameplayPersistenceService({ client } as any).finalizeRankedMatchRatings({ matchId }),
+      /completed authoritative Speed adjudication/,
+    );
+    assert.equal(created.ratingEvent.length, 0);
+  });
+
+  it('does not rate unranked matches or mismatched Glicko-tagged matches', async () => {
     const unranked = createRatingPrismaMock({ mode: 'casual' });
     await assert.rejects(
       () => new GameplayPersistenceService({ client: unranked.client } as any).finalizeRankedMatchRatings({ matchId }),
@@ -268,7 +408,7 @@ describe('GameplayPersistenceService rating finalization', () => {
     const unsupported = createRatingPrismaMock({ algorithmConfigVersion: 'standard_1v1_glicko_v1', rankedMode: 'speed_1v1' });
     await assert.rejects(
       () => new GameplayPersistenceService({ client: unsupported.client } as any).finalizeRankedMatchRatings({ matchId }),
-      /Only standard_1v1 settlement is active/,
+      /does not match ranked mode/,
     );
     assert.equal(unsupported.created.ratingEvent.length, 0);
   });

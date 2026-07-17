@@ -1,11 +1,12 @@
 import { BadRequestException, Body, Controller, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { completeRankedMatchRequestSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from '@wordle-royale/contracts';
-import type { CompleteRankedMatchRequest, StartRankedMatchRequest, SubmitGuessRequest } from '@wordle-royale/contracts';
+import { completeRankedMatchRequestSchema, forfeitSpeedMatchRequestSchema, markSpeedMatchReadyRequestSchema, startRankedMatchRequestSchema, submitGuessRequestSchema } from '@wordle-royale/contracts';
+import type { CompleteRankedMatchRequest, ForfeitSpeedMatchRequest, MarkSpeedMatchReadyRequest, StartRankedMatchRequest, SubmitGuessRequest } from '@wordle-royale/contracts';
 import { ok } from '../shared/envelope.ts';
 import { ZodValidationPipe } from '../shared/zod-validation.pipe.ts';
 import { CurrentUserService, localFixtureUsers } from '../auth/current-user.service.ts';
 import { ProfileReadService } from '../profile/profile-read.service.ts';
 import { GameplayPersistenceService } from './gameplay-persistence.service.ts';
+import { SpeedGameplayService } from './speed-gameplay.service.ts';
 
 const localFixtureUserIds = new Set<string>(Object.values(localFixtureUsers));
 
@@ -18,6 +19,7 @@ type DevTerminalizeBody = {
 export class GameplayController {
   constructor(
     @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
+    @Inject(SpeedGameplayService) private readonly speedGameplay: SpeedGameplayService,
     @Inject(ProfileReadService) private readonly profileRead: ProfileReadService,
     @Inject(CurrentUserService) private readonly currentUsers: CurrentUserService,
   ) {}
@@ -70,7 +72,32 @@ export class GameplayController {
     @Req() request: unknown,
   ) {
     const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    if (await this.speedGameplay.isSpeedMatch(matchId)) {
+      return ok(await this.speedGameplay.getSnapshot(matchId, currentUser.userId), request as never);
+    }
     return ok(await this.gameplay.getMatchSnapshot(matchId, currentUser.userId), request as never);
+  }
+
+  @Post(':matchId/ready')
+  async markSpeedReady(
+    @Param('matchId') matchId: string,
+    @Body(new ZodValidationPipe(markSpeedMatchReadyRequestSchema)) body: MarkSpeedMatchReadyRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Req() request: unknown,
+  ) {
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    return ok(await this.speedGameplay.markReady(matchId, currentUser.userId, body.clientRequestId), request as never);
+  }
+
+  @Post(':matchId/forfeit')
+  async forfeitSpeedMatch(
+    @Param('matchId') matchId: string,
+    @Body(new ZodValidationPipe(forfeitSpeedMatchRequestSchema)) body: ForfeitSpeedMatchRequest,
+    @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
+    @Req() request: unknown,
+  ) {
+    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    return ok(await this.speedGameplay.forfeit(matchId, currentUser.userId, body.clientRequestId), request as never);
   }
 
   @Post(':matchId/complete')
@@ -88,6 +115,9 @@ export class GameplayController {
       });
     }
 
+    if (await this.speedGameplay.isSpeedMatch(matchId)) {
+      throw new BadRequestException({ code: 'speed_server_authoritative_completion', message: 'Speed matches complete only through server-authoritative gameplay transitions.' });
+    }
     this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.gameplay.completeRankedMatch({ matchId, ...(body.reason ? { reason: body.reason } : {}) }), request as never);
   }
@@ -114,6 +144,16 @@ export class GameplayController {
     }
 
     const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    if (await this.speedGameplay.isSpeedMatch(matchId)) {
+      return ok(await this.speedGameplay.submitGuess({
+        matchId,
+        roundId,
+        userId: currentUser.userId,
+        guess: body.guess,
+        clientRequestId: body.clientRequestId,
+        ...(body.clientSubmittedAt ? { clientSubmittedAt: body.clientSubmittedAt } : {}),
+      }), request as never);
+    }
     const participant = await this.gameplay.getParticipantForUser(matchId, currentUser.userId);
     return ok(await this.gameplay.submitGuess({
       matchId,

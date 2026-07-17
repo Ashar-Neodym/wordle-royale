@@ -107,9 +107,21 @@ function createLeaderboardPrismaMock() {
       ratingVolatility: null,
       lastRatedAt: new Date('2026-07-03T00:00:00.000Z'),
       algorithm: 'glicko_style_internal',
-      algorithmConfigVersion,
+      algorithmConfigVersion: 'speed_1v1_glicko_v1',
       status: 'active',
       user: users[1]!,
+    },
+    {
+      id: 'rating_4_speed_suspended',
+      userId: users[3]!.id,
+      mode: 'speed_1v1',
+      rating: 1999,
+      matchesPlayed: 99,
+      provisionalRemaining: 0,
+      algorithm: 'glicko_style_internal',
+      algorithmConfigVersion: 'speed_1v1_glicko_v1',
+      status: 'suspended',
+      user: users[3]!,
     },
   ];
 
@@ -154,22 +166,23 @@ describe('LeaderboardReadService', () => {
     assert.equal(result.entries.some((entry) => entry.displayName === 'Unrated Local'), false);
   });
 
-  it('does not expose prepared mode ladders as live rating algorithms', async () => {
+  it('exposes the separate authoritative Speed ladder without relabeling Standard profiles', async () => {
     const service = new LeaderboardReadService({ client: createLeaderboardPrismaMock().client } as any);
 
     const speedLeaderboard = await service.listLeaderboard({ mode: 'speed_1v1', limit: 10 });
     assert.equal(speedLeaderboard.mode, 'speed_1v1');
-    assert.equal(speedLeaderboard.algorithm, null);
-    assert.deepEqual(speedLeaderboard.entries, []);
+    assert.equal(speedLeaderboard.algorithm, 'speed_1v1_glicko_v1');
+    assert.equal(speedLeaderboard.algorithmConfigVersion, 'speed_1v1_glicko_v1');
+    assert.deepEqual(speedLeaderboard.entries.map((entry) => [entry.handle, entry.rating]), [['ada', 1625]]);
 
     const standard = await service.getRatedProfileByHandle('ada', { mode: 'standard_1v1' });
     const speed = await service.getRatedProfileByHandle('ada', { mode: 'speed_1v1' });
     assert.equal(standard.rating, 1500);
     assert.equal(standard.algorithm, 'standard_1v1_glicko_v1');
-    assert.equal(speed.rating, 1500);
-    assert.equal(speed.matchesPlayed, 0);
-    assert.equal(speed.algorithm, null);
-    assert.equal(speed.unrated, true);
+    assert.equal(speed.rating, 1625);
+    assert.equal(speed.matchesPlayed, 11);
+    assert.equal(speed.algorithm, 'speed_1v1_glicko_v1');
+    assert.equal(speed.unrated, false);
   });
 
   it('rejects unknown mode values instead of silently returning Standard', async () => {
@@ -186,8 +199,8 @@ describe('LeaderboardReadService', () => {
     assert.deepEqual(ratings.ratings.map((rating) => rating.mode), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(ratings.ratings.find((rating) => rating.mode === 'classic_1v1')?.rating, 1500);
     assert.equal(ratings.ratings.find((rating) => rating.mode === 'classic_1v1')?.unrated, true);
-    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.unrated, true);
-    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.algorithm, null);
+    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.unrated, false);
+    assert.equal(ratings.ratings.find((rating) => rating.mode === 'speed_1v1')?.algorithm, 'speed_1v1_glicko_v1');
   });
 
   it('returns default unrated profile data for a known handle without a standard profile', async () => {
@@ -205,15 +218,29 @@ describe('LeaderboardReadService', () => {
     assert.equal(profile.unrated, true);
   });
 
-  it('describes ranked modes without implying live multiplayer matchmaking is enabled', () => {
+  it('does not expose a suspended exact-config Speed profile as live truth', async () => {
     const service = new LeaderboardReadService({ client: createLeaderboardPrismaMock().client } as any);
+    const profile = await service.getRatedProfileByHandle('unrated', { mode: 'speed_1v1' });
+    assert.equal(profile.rating, 1500);
+    assert.equal(profile.unrated, true);
+  });
 
-    const modes = service.listRankedModes().modes;
+  it('describes ranked modes without implying live multiplayer matchmaking is enabled', async () => {
+    const previous = process.env.SPEED_1V1_QUEUE_ENABLED;
+    process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
+    const service = new LeaderboardReadService({ client: createLeaderboardPrismaMock().client } as any, { check: async () => ({ available: true }) } as any);
+
+    const modes = (await service.listRankedModes()).modes;
 
     assert.deepEqual(modes.map((mode) => mode.id), ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby']);
     assert.equal(modes.find((mode) => mode.id === 'multiplayer_lobby')?.enabled, false);
-    assert.deepEqual(modes.filter((mode) => mode.enabled).map((mode) => mode.id), ['standard_1v1']);
+    assert.deepEqual(modes.filter((mode) => mode.enabled).map((mode) => mode.id), ['standard_1v1', 'speed_1v1']);
     assert.equal(modes.every((mode) => mode.defaultRating === 1500), true);
     assert.equal(modes.every((mode) => mode.provisionalGames === 10), true);
+    const speed = modes.find((mode) => mode.id === 'speed_1v1');
+    assert.equal(speed?.timeControl?.roundTimeSeconds, 75);
+    assert.equal(speed?.timeControl?.tieBreaker, 'server_solve_time_bucket');
+    if (previous === undefined) delete process.env.SPEED_1V1_QUEUE_ENABLED;
+    else process.env.SPEED_1V1_QUEUE_ENABLED = previous;
   });
 });

@@ -15,6 +15,11 @@ import type {
   CurrentProfileSummary,
   PublicProfileSummary,
   MatchHistoryList,
+  CreateSpeed1v1TicketRequest,
+  Speed1v1Ticket,
+  SpeedMatchSnapshot,
+  MarkSpeedMatchReadyRequest,
+  ForfeitSpeedMatchRequest,
 } from '@wordle-royale/contracts';
 import { cookies } from 'next/headers';
 import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy';
@@ -38,6 +43,7 @@ export type ApiClientResult<T> = {
   data: T | null;
   requestId: string | null;
   error: string | null;
+  errorCode?: string | null;
 };
 
 export type LobbyListPayload = {
@@ -54,13 +60,13 @@ export type LeaderboardEntry = {
   matchesPlayed: number;
   provisional: boolean;
   provisionalRemaining: number;
-  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | 'speed_1v1_glicko_v1' | null;
   algorithmConfigVersion: string | null;
 };
 
 export type LeaderboardPayload = {
   mode: 'standard_1v1' | 'speed_1v1' | 'classic_1v1' | 'multiplayer_lobby';
-  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | 'speed_1v1_glicko_v1' | null;
   algorithmConfigVersion: string | null;
   generatedAt: string;
   entries: LeaderboardEntry[];
@@ -74,7 +80,7 @@ export type RatedProfilePayload = {
   matchesPlayed: number;
   provisional: boolean;
   provisionalRemaining: number;
-  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | 'speed_1v1_glicko_v1' | null;
   algorithmConfigVersion: string | null;
   unrated: boolean;
 };
@@ -124,7 +130,33 @@ export type WebApiSnapshot = {
   profile: ApiClientResult<PublicProfileDto>;
   lobbies: ApiClientResult<LobbyListPayload>;
   leaderboard: ApiClientResult<LeaderboardPayload>;
+  rankedModes: ApiClientResult<RankedModesPayload>;
 };
+
+export type RankedModeReadModel = {
+  id: LeaderboardPayload['mode'];
+  label: string;
+  players: '1v1' | '2-4';
+  rated: true;
+  enabled: boolean;
+  queueEnabled?: boolean;
+  rulesetVersion?: string;
+  ratingAlgorithmConfigVersion?: string | null;
+  timeControl?: {
+    roundTimeSeconds: 75;
+    readyWindowSeconds: 20;
+    countdownSeconds: 3;
+    maxGuesses: 6;
+    solveTimeBucketMs: 100;
+    tieBreaker: 'server_solve_time_bucket';
+  };
+  provisionalGames: number;
+  defaultRating: number;
+  defaultRatingDeviation: number;
+  notes: string;
+};
+
+export type RankedModesPayload = { modes: RankedModeReadModel[] };
 
 type ApiEnvelope<T> = SuccessEnvelope<T> | { data: null; error: { code: string; message: string; details?: Record<string, unknown> }; requestId: string };
 
@@ -143,7 +175,7 @@ export const HOSTED_READ_POLICY: ReadPolicy = Object.freeze({
 });
 
 class ApiRequestFailure extends Error {
-  constructor(message: string, readonly retryableRead: boolean) {
+  constructor(message: string, readonly retryableRead: boolean, readonly code: string | null = null) {
     super(message);
     this.name = 'ApiRequestFailure';
   }
@@ -170,6 +202,7 @@ function unavailable<T>(apiUrl: string, error: unknown): ApiClientResult<T> {
     data: null,
     requestId: null,
     error: error instanceof Error ? error.message : String(error),
+    errorCode: error instanceof ApiRequestFailure ? error.code : null,
   };
 }
 
@@ -224,6 +257,7 @@ async function requestEnvelopeAttempt<T>(path: string, options: RequestOptions):
       throw new ApiRequestFailure(
         `${code}${envelope.error?.message ?? `API request failed with HTTP ${response.status}`}`,
         response.status === 408 || response.status === 429 || response.status >= 500,
+        envelope.error?.code ?? null,
       );
     }
 
@@ -321,12 +355,38 @@ export async function cancelStandard1v1Ticket(ticketId: string): Promise<ApiClie
   });
 }
 
+export async function createSpeed1v1Ticket(body: CreateSpeed1v1TicketRequest): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return requestEnvelope<Speed1v1Ticket>('/matchmaking/speed-1v1/tickets', { method: 'POST', body: JSON.stringify(body), timeoutMs: matchmakingDeadlinePolicyFor('join').apiProxyMs });
+}
+
+export async function getCurrentSpeed1v1Ticket(): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return requestEnvelope<Speed1v1Ticket>('/matchmaking/speed-1v1/tickets/current', { timeoutMs: matchmakingDeadlinePolicyFor('reconnect').apiProxyMs });
+}
+
+export async function getSpeed1v1Ticket(ticketId: string): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return requestEnvelope<Speed1v1Ticket>(`/matchmaking/speed-1v1/tickets/${encodeURIComponent(ticketId)}`, { timeoutMs: matchmakingDeadlinePolicyFor('current_ticket').apiProxyMs });
+}
+
+export async function cancelSpeed1v1Ticket(ticketId: string): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return requestEnvelope<Speed1v1Ticket>(`/matchmaking/speed-1v1/tickets/${encodeURIComponent(ticketId)}`, { method: 'DELETE', timeoutMs: matchmakingDeadlinePolicyFor('cancel').apiProxyMs });
+}
+
 export async function startRankedMatch(body: StartRankedMatchRequest): Promise<ApiClientResult<RankedMatchStartResponseData>> {
   return requestEnvelope<RankedMatchStartResponseData>('/matches/ranked/start', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function getRankedMatchState(matchId: string): Promise<ApiClientResult<CurrentRankedMatchStateResponseData>> {
-  return requestReadEnvelope<CurrentRankedMatchStateResponseData>(`/matches/${encodeURIComponent(matchId)}/state`);
+export type LiveMatchState = CurrentRankedMatchStateResponseData | SpeedMatchSnapshot;
+
+export async function getRankedMatchState(matchId: string): Promise<ApiClientResult<LiveMatchState>> {
+  return requestReadEnvelope<LiveMatchState>(`/matches/${encodeURIComponent(matchId)}/state`);
+}
+
+export async function markSpeedMatchReady(matchId: string, body: MarkSpeedMatchReadyRequest): Promise<ApiClientResult<SpeedMatchSnapshot>> {
+  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/ready`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function forfeitSpeedMatch(matchId: string, body: ForfeitSpeedMatchRequest): Promise<ApiClientResult<SpeedMatchSnapshot>> {
+  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/forfeit`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function submitGuess(body: SubmitGuessRequest): Promise<ApiClientResult<GuessResult>> {
@@ -347,8 +407,12 @@ export async function getRankedMatchResult(matchId: string): Promise<ApiClientRe
   return requestReadEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(matchId)}/result`);
 }
 
-export async function getLeaderboard(limit = 20): Promise<ApiClientResult<LeaderboardPayload>> {
-  return requestReadEnvelope<LeaderboardPayload>(`/leaderboard?limit=${encodeURIComponent(String(limit))}`);
+export async function getLeaderboard(limit = 20, mode: LeaderboardPayload['mode'] = 'standard_1v1'): Promise<ApiClientResult<LeaderboardPayload>> {
+  return requestReadEnvelope<LeaderboardPayload>(`/leaderboard?limit=${encodeURIComponent(String(limit))}&mode=${encodeURIComponent(mode)}`);
+}
+
+export async function getRankedModes(): Promise<ApiClientResult<RankedModesPayload>> {
+  return requestReadEnvelope<RankedModesPayload>('/ranked/modes');
 }
 
 export async function getRatedProfile(handle: string): Promise<ApiClientResult<RatedProfilePayload>> {
@@ -370,14 +434,15 @@ export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiC
 }
 
 export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
-  const [health, readiness, currentUser, profile, lobbies, leaderboard] = await Promise.all([
+  const [health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes] = await Promise.all([
     getHealth(),
     getReadiness(),
     getCurrentUser(),
     getProfile(),
     listLobbies(),
     getLeaderboard(20),
+    getRankedModes(),
   ]);
 
-  return { health, readiness, currentUser, profile, lobbies, leaderboard };
+  return { health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes };
 }

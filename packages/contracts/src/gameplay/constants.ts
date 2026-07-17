@@ -6,7 +6,7 @@ export const guessRejectReasons = ['wrong_length', 'invalid_characters', 'not_in
 export const scoringPresets = ['standard_v1'] as const;
 export const rankedMatchStartSources = ['lobby', 'quick_match', 'debug_seed'] as const;
 export const rankedMatchCompletionReasons = ['all_players_final', 'timeout', 'forfeit', 'abandoned', 'voided'] as const;
-export const ratingEventKinds = ['placement_mmr_v1', 'standard_1v1_glicko_v1'] as const;
+export const ratingEventKinds = ['placement_mmr_v1', 'standard_1v1_glicko_v1', 'speed_1v1_glicko_v1'] as const;
 export const ratingEventStatuses = ['pending', 'applied', 'voided', 'reversed'] as const;
 export const rankedModes = ['standard_1v1', 'speed_1v1', 'classic_1v1', 'multiplayer_lobby'] as const;
 export const defaultRankedMode = 'standard_1v1' as const;
@@ -15,7 +15,10 @@ export const authoritativeRatingAlgorithmByMode = {
     algorithm: 'standard_1v1_glicko_v1',
     algorithmConfigVersion: 'standard_1v1_glicko_v1',
   },
-  speed_1v1: null,
+  speed_1v1: {
+    algorithm: 'speed_1v1_glicko_v1',
+    algorithmConfigVersion: 'speed_1v1_glicko_v1',
+  },
   classic_1v1: null,
   multiplayer_lobby: null,
 } as const;

@@ -106,6 +106,15 @@
 .queueElapsed { margin: 10px 0 0; color: #b8d098; font-family: var(--wr-typography-family-mono); font-size: 13px; }
 .queueError { margin: 10px 0 0; color: #e7a493; overflow-wrap: anywhere; }
 .queueFootnote { grid-column: 1 / -1; margin: 0; padding-top: 10px; border-top: 1px solid var(--wr-human-border); color: var(--wr-human-muted); font-size: 12px; }
+.speedQueuePanel { border-color: #b69a54; background: linear-gradient(135deg, #2d291d, var(--wr-human-surface)); }
+.speedGameplay { border-color: #b69a54; }
+.speedPhase { margin-bottom: 14px; padding: 14px; border: 2px solid #8f7b48; border-radius: 5px; background: #282419; text-align: center; }
+.speedPhase h2 { margin: 2px 0; font: 700 clamp(2.5rem, 9vw, 5rem)/1 var(--wr-typography-family-mono); letter-spacing: -.04em; }
+.speedPhase[data-urgent='true'] { border-style: dashed; border-color: #f2ad7e; background: #351f17; }
+.speedPhase[data-urgent='true']::before { content: 'TIME CRITICAL'; display: block; color: #ffd0b5; font-weight: 800; letter-spacing: .12em; }
+.dangerButton { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #e58c72; border-radius: 4px; padding: 9px 12px; background: #51261f; color: #ffe5dc; font-weight: 700; cursor: pointer; }
+.modeTabs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.disabledMode { display: inline-flex; padding: 9px 12px; border: 1px dashed var(--wr-human-border); border-radius: 4px; color: var(--wr-human-muted); }
 .modeCard, .modeChoiceCard { min-width: 0; padding: 14px; border: 1px solid var(--wr-human-border); border-radius: 5px; background: var(--wr-human-surface); }
 .modeCard h3, .modeChoiceCard h3 { margin: 0; }
 .modeRatingRow, .modePlaceholderRow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 10px; }

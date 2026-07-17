@@ -230,7 +230,7 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
         {busy ? <button className={styles.secondaryButton} type="button" disabled>{state === 'joining' ? 'Joining…' : state === 'cancelling' ? 'Cancelling…' : 'Checking…'}</button> : null}
         <a className={styles.secondaryButton} href="/lobbies">Use lobbies</a>
       </div>
-      <p className={styles.queueFootnote}>Standard 1v1 is the only automatic rated queue in this preview. Speed, Classic, and Multiplayer are not live matchmaking modes yet.</p>
+      <p className={styles.queueFootnote}>Standard and catalog-enabled Speed are separate automatic rated queues in this preview. Classic and Multiplayer are not live matchmaking modes yet.</p>
     </article>
   );
 }

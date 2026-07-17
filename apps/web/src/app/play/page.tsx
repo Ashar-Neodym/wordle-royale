@@ -4,6 +4,7 @@ import { GameplayScreen } from '../../components/GameplayScreen';
 import { LobbyBrowser } from '../../components/LobbyScreens';
 import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { StandardQueuePanel } from '../../components/StandardQueuePanel';
+import { SpeedQueuePanel } from '../../components/SpeedQueuePanel';
 import { isAuthLimited } from '../../components/ProfileHistory';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame } from '../../components/PageFrame';
@@ -18,7 +19,7 @@ export const maxDuration = 100;
 
 const rankedModeChoices = [
   { label: 'Standard', mode: 'standard_1v1', detail: 'Live automatic rated 1v1 queue with server-owned pairing and match creation.', availability: 'Live queue' },
-  { label: 'Speed / Blitz', mode: 'speed_1v1', detail: 'Fewer guesses first; same guesses break by server solve time.', availability: 'Not live yet' },
+  { label: 'Speed / Blitz', mode: 'speed_1v1', detail: '75-second shared puzzle; same guesses break by server solve time.', availability: 'Live when enabled' },
   { label: 'Classic', mode: 'classic_1v1', detail: 'Lower-pressure 1v1. Same-guess solves draw.', availability: 'Not live yet' },
   { label: 'Multiplayer', mode: 'multiplayer_lobby', detail: '2–4 player lobby ladder; rating separate from 1v1 modes.', availability: 'Not live yet' },
 ] as const;
@@ -35,6 +36,8 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
   const matchResult = matchId ? await getRankedMatchResult(matchId) : null;
   const actionState = rankedActionState(params);
   const hasLiveMatch = Boolean(matchId);
+  const speedCatalog = api.rankedModes.data?.modes.find((mode) => mode.id === 'speed_1v1');
+  const speedQueueEnabled = api.rankedModes.status === 'connected' && speedCatalog?.enabled === true && speedCatalog.queueEnabled === true;
   const liveMatchStateLabel = matchState?.data ? matchState.data.state : matchState?.status === 'unavailable' ? 'state unavailable' : 'loading';
   const queueSessionState = api.currentUser.status === 'connected'
     ? 'active'
@@ -68,27 +71,28 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Ranked modes</p>
           <h2 id="ranked-mode-heading">Choose a rated format</h2>
-          <p>Standard now uses the live automatic 1v1 queue. Speed, Classic, and Multiplayer remain explicit prepared modes and cannot start matchmaking.</p>
+          <p>Standard and catalog-enabled Speed use separate live automatic queues. Classic and Multiplayer remain unavailable.</p>
         </div>
         <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} />
+        <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={api.rankedModes.status === 'connected'} />
         <div className={styles.modeChoiceGrid}>
           {rankedModeChoices.map((choice) => (
             <article className={styles.modeChoiceCard} key={choice.mode}>
               <div className={styles.cardTopline}>
                 <h3>{choice.label}</h3>
-                <span>{choice.availability}</span>
+                <span>{choice.mode === 'speed_1v1' ? (speedQueueEnabled ? 'Live queue' : 'Not live yet') : choice.availability}</span>
               </div>
               <p className={styles.eyebrow}>{choice.mode}</p>
               <p className={styles.muted}>{choice.detail}</p>
               <div className={styles.actionRow}>
-                <a className={choice.mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} href={choice.mode === 'standard_1v1' ? '#standard-queue' : '/profile#mode-ratings-heading'}>{choice.mode === 'standard_1v1' ? 'Find match' : 'View prepared mode'}</a>
+                <a className={choice.mode === 'standard_1v1' || (choice.mode === 'speed_1v1' && speedQueueEnabled) ? styles.primaryButton : styles.secondaryButton} href={choice.mode === 'standard_1v1' ? '#standard-queue' : choice.mode === 'speed_1v1' && speedQueueEnabled ? '#speed-queue' : '/profile#mode-ratings-heading'}>{choice.mode === 'standard_1v1' || (choice.mode === 'speed_1v1' && speedQueueEnabled) ? 'Find match' : 'View prepared mode'}</a>
               </div>
             </article>
           ))}
         </div>
         <article className={styles.practiceNote}>
           <strong>Ranked vs unranked</strong>
-          <p>The automatic Standard queue is rated. Existing public lobbies remain available as a separate fallback; Speed, Classic, Multiplayer, and automatic unranked matchmaking are not live yet.</p>
+          <p>Standard and enabled Speed queues are rated and mode-isolated. Existing public lobbies remain a separate fallback; Classic, Multiplayer, and automatic unranked matchmaking are not live yet.</p>
         </article>
       </section>
 

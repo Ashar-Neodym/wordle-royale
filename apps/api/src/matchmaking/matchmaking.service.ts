@@ -1,12 +1,14 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { defaultProvisionalGames, defaultRating, standard1v1TicketSchema } from '@wordle-royale/contracts';
-import type { CreateStandard1v1TicketRequest, Standard1v1Ticket } from '@wordle-royale/contracts';
+import { defaultProvisionalGames, defaultRating, speed1v1TicketSchema, standard1v1TicketSchema } from '@wordle-royale/contracts';
+import type { CreateSpeed1v1TicketRequest, Speed1v1Ticket, Standard1v1Ticket } from '@wordle-royale/contracts';
 import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
 import type { StandardDictionarySelection } from '../dictionary/standard-dictionary.service.ts';
 import { GameplayPersistenceService } from '../gameplay/gameplay-persistence.service.ts';
+import { SpeedGameplayService } from '../gameplay/speed-gameplay.service.ts';
+import { SpeedOperationalReadinessService } from '../health/speed-operational-readiness.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { STANDARD_1V1_RATING_ALGORITHM, STANDARD_1V1_RATING_ALGORITHM_VERSION } from '../rating/standard-1v1-rating.ts';
-import { standardQueueEnabled } from './matchmaking-config.ts';
+import { speedQueueEnabled, standardQueueEnabled } from './matchmaking-config.ts';
 import {
   defaultMatchmakingLifecycleDependencies,
   isPrismaUniqueConstraintError,
@@ -27,10 +29,41 @@ const INITIAL_RATING_WINDOW = 100;
 const ACTIVE_STATES = ['queued', 'matched'] as const;
 const TICKET_INCLUDE = { matchedOpponent: { include: { profile: true } } } as const;
 
+type AutomaticQueueMode = 'standard_1v1' | 'speed_1v1';
+type QueueRequestInput = { clientRequestId: string; mode: string; rated: boolean; allowProvisionalOpponent: boolean };
+type AutomaticTicketDto = Standard1v1Ticket | Speed1v1Ticket;
+type QueuePolicy = {
+  mode: AutomaticQueueMode;
+  algorithm: string;
+  algorithmConfigVersion: string;
+  enabled: () => boolean;
+  disabledCode: 'standard_1v1_queue_disabled' | 'speed_1v1_queue_disabled';
+  label: 'Standard' | 'Speed';
+};
+
+const QUEUE_POLICIES: Record<AutomaticQueueMode, QueuePolicy> = {
+  standard_1v1: {
+    mode: 'standard_1v1',
+    algorithm: STANDARD_1V1_RATING_ALGORITHM,
+    algorithmConfigVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION,
+    enabled: standardQueueEnabled,
+    disabledCode: 'standard_1v1_queue_disabled',
+    label: 'Standard',
+  },
+  speed_1v1: {
+    mode: 'speed_1v1',
+    algorithm: 'glicko_style_internal',
+    algorithmConfigVersion: 'speed_1v1_glicko_v1',
+    enabled: speedQueueEnabled,
+    disabledCode: 'speed_1v1_queue_disabled',
+    label: 'Speed',
+  },
+};
+
 type TicketRecord = {
   id: string;
   userId: string;
-  mode: 'standard_1v1';
+  mode: AutomaticQueueMode;
   rated: true;
   state: 'queued' | 'matched' | 'consumed' | 'cancelled' | 'timed_out' | 'failed';
   ratingAtQueue: number;
@@ -87,42 +120,86 @@ export class MatchmakingService {
     @Inject(GameplayPersistenceService) private readonly gameplay: GameplayPersistenceService,
     @Inject(StandardDictionaryService) private readonly dictionary: StandardDictionaryService,
     @Optional() @Inject(MATCHMAKING_LIFECYCLE_DEPENDENCIES) lifecycleDependencies?: MatchmakingLifecycleDependencies,
+    @Optional() @Inject(SpeedGameplayService) private readonly speedGameplay?: SpeedGameplayService,
+    @Optional() @Inject(SpeedOperationalReadinessService) private readonly speedOperational?: SpeedOperationalReadinessService,
   ) {
     this.transactionBudget = matchmakingTransactionBudget();
     this.lifecycleDependencies = lifecycleDependencies ?? defaultMatchmakingLifecycleDependencies();
   }
 
-  async joinStandardQueue(userId: string, input: CreateStandard1v1TicketRequest, now?: Date): Promise<Standard1v1Ticket> {
+  async joinStandardQueue(userId: string, input: QueueRequestInput, now?: Date): Promise<Standard1v1Ticket> {
     return (await this.joinStandardQueueWithResult(userId, input, now)).ticket;
   }
 
-  async joinStandardQueueWithResult(
+  async joinStandardQueueWithResult(userId: string, input: QueueRequestInput, now?: Date): Promise<{ ticket: Standard1v1Ticket; created: boolean }> {
+    const result = await this.joinAutomaticQueue(userId, input, QUEUE_POLICIES.standard_1v1, now);
+    return result as { ticket: Standard1v1Ticket; created: boolean };
+  }
+
+  async joinSpeedQueueWithResult(userId: string, input: CreateSpeed1v1TicketRequest, now?: Date): Promise<{ ticket: Speed1v1Ticket; created: boolean }> {
+    await this.assertSpeedOperational();
+    const result = await this.joinAutomaticQueue(userId, input, QUEUE_POLICIES.speed_1v1, now);
+    return result as { ticket: Speed1v1Ticket; created: boolean };
+  }
+
+  async getCurrentTicket(userId: string, now?: Date): Promise<Standard1v1Ticket | null> {
+    return await this.getCurrentAutomaticTicket(userId, QUEUE_POLICIES.standard_1v1, now) as Standard1v1Ticket | null;
+  }
+
+  async getCurrentSpeedTicket(userId: string, now?: Date): Promise<Speed1v1Ticket | null> {
+    await this.assertSpeedOperational();
+    return await this.getCurrentAutomaticTicket(userId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket | null;
+  }
+
+  async getTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+    return await this.getAutomaticTicket(userId, ticketId, QUEUE_POLICIES.standard_1v1, now) as Standard1v1Ticket;
+  }
+
+  async getSpeedTicket(userId: string, ticketId: string, now?: Date): Promise<Speed1v1Ticket> {
+    await this.assertSpeedOperational();
+    return await this.getAutomaticTicket(userId, ticketId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket;
+  }
+
+  async cancelTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+    return await this.cancelAutomaticTicket(userId, ticketId, QUEUE_POLICIES.standard_1v1, now) as Standard1v1Ticket;
+  }
+
+  async cancelSpeedTicket(userId: string, ticketId: string, now?: Date): Promise<Speed1v1Ticket> {
+    await this.assertSpeedOperational();
+    return await this.cancelAutomaticTicket(userId, ticketId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket;
+  }
+
+  private async joinAutomaticQueue(
     userId: string,
-    input: CreateStandard1v1TicketRequest,
+    input: QueueRequestInput,
+    policy: QueuePolicy,
     now?: Date,
-  ): Promise<{ ticket: Standard1v1Ticket; created: boolean }> {
-    this.assertLiveRequest(input);
+  ): Promise<{ ticket: AutomaticTicketDto; created: boolean }> {
+    this.assertLiveRequest(input, policy);
 
     return await this.runLifecycle({
       initial: async (tx, context) => {
         const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
         const dictionary = await this.requireDictionary(tx);
+        await this.lockUserActivity(tx, userId);
         await this.expireQueuedTickets(tx, attemptNow);
         await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
 
         const replay = await tx.matchmakingTicket.findUnique({
-          where: { userId_mode_idempotencyKey: { userId, mode: 'standard_1v1', idempotencyKey: input.clientRequestId } },
+          where: { userId_mode_idempotencyKey: { userId, mode: policy.mode, idempotencyKey: input.clientRequestId } },
           include: TICKET_INCLUDE,
         }) as TicketRecord | null;
-        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, attemptNow, dictionary)), created: false };
+        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, attemptNow, dictionary, policy)), created: false };
 
         const active = await this.findActiveTicket(tx, userId);
         if (active) {
-          await this.writeAudit(tx, userId, 'matchmaking_duplicate_active_ticket', active.id, null, { state: active.state });
-          return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary)), created: false };
+          if (active.mode !== policy.mode) throw this.rankedActivityConflict(active.mode);
+          await this.writeAudit(tx, userId, 'matchmaking_duplicate_active_ticket', active.id, null, { state: active.state, mode: policy.mode });
+          return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy)), created: false };
         }
+        if (await this.hasActiveRankedMatch(tx, userId)) throw this.rankedActivityConflict('active_match');
 
-        const profile = await this.findOrCreateRatingProfile(tx, userId) as RatingProfileRecord;
+        const profile = await this.findOrCreateRatingProfile(tx, userId, policy) as RatingProfileRecord;
         const provisional = profile.provisionalRemaining > 0;
         const expiresAt = new Date(attemptNow.getTime() + QUEUE_TTL_MS);
         let ticket: TicketRecord;
@@ -130,7 +207,7 @@ export class MatchmakingService {
           ticket = await tx.matchmakingTicket.create({
             data: {
               userId,
-              mode: 'standard_1v1',
+              mode: policy.mode,
               rated: true,
               state: 'queued',
               ratingAtQueue: profile.rating,
@@ -145,111 +222,89 @@ export class MatchmakingService {
             include: TICKET_INCLUDE,
           }) as TicketRecord;
         } catch (error) {
-          if (isRecognizedMatchmakingTicketUniqueError(error)) {
-            throw recognizedMatchmakingTicketUniqueError(error);
-          }
+          if (isRecognizedMatchmakingTicketUniqueError(error)) throw recognizedMatchmakingTicketUniqueError(error);
           if (isPrismaUniqueConstraintError(error)) {
-            throw new ConflictException({
-              code: 'matchmaking_ticket_conflict',
-              message: 'The matchmaking ticket could not be created because of a conflicting queue record.',
-            });
+            throw new ConflictException({ code: 'matchmaking_ticket_conflict', message: 'The matchmaking ticket could not be created because of a conflicting queue record.' });
           }
           throw error;
         }
-        await this.writeAudit(tx, userId, 'matchmaking_queued', ticket.id, null, {
-          mode: 'standard_1v1',
-          ratingAtQueue: profile.rating,
-          provisional,
-        });
-        return { ticket: this.toDto(await this.attemptPair(tx, ticket, attemptNow, dictionary)), created: true };
+        await this.writeAudit(tx, userId, 'matchmaking_queued', ticket.id, null, { mode: policy.mode, ratingAtQueue: profile.rating, provisional });
+        return { ticket: this.toDto(await this.attemptPair(tx, ticket, attemptNow, dictionary, policy)), created: true };
       },
       recoverUnique: async (tx, context) => {
         const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
         const dictionary = await this.requireDictionary(tx);
+        await this.lockUserActivity(tx, userId);
         const replay = await tx.matchmakingTicket.findUnique({
-          where: { userId_mode_idempotencyKey: { userId, mode: 'standard_1v1', idempotencyKey: input.clientRequestId } },
+          where: { userId_mode_idempotencyKey: { userId, mode: policy.mode, idempotencyKey: input.clientRequestId } },
           include: TICKET_INCLUDE,
         }) as TicketRecord | null;
         const active = replay ?? await this.findActiveTicket(tx, userId);
         if (!active) throw new MatchmakingRecoveryPendingError();
-        return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary)), created: false };
+        if (active.mode !== policy.mode) throw this.rankedActivityConflict(active.mode);
+        return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy)), created: false };
       },
     });
   }
 
-  async getCurrentTicket(userId: string, now?: Date): Promise<Standard1v1Ticket | null> {
+  private async getCurrentAutomaticTicket(userId: string, policy: QueuePolicy, now?: Date): Promise<AutomaticTicketDto | null> {
     return await this.runLifecycle({ initial: async (tx, context) => {
       const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+      await this.lockUserActivity(tx, userId);
       await this.expireQueuedTickets(tx, attemptNow, userId);
       await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
-      const ticket = await this.findActiveTicket(tx, userId);
+      const ticket = await this.findActiveTicket(tx, userId, policy.mode);
       if (!ticket) return null;
-      return this.toDto(await this.attemptPair(tx, ticket, attemptNow));
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy));
     } });
   }
 
-  async getTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+  private async getAutomaticTicket(userId: string, ticketId: string, policy: QueuePolicy, now?: Date): Promise<AutomaticTicketDto> {
     return await this.runLifecycle({ initial: async (tx, context) => {
       const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+      await this.lockUserActivity(tx, userId);
       await this.expireQueuedTickets(tx, attemptNow, userId);
       await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
-      const ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId }, include: TICKET_INCLUDE }) as TicketRecord | null;
+      const ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId, mode: policy.mode }, include: TICKET_INCLUDE }) as TicketRecord | null;
       if (!ticket) throw new NotFoundException({ code: 'ticket_not_found', message: 'Matchmaking ticket was not found.' });
-      return this.toDto(await this.attemptPair(tx, ticket, attemptNow));
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy));
     } });
   }
 
-  async cancelTicket(userId: string, ticketId: string, now?: Date): Promise<Standard1v1Ticket> {
+  private async cancelAutomaticTicket(userId: string, ticketId: string, policy: QueuePolicy, now?: Date): Promise<AutomaticTicketDto> {
     return await this.runLifecycle({ initial: async (tx, context) => {
       const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+      await this.lockUserActivity(tx, userId);
       await this.lockTicket(tx, ticketId);
-      let ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId }, include: TICKET_INCLUDE }) as TicketRecord | null;
+      let ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId, mode: policy.mode }, include: TICKET_INCLUDE }) as TicketRecord | null;
       if (!ticket) throw new NotFoundException({ code: 'ticket_not_found', message: 'Matchmaking ticket was not found.' });
-
       if (ticket.state === 'matched' || ticket.state === 'consumed') {
-        throw new ConflictException({
-          code: 'ticket_already_matched',
-          message: 'A matched ticket cannot be cancelled; enter or leave the match through gameplay.',
-          details: { ticketId, matchedMatchId: ticket.matchedMatchId },
-        });
+        throw new ConflictException({ code: 'ticket_already_matched', message: 'A matched ticket cannot be cancelled; enter or leave the match through gameplay.', details: { ticketId, matchedMatchId: ticket.matchedMatchId } });
       }
       if (ticket.state !== 'queued') return this.toDto(ticket);
       if (asDate(ticket.expiresAt).getTime() <= attemptNow.getTime()) {
-        ticket = await tx.matchmakingTicket.update({
-          where: { id: ticket.id },
-          data: { state: 'timed_out', timedOutAt: attemptNow },
-          include: TICKET_INCLUDE,
-        }) as TicketRecord;
+        ticket = await tx.matchmakingTicket.update({ where: { id: ticket.id }, data: { state: 'timed_out', timedOutAt: attemptNow }, include: TICKET_INCLUDE }) as TicketRecord;
         return this.toDto(ticket);
       }
-
-      ticket = await tx.matchmakingTicket.update({
-        where: { id: ticket.id },
-        data: { state: 'cancelled', cancelledAt: attemptNow },
-        include: TICKET_INCLUDE,
-      }) as TicketRecord;
-      await this.writeAudit(tx, userId, 'matchmaking_cancelled', ticket.id, null, { mode: 'standard_1v1' });
+      ticket = await tx.matchmakingTicket.update({ where: { id: ticket.id }, data: { state: 'cancelled', cancelledAt: attemptNow }, include: TICKET_INCLUDE }) as TicketRecord;
+      await this.writeAudit(tx, userId, 'matchmaking_cancelled', ticket.id, null, { mode: policy.mode });
       return this.toDto(ticket);
     } });
   }
 
-  private assertLiveRequest(input: CreateStandard1v1TicketRequest): void {
-    if (!standardQueueEnabled()) {
-      throw new ServiceUnavailableException({ code: 'standard_1v1_queue_disabled', message: 'The Standard 1v1 queue is currently disabled.' });
-    }
-    if (input.mode !== 'standard_1v1') {
-      throw new BadRequestException({
-        code: 'unsupported_matchmaking_mode',
-        message: 'Only standard_1v1 matchmaking is live.',
-        details: { requestedMode: input.mode },
-      });
-    }
-    if (!input.rated) {
-      throw new BadRequestException({ code: 'rated_required', message: 'The Standard 1v1 queue is rated-only.' });
-    }
+  private assertLiveRequest(input: QueueRequestInput, policy: QueuePolicy): void {
+    if (!policy.enabled()) throw new ServiceUnavailableException({ code: policy.disabledCode, message: `The ${policy.label} 1v1 queue is currently disabled.` });
+    if (input.mode !== policy.mode) throw new BadRequestException({ code: 'unsupported_matchmaking_mode', message: `Only ${policy.mode} is accepted on this queue route.`, details: { requestedMode: input.mode } });
+    if (!input.rated) throw new BadRequestException({ code: 'rated_required', message: `The ${policy.label} 1v1 queue is rated-only.` });
   }
 
-  private async attemptPair(tx: any, ticket: TicketRecord, now: Date, selectedDictionary?: StandardDictionarySelection): Promise<TicketRecord> {
+  private async attemptPair(
+    tx: any,
+    ticket: TicketRecord,
+    now: Date,
+    selectedDictionary: StandardDictionarySelection | undefined,
+    policy: QueuePolicy,
+  ): Promise<TicketRecord> {
     if (ticket.state !== 'queued') return ticket;
     const dictionary = selectedDictionary ?? await this.requireDictionary(tx);
     if (asDate(ticket.expiresAt).getTime() <= now.getTime()) {
@@ -272,7 +327,7 @@ export class MatchmakingService {
       `SELECT candidate."id"
          FROM "MatchmakingTicket" AS candidate
         WHERE candidate."state" = 'queued'
-          AND candidate."mode" = 'standard_1v1'
+          AND candidate."mode" = $11::"RankedMode"
           AND candidate."rated" = TRUE
           AND candidate."userId" <> $1
           AND candidate."expiresAt" > $2
@@ -284,7 +339,7 @@ export class MatchmakingService {
             SELECT 1
               FROM "RatingProfile" AS candidate_profile
              WHERE candidate_profile."userId" = candidate."userId"
-               AND candidate_profile."mode" = 'standard_1v1'
+               AND candidate_profile."mode" = $11::"RankedMode"
                AND candidate_profile."status" = 'active'
                AND candidate_profile."algorithmConfigVersion" = $8
           )
@@ -298,7 +353,7 @@ export class MatchmakingService {
                 JOIN "MatchParticipant" AS candidate_participant
                   ON candidate_participant."matchId" = recent_match."id"
                  AND candidate_participant."userId" = candidate."userId"
-               WHERE recent_match."rankedMode" = 'standard_1v1'
+               WHERE recent_match."rankedMode" = $11::"RankedMode"
                  AND recent_match."status" IN ('completed', 'voided')
                  AND COALESCE(recent_match."completedAt", recent_match."updatedAt") >= $9
             )
@@ -317,9 +372,10 @@ export class MatchmakingService {
       ticket.ratingAtQueue,
       ticket.allowProvisionalOpponent,
       ticket.provisionalAtQueue,
-      STANDARD_1V1_RATING_ALGORITHM_VERSION,
+      policy.algorithmConfigVersion,
       new Date(now.getTime() - 12 * 60 * 60 * 1000),
       allowRecentOpponent,
+      policy.mode,
     ) as LockedCandidate[];
     let repeatCooldownRelaxed = false;
     let candidateRows = await queryCandidate(false);
@@ -332,12 +388,16 @@ export class MatchmakingService {
 
     const candidate = await tx.matchmakingTicket.findUnique({ where: { id: candidateId } }) as TicketRecord | null;
     if (!candidate || candidate.state !== 'queued' || candidate.userId === ticket.userId) return ticket;
+    // The candidate may still be committing its own join transaction. Do not
+    // wait while holding the requester lock: that creates symmetric waits when
+    // two first joins select each other. A later status poll can pair them.
+    if (!await this.tryLockUserActivity(tx, candidate.userId)) return ticket;
 
     if (!repeatCooldownRelaxed) {
       const cooldownCutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000);
       const recentOpponentMatch = await tx.match.findFirst({
         where: {
-          rankedMode: 'standard_1v1',
+          rankedMode: policy.mode,
           status: { in: ['completed', 'voided'] },
           OR: [
             { completedAt: { gte: cooldownCutoff } },
@@ -361,14 +421,32 @@ export class MatchmakingService {
     const dictionaryRelease = await this.dictionary.selectStandardDictionary(tx, undefined, dictionary.releaseId);
     if (!dictionaryRelease) throw this.dictionaryUnavailable();
 
+    // Revalidate both users under their transaction-scoped activity locks at
+    // the final creation boundary. This prevents cross-mode queue/match races
+    // from creating a second ranked activity for either participant.
+    const [requesterActive, candidateActive, requesterInMatch, candidateInMatch] = await Promise.all([
+      this.findActiveTicket(tx, ticket.userId),
+      this.findActiveTicket(tx, candidate.userId),
+      this.hasActiveRankedMatch(tx, ticket.userId),
+      this.hasActiveRankedMatch(tx, candidate.userId),
+    ]);
+    if (requesterActive?.id !== ticket.id || candidateActive?.id !== candidate.id || requesterInMatch || candidateInMatch) return ticket;
+
     const sortedTicketIds = [ticket.id, candidate.id].sort();
-    const match = await this.gameplay.startRankedMatch({
-      dictionaryReleaseId: dictionaryRelease.releaseId,
-      participantUserIds: ordered.map((entry) => entry.userId),
-      idempotencyKey: `matchmaking:standard_1v1:${sortedTicketIds[0]}:${sortedTicketIds[1]}`,
-      rankedMode: 'standard_1v1',
-      now,
-    }, tx);
+    const idempotencyKey = `matchmaking:${policy.mode}:${sortedTicketIds[0]}:${sortedTicketIds[1]}`;
+    const match = policy.mode === 'speed_1v1'
+      ? await this.requireSpeedGameplay().createSpeedMatch({
+          dictionaryReleaseId: dictionaryRelease.releaseId,
+          participantUserIds: ordered.map((entry) => entry.userId),
+          idempotencyKey,
+        }, tx)
+      : await this.gameplay.startRankedMatch({
+          dictionaryReleaseId: dictionaryRelease.releaseId,
+          participantUserIds: ordered.map((entry) => entry.userId),
+          idempotencyKey,
+          rankedMode: 'standard_1v1',
+          now,
+        }, tx);
 
     const requesterUpdate = await tx.matchmakingTicket.updateMany({
       where: { id: ticket.id, state: 'queued' },
@@ -420,9 +498,9 @@ export class MatchmakingService {
     });
   }
 
-  private async findOrCreateRatingProfile(tx: any, userId: string): Promise<RatingProfileRecord> {
+  private async findOrCreateRatingProfile(tx: any, userId: string, policy: QueuePolicy): Promise<RatingProfileRecord> {
     const existing = await tx.ratingProfile.findFirst({
-      where: { userId, mode: 'standard_1v1', status: 'active', algorithmConfigVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION },
+      where: { userId, mode: policy.mode, status: 'active', algorithmConfigVersion: policy.algorithmConfigVersion },
       orderBy: { updatedAt: 'desc' },
     }) as RatingProfileRecord | null;
     if (existing) return existing;
@@ -431,14 +509,14 @@ export class MatchmakingService {
       return await tx.ratingProfile.create({
         data: {
           userId,
-          mode: 'standard_1v1',
+          mode: policy.mode,
           rating: defaultRating,
           matchesPlayed: 0,
           provisionalRemaining: defaultProvisionalGames,
           peakRating: defaultRating,
           ratingDeviation: 350,
-          algorithm: STANDARD_1V1_RATING_ALGORITHM,
-          algorithmConfigVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION,
+          algorithm: policy.algorithm,
+          algorithmConfigVersion: policy.algorithmConfigVersion,
           status: 'active',
         },
       }) as RatingProfileRecord;
@@ -447,10 +525,10 @@ export class MatchmakingService {
       // which owns the shared bounded retry ledger across initial and recovery phases.
       if (isTransactionExpiryError(error) || isRetryableTransactionError(error)) throw error;
       if (!isPrismaUniqueConstraintError(error)) {
-        throw new ConflictException({ code: 'rating_profile_unavailable', message: 'A Standard rating profile could not be prepared for matchmaking.' });
+        throw new ConflictException({ code: 'rating_profile_unavailable', message: `A ${policy.label} rating profile could not be prepared for matchmaking.` });
       }
       const replay = await tx.ratingProfile.findFirst({
-        where: { userId, mode: 'standard_1v1', status: 'active', algorithmConfigVersion: STANDARD_1V1_RATING_ALGORITHM_VERSION },
+        where: { userId, mode: policy.mode, status: 'active', algorithmConfigVersion: policy.algorithmConfigVersion },
       }) as RatingProfileRecord | null;
       if (!replay) throw error;
       return replay;
@@ -459,17 +537,17 @@ export class MatchmakingService {
 
   private async expireQueuedTickets(tx: any, now: Date, userId?: string): Promise<void> {
     const where = { state: 'queued', expiresAt: { lte: now }, ...(userId ? { userId } : {}) };
-    const expired = await tx.matchmakingTicket.findMany({ where, select: { id: true, userId: true } }) as Array<{ id: string; userId: string }>;
+    const expired = await tx.matchmakingTicket.findMany({ where, select: { id: true, userId: true, mode: true } }) as Array<{ id: string; userId: string; mode: AutomaticQueueMode }>;
     if (expired.length === 0) return;
     await tx.matchmakingTicket.updateMany({ where, data: { state: 'timed_out', timedOutAt: now } });
     for (const ticket of expired) {
-      await this.writeAudit(tx, ticket.userId, 'matchmaking_timed_out', ticket.id, null, { mode: 'standard_1v1' });
+      await this.writeAudit(tx, ticket.userId, 'matchmaking_timed_out', ticket.id, null, { mode: ticket.mode });
     }
   }
 
   private async releaseCompletedMatchedTickets(tx: any, userId: string, now: Date): Promise<void> {
     const matched = await tx.matchmakingTicket.findMany({
-      where: { userId, mode: 'standard_1v1', state: 'matched' },
+      where: { userId, state: 'matched' },
       select: { id: true, matchedMatchId: true },
     }) as Array<{ id: string; matchedMatchId: string | null }>;
 
@@ -490,12 +568,58 @@ export class MatchmakingService {
     }
   }
 
-  private async findActiveTicket(tx: any, userId: string): Promise<TicketRecord | null> {
+  private async findActiveTicket(tx: any, userId: string, mode?: AutomaticQueueMode): Promise<TicketRecord | null> {
     return await tx.matchmakingTicket.findFirst({
-      where: { userId, mode: 'standard_1v1', state: { in: [...ACTIVE_STATES] } },
+      where: { userId, ...(mode ? { mode } : {}), state: { in: [...ACTIVE_STATES] } },
       orderBy: { createdAt: 'desc' },
       include: TICKET_INCLUDE,
     }) as TicketRecord | null;
+  }
+
+  private async lockUserActivity(tx: any, userId: string): Promise<void> {
+    // Serialize queue changes for the same user without row-locking UserAccount.
+    // A UserAccount FOR UPDATE lock conflicts with participant foreign-key checks
+    // when two different users pair concurrently and can create a cross-lock deadlock.
+    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"', userId);
+  }
+
+  private async tryLockUserActivity(tx: any, userId: string): Promise<boolean> {
+    const rows = await tx.$queryRawUnsafe(
+      'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS "locked"',
+      userId,
+    ) as Array<{ locked: boolean }>;
+    return rows[0]?.locked === true;
+  }
+
+  private async hasActiveRankedMatch(tx: any, userId: string): Promise<boolean> {
+    const match = await tx.match.findFirst({
+      where: {
+        rankedMode: { in: ['standard_1v1', 'speed_1v1'] },
+        status: { in: ['pending', 'active'] },
+        participants: { some: { userId } },
+      },
+      select: { id: true },
+    }) as { id: string } | null;
+    return Boolean(match);
+  }
+
+  private rankedActivityConflict(activity: string): ConflictException {
+    return new ConflictException({
+      code: 'ranked_activity_conflict',
+      message: 'Only one active ranked queue ticket or match is allowed at a time.',
+      details: { activeActivity: activity },
+    });
+  }
+
+  private async assertSpeedOperational(): Promise<void> {
+    if (this.speedOperational) return await this.speedOperational.assertAvailable();
+    if (process.env.NODE_ENV === 'test') return;
+    throw new ServiceUnavailableException({ code: 'speed_1v1_unavailable', message: 'Speed 1v1 is temporarily unavailable. Retry later.' });
+  }
+
+  private requireSpeedGameplay(): SpeedGameplayService {
+    if (this.speedGameplay) return this.speedGameplay;
+    throw new ServiceUnavailableException({ code: 'speed_1v1_queue_disabled', message: 'The Speed 1v1 queue is currently disabled.' });
   }
 
   private async lockTicket(tx: any, ticketId: string): Promise<void> {
@@ -519,11 +643,12 @@ export class MatchmakingService {
     });
   }
 
-  private toDto(ticket: TicketRecord): Standard1v1Ticket {
-    return standard1v1TicketSchema.parse({
+  private toDto(ticket: TicketRecord): AutomaticTicketDto {
+    const schema = ticket.mode === 'speed_1v1' ? speed1v1TicketSchema : standard1v1TicketSchema;
+    return schema.parse({
       ticketId: ticket.id,
       state: ticket.state === 'consumed' ? 'matched' : ticket.state,
-      mode: 'standard_1v1',
+      mode: ticket.mode,
       rated: true,
       userId: ticket.userId,
       ratingAtQueue: ticket.ratingAtQueue,

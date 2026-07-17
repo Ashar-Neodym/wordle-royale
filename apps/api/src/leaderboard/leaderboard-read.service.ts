@@ -1,6 +1,7 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { authoritativeRatingAlgorithmByMode, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, rankedModes } from '@wordle-royale/contracts';
-import type { RankedMode } from '@wordle-royale/contracts';
+import type { RankedMode, SpeedRankedModeTimeControl } from '@wordle-royale/contracts';
+import { SpeedOperationalReadinessService } from '../health/speed-operational-readiness.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
 const DEFAULT_LEADERBOARD_LIMIT = 20;
@@ -110,6 +111,10 @@ export interface RankedModeReadModel {
   players: '1v1' | '2-4';
   rated: true;
   enabled: boolean;
+  queueEnabled?: boolean;
+  rulesetVersion?: string;
+  ratingAlgorithmConfigVersion?: string | null;
+  timeControl?: SpeedRankedModeTimeControl;
   provisionalGames: number;
   defaultRating: number;
   defaultRatingDeviation: number;
@@ -212,13 +217,17 @@ function toEntry(profile: RatingProfileWithUser, rank: number, algorithm: Public
 
 @Injectable()
 export class LeaderboardReadService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(SpeedOperationalReadinessService) private readonly speedOperational?: SpeedOperationalReadinessService,
+  ) {}
 
-  listRankedModes(): { modes: RankedModeReadModel[] } {
+  async listRankedModes(): Promise<{ modes: RankedModeReadModel[] }> {
+    const speedEnabled = (await this.speedOperational?.check())?.available === true;
     return {
       modes: [
         { id: 'standard_1v1', label: 'Standard', players: '1v1', rated: true, enabled: true, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Primary chess-style 1v1 ladder; fewer guesses wins, same guesses draw.' },
-        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
+        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: speedEnabled, queueEnabled: speedEnabled, rulesetVersion: 'speed_1v1_v1_75s', ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1', timeControl: { roundTimeSeconds: 75, readyWindowSeconds: 20, countdownSeconds: 3, maxGuesses: 6, solveTimeBucketMs: 100, tieBreaker: 'server_solve_time_bucket' }, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: speedEnabled ? 'Live separate Speed ladder using immutable server-adjudicated outcomes and speed_1v1_glicko_v1.' : 'Speed is unavailable until its feature gate and operational dependencies are ready.' },
         { id: 'classic_1v1', label: 'Classic', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
         { id: 'multiplayer_lobby', label: 'Multiplayer / Lobby', players: '2-4', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared as a separate pairwise-placement ladder; keep disabled until abuse policy is locked.' },
       ],
@@ -316,7 +325,7 @@ export class LeaderboardReadService {
   }
 
   private async findRatingProfile(userId: string, mode: RankedModeId, algorithmConfigVersion: string): Promise<RatingProfileWithUser | null> {
-    return await (this.prisma.client as any).ratingProfile.findUnique({
+    const profile = await (this.prisma.client as any).ratingProfile.findUnique({
       where: {
         userId_mode_algorithmConfigVersion: {
           userId,
@@ -325,5 +334,6 @@ export class LeaderboardReadService {
         },
       },
     }) as RatingProfileWithUser | null;
+    return profile?.status === 'active' ? profile : null;
   }
 }

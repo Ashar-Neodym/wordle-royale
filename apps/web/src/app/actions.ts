@@ -4,9 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { cancelStandard1v1Ticket, completeRankedMatch, createLobby, createStandard1v1Ticket, getApiBaseUrl, getCurrentStandard1v1Ticket, getStandard1v1Ticket, joinLobby, joinLobbyByCode, startRankedMatch, submitGuess } from '../lib/api-client';
-import type { ApiClientResult, CreateStandard1v1TicketRequest, Standard1v1Ticket } from '../lib/api-client';
-import type { CreateLobbyRequest } from '@wordle-royale/contracts';
+import { cancelSpeed1v1Ticket, cancelStandard1v1Ticket, completeRankedMatch, createLobby, createSpeed1v1Ticket, createStandard1v1Ticket, forfeitSpeedMatch, getApiBaseUrl, getCurrentSpeed1v1Ticket, getCurrentStandard1v1Ticket, getRankedMatchState, getSpeed1v1Ticket, getStandard1v1Ticket, joinLobby, joinLobbyByCode, markSpeedMatchReady, startRankedMatch, submitGuess } from '../lib/api-client';
+import type { ApiClientResult, CreateStandard1v1TicketRequest, LiveMatchState, Standard1v1Ticket } from '../lib/api-client';
+import type { CreateLobbyRequest, GuessResult, Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contracts';
 
 const rankedLobbyDefaults: CreateLobbyRequest = {
   clientRequestId: '00000000-0000-4000-8000-000000000000',
@@ -132,6 +132,38 @@ export async function getStandard1v1TicketAction(ticketId: string): Promise<ApiC
 
 export async function cancelStandard1v1TicketAction(ticketId: string): Promise<ApiClientResult<Standard1v1Ticket>> {
   return cancelStandard1v1Ticket(ticketId);
+}
+
+export async function createSpeed1v1TicketAction(clientRequestId: string): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return createSpeed1v1Ticket({ clientRequestId, mode: 'speed_1v1', rated: true, allowProvisionalOpponent: true });
+}
+
+export async function getCurrentSpeed1v1TicketAction(): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return getCurrentSpeed1v1Ticket();
+}
+
+export async function getSpeed1v1TicketAction(ticketId: string): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return getSpeed1v1Ticket(ticketId);
+}
+
+export async function cancelSpeed1v1TicketAction(ticketId: string): Promise<ApiClientResult<Speed1v1Ticket>> {
+  return cancelSpeed1v1Ticket(ticketId);
+}
+
+export async function getSpeedMatchStateAction(matchId: string): Promise<ApiClientResult<LiveMatchState>> {
+  return getRankedMatchState(matchId);
+}
+
+export async function markSpeedMatchReadyAction(matchId: string, clientRequestId: string): Promise<ApiClientResult<SpeedMatchSnapshot>> {
+  return markSpeedMatchReady(matchId, { clientRequestId });
+}
+
+export async function forfeitSpeedMatchAction(matchId: string, clientRequestId: string): Promise<ApiClientResult<SpeedMatchSnapshot>> {
+  return forfeitSpeedMatch(matchId, { clientRequestId });
+}
+
+export async function submitSpeedGuessAction(matchId: string, roundId: string, guess: string, clientRequestId: string): Promise<ApiClientResult<GuessResult>> {
+  return submitGuess({ clientRequestId, matchId, roundId, guess: guess.toLowerCase(), clientSubmittedAt: new Date().toISOString() });
 }
 
 export async function createRankedLobbyAction(): Promise<void> {

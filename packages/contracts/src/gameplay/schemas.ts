@@ -34,6 +34,10 @@ export const participantStandingSchema = z.object({
   ratingBefore: z.number().int().nullable().optional(),
   ratingAfter: z.number().int().nullable().optional(),
   ratingDelta: z.number().int().nullable().optional(),
+  result: z.enum(['win', 'loss', 'draw', 'void']).nullable().optional(),
+  terminalReason: z.enum(['solved', 'max_guesses', 'deadline_timeout', 'forfeit', 'awarded_forfeit_win', 'no_contest', 'operator_void']).nullable().optional(),
+  guessesUsed: z.number().int().min(1).max(6).nullable().optional(),
+  solveElapsedMs: z.number().int().min(0).max(75_000).nullable().optional(),
 });
 
 export const roundSnapshotSchema = z.object({
@@ -97,6 +101,71 @@ export const rejectedGuessResultSchema = z.object({
 
 export const guessResultSchema = z.discriminatedUnion('accepted', [acceptedGuessResultSchema, rejectedGuessResultSchema]);
 
+export const speedRulesetVersionSchema = z.literal('speed_1v1_v1_75s');
+export const speedMatchStateSchema = z.enum(['waiting_ready', 'countdown', 'in_progress', 'finalizing', 'completed', 'voided']);
+export const speedTerminalReasonSchema = z.enum(['solved', 'max_guesses', 'deadline_timeout', 'forfeit', 'awarded_forfeit_win', 'no_contest', 'operator_void']);
+export const speedParticipantResultSchema = z.enum(['win', 'loss', 'draw', 'void']);
+export const speedCompletionReasonSchema = z.enum(['all_players_terminal', 'deadline', 'forfeit', 'ready_timeout', 'operator_void']);
+
+export const markSpeedMatchReadyRequestSchema = clientRequestSchema;
+export const forfeitSpeedMatchRequestSchema = clientRequestSchema;
+
+export const speedMatchSnapshotSchema = z.object({
+  matchId: idSchema,
+  roundId: idSchema,
+  mode: z.literal('speed_1v1'),
+  rulesetVersion: speedRulesetVersionSchema,
+  state: speedMatchStateSchema,
+  serverTime: timestampSchema,
+  readyDeadlineAt: timestampSchema,
+  startsAt: timestampSchema.nullable(),
+  deadlineAt: timestampSchema.nullable(),
+  timeControl: z.object({
+    roundTimeMs: z.literal(75_000),
+    solveTimeBucketMs: z.literal(100),
+    maxGuesses: z.literal(6),
+  }),
+  readiness: z.object({
+    viewerReady: z.boolean(),
+    readyCount: z.number().int().min(0).max(2),
+  }),
+  myState: z.object({
+    acceptedGuesses: z.array(z.object({
+      clientRequestId: z.string().uuid(),
+      guess: z.string().regex(/^[a-z]{5}$/),
+      guessNumber: z.number().int().min(1).max(6),
+      feedback: z.array(letterFeedbackSchema).length(5),
+      submittedAt: timestampSchema,
+    })),
+    terminalReason: speedTerminalReasonSchema.nullable(),
+    guessesUsed: z.number().int().min(1).max(6).nullable(),
+    solveElapsedMs: z.number().int().min(0).max(75_000).nullable(),
+    result: speedParticipantResultSchema.nullable(),
+  }),
+  opponentProgress: z.object({
+    acceptedGuessCount: z.number().int().min(0).max(6),
+    terminal: z.boolean(),
+  }),
+});
+
+export const speedRankedModeTimeControlSchema = z.object({
+  roundTimeSeconds: z.literal(75),
+  readyWindowSeconds: z.literal(20),
+  countdownSeconds: z.literal(3),
+  maxGuesses: z.literal(6),
+  solveTimeBucketMs: z.literal(100),
+  tieBreaker: z.literal('server_solve_time_bucket'),
+});
+
+export const speedRankedModeIdentitySchema = z.object({
+  id: z.literal('speed_1v1'),
+  enabled: z.boolean(),
+  queueEnabled: z.boolean(),
+  rulesetVersion: speedRulesetVersionSchema,
+  ratingAlgorithmConfigVersion: z.literal('speed_1v1_glicko_v1'),
+  timeControl: speedRankedModeTimeControlSchema,
+});
+
 
 export const rankedMatchStartSourceSchema = z.enum(rankedMatchStartSources);
 export const rankedMatchCompletionReasonSchema = z.enum(rankedMatchCompletionReasons);
@@ -146,7 +215,7 @@ export const ratingEventContractSchema = z.object({
   kind: ratingEventKindSchema,
   status: ratingEventStatusSchema,
   idempotencyKey: z.string().min(1),
-  algorithmVersion: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1']),
+  algorithmVersion: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1', 'speed_1v1_glicko_v1']),
   defaultRating: z.literal(defaultRating),
   participants: z.array(ratingParticipantDeltaSchema).min(2),
   createdAt: timestampSchema,
@@ -173,14 +242,50 @@ export const rankedMatchResultActionSchema = z.object({
   }),
 });
 
+export const rankedMatchResultCompletionReasonSchema = z.union([
+  rankedMatchCompletionReasonSchema,
+  speedCompletionReasonSchema,
+]);
+
 export const rankedMatchResultSummarySchema = z.object({
   matchId: idSchema,
   state: z.literal('completed'),
+  rankedMode: rankedModeSchema.nullable().optional(),
+  rulesetVersion: z.string().min(1).nullable().optional(),
+  speedCompletionReason: speedCompletionReasonSchema.nullable().optional(),
+  ratingAlgorithm: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1', 'speed_1v1_glicko_v1']).nullable().optional(),
+  ratingAlgorithmConfigVersion: z.string().min(1).nullable().optional(),
   completedAt: timestampSchema,
-  completionReason: rankedMatchCompletionReasonSchema,
+  completionReason: rankedMatchResultCompletionReasonSchema,
   finalStandings: z.array(participantStandingSchema).min(2),
   ratingEvent: ratingEventContractSchema.nullable(),
   resultActions: rankedMatchResultActionSchema,
+}).superRefine((summary, context) => {
+  if (summary.rankedMode === 'speed_1v1') {
+    if (summary.completionReason !== summary.speedCompletionReason) {
+      context.addIssue({
+        code: 'custom',
+        path: ['completionReason'],
+        message: 'Speed result completionReason must equal the persisted speedCompletionReason.',
+      });
+    }
+    return;
+  }
+
+  if (['all_players_terminal', 'deadline', 'ready_timeout', 'operator_void'].includes(summary.completionReason)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['completionReason'],
+      message: 'Speed-only completion reasons require rankedMode speed_1v1.',
+    });
+  }
+  if (summary.speedCompletionReason != null) {
+    context.addIssue({
+      code: 'custom',
+      path: ['speedCompletionReason'],
+      message: 'speedCompletionReason is only valid for rankedMode speed_1v1.',
+    });
+  }
 });
 
 export const matchHistoryParticipantSchema = z.object({
@@ -191,6 +296,10 @@ export const matchHistoryParticipantSchema = z.object({
   outcome: z.enum(['pending', 'solved', 'failed', 'abandoned', 'voided']),
   finalScore: z.number().int().nonnegative(),
   ratingDelta: z.number().int().nullable(),
+  result: speedParticipantResultSchema.nullable().optional(),
+  terminalReason: speedTerminalReasonSchema.nullable().optional(),
+  guessesUsed: z.number().int().min(1).max(6).nullable().optional(),
+  solveElapsedMs: z.number().int().min(0).max(75_000).nullable().optional(),
 });
 
 export const matchHistoryViewerSchema = z.object({
@@ -204,8 +313,11 @@ export const matchHistoryViewerSchema = z.object({
 export const matchHistorySummarySchema = z.object({
   matchId: idSchema,
   mode: z.enum(['ranked', 'casual']),
+  rankedMode: rankedModeSchema.nullable().optional(),
+  rulesetVersion: z.string().min(1).nullable().optional(),
+  speedCompletionReason: speedCompletionReasonSchema.nullable().optional(),
   status: z.enum(['pending', 'active', 'completed', 'voided', 'cancelled']),
-  ratingAlgorithm: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1']).nullable().default(null),
+  ratingAlgorithm: z.enum(['placement_mmr_v1', 'standard_1v1_glicko_v1', 'speed_1v1_glicko_v1']).nullable().default(null),
   ratingAlgorithmConfigVersion: z.string().min(1).nullable().default(null),
   startedAt: timestampSchema.nullable(),
   completedAt: timestampSchema.nullable(),

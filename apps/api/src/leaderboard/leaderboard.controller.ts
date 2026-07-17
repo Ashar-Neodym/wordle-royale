@@ -1,14 +1,18 @@
 import { Controller, Get, Inject, Param, Query, Req } from '@nestjs/common';
 import { ok } from '../shared/envelope.ts';
-import { LeaderboardReadService } from './leaderboard-read.service.ts';
+import { ProfileReadService } from '../profile/profile-read.service.ts';
+import { LeaderboardReadService, normalizeRankedMode } from './leaderboard-read.service.ts';
 
 @Controller()
 export class LeaderboardController {
-  constructor(@Inject(LeaderboardReadService) private readonly leaderboard: LeaderboardReadService) {}
+  constructor(
+    @Inject(LeaderboardReadService) private readonly leaderboard: LeaderboardReadService,
+    @Inject(ProfileReadService) private readonly profiles: ProfileReadService,
+  ) {}
 
   @Get('ranked/modes')
   async listRankedModes(@Req() request: unknown) {
-    return ok(this.leaderboard.listRankedModes(), request as never);
+    return ok(await this.leaderboard.listRankedModes(), request as never);
   }
 
   @Get('leaderboard')
@@ -25,5 +29,37 @@ export class LeaderboardController {
   @Get('profiles/:handle/ratings')
   async listProfileRatings(@Param('handle') handle: string, @Req() request: unknown) {
     return ok(await this.leaderboard.listProfileRatingsByHandle(handle), request as never);
+  }
+
+  @Get('profiles/:handle/ratings/:mode/history')
+  async listProfileRatingHistory(
+    @Param('handle') handle: string,
+    @Param('mode') mode: string,
+    @Query('limit') limit: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Req() request: unknown,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return ok(await this.profiles.listProfileMatchHistoryByHandle(handle, {
+      mode: normalizeRankedMode(mode),
+      ...(parsedLimit ? { limit: parsedLimit } : {}),
+      ...(cursor ? { cursor } : {}),
+    }), request as never);
+  }
+
+  @Get('profiles/:handle/matches')
+  async listProfileMatches(
+    @Param('handle') handle: string,
+    @Query('mode') mode: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Req() request: unknown,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return ok(await this.profiles.listProfileMatchHistoryByHandle(handle, {
+      mode: normalizeRankedMode(mode),
+      ...(parsedLimit ? { limit: parsedLimit } : {}),
+      ...(cursor ? { cursor } : {}),
+    }), request as never);
   }
 }

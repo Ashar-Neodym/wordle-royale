@@ -17,8 +17,8 @@ Implemented local foundational routes:
 - `POST /lobbies` — create lobby stub using `createLobbyRequestSchema`.
 - `POST /lobbies/join-code` — join by code stub using `joinLobbyByCodeRequestSchema`.
 - `POST /lobbies/:lobbyId/join` — join lobby stub using client request validation.
-- `GET /leaderboard?limit=20` — ranked leaderboard read model from durable `RatingProfile` rows.
-- `GET /profiles/:handle/rating` — authoritative Standard rated profile read model with default unrated `1500` behavior.
+- `GET /leaderboard?mode=standard_1v1&limit=20` — mode-aware ranked leaderboard from durable `RatingProfile` rows.
+- `GET /profiles/:handle/rating?mode=speed_1v1` — authoritative per-mode rated profile with default unrated `1500` behavior.
 
 Responses use a shared envelope shape:
 
@@ -130,22 +130,32 @@ Ranked/MMR finalization slice:
 - `listLeaderboard({ limit?, mode?, now? })`
   - Resolves the requested ranked mode through `authoritativeRatingAlgorithmByMode`.
   - Standard 1v1 reads only active `standard_1v1_glicko_v1` profiles, even when an older active `placement_mmr_v1` row coexists for the same user/mode.
+  - Speed 1v1 reads only active `speed_1v1_glicko_v1` profiles and never relabels Standard or legacy profiles.
   - Sorts deterministically by rating descending, matches played descending, then handle/display identity.
   - Returns rank, user id, handle, display name, rating, matches played, provisional status, RD, algorithm, and algorithm config version.
 - `getRatedProfileByHandle(handle)` and profile summary/rating reads use the same mapping and the shared unrated default rating `1500`.
-- Speed, Classic, and Multiplayer remain prepared-only: their mapping is explicitly `null`, their mode metadata is disabled, and read DTOs expose `algorithm: null` rather than claiming live settlement.
+- Standard and Speed are live separate ladders. Classic and Multiplayer remain prepared-only: their mapping is `null`, mode metadata is disabled, and read DTOs expose `algorithm: null`.
 - Match history identifies the applied rating algorithm/version and delta for completed matches.
 
-Legacy active `placement_mmr_v1` profiles and historical events are retained unchanged. No destructive migration or status rewrite is required for this read fix; the explicit per-mode mapping safely selects Standard Glicko rows. A future retirement migration may mark legacy rows non-active after product policy is locked, but it must not rewrite historical events.
+Speed rating settlement consumes immutable server adjudication (`result`, `terminalReason`, `guessesUsed`, and `solveTimeBucket`) from the Speed gameplay service. It validates that persisted win/loss/draw results agree with server timing fields, writes two `speed_1v1_glicko_v1` events and both profile updates in one serializable transaction, retries complete transactions on Prisma contention, and replays idempotently. Forfeit is a loss; double timeout/max-guesses and exact solve ties are draws; void/no-contest creates no rating rows.
 
-The settlement-to-read PostgreSQL integration test is opt-in and refuses non-disposable schema names. Provision a schema whose name starts with `ticket131`, apply migrations, then run:
+Run the PostgreSQL convergence check against a disposable schema whose name begins with `ticket159` or `ticket169`:
 
 ```bash
-RATING_READ_INTEGRATION_DATABASE_URL='postgresql://.../wordle_royale_local?schema=ticket131_local' \
-  pnpm --filter @wordle-royale/api test:rating-reads:postgres
+SPEED_RATING_INTEGRATION_DATABASE_URL='<disposable-ticket159-database-url>' \
+  pnpm --filter @wordle-royale/api test:speed-rating:postgres
 ```
 
-The fixture uses run-unique users, handles, match IDs, and dictionary metadata, scopes assertions to those users, and deletes only its own rows.
+The fixture uses run-unique users, handles, match IDs, and dictionary metadata, scopes assertions to those users, and deletes only its own rows. Speed adjudication calls settlement inside the same serializable transaction, so terminal gameplay, both profile updates, both apply events, and the authoritative report commit together. Speed result reads derive both `completionReason` and `speedCompletionReason` from persisted adjudication identity; repeated forfeit, deadline, and no-contest reads preserve that identity, repair stale report summaries without trusting them, and do not add rating events. The integration accepts guarded disposable `ticket159*` or `ticket169*` schemas for this convergence proof. Mode-specific history is available through `GET /profiles/:handle/ratings/:mode/history` and `GET /profiles/:handle/matches?mode=speed_1v1`; Speed history is restricted to terminal, adjudicated `speed_1v1_v1_75s` matches using `speed_1v1_glicko_v1`.
+
+Legacy active `placement_mmr_v1` profiles and historical events are retained unchanged. No destructive rating-data migration or status rewrite is required; the explicit per-mode mapping safely selects Standard and Speed Glicko rows. A future retirement migration may mark legacy rows non-active after product policy is locked, but it must not rewrite historical events.
+
+The Standard settlement-to-read PostgreSQL integration test remains available against a guarded disposable `ticket131` schema:
+
+```bash
+RATING_READ_INTEGRATION_DATABASE_URL='<disposable-ticket131-database-url>' \
+  pnpm --filter @wordle-royale/api test:rating-reads:postgres
+```
 
 Public low-risk endpoints are exposed as `GET /leaderboard?limit=20` and `GET /profiles/:handle/rating`. They do not read match rounds, guesses, dictionary words, or answer hashes, so the lichess/chess.com-style competitive loop can show stable ratings, provisional identity, and post-match progression without any spoiler surface.
 

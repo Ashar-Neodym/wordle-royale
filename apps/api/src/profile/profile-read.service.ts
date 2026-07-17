@@ -53,6 +53,10 @@ type MatchParticipantWithUser = {
   outcome: 'pending' | 'solved' | 'failed' | 'abandoned' | 'voided' | string;
   placement?: number | null;
   finalScore: number;
+  result?: 'win' | 'loss' | 'draw' | 'void' | null;
+  terminalReason?: 'solved' | 'max_guesses' | 'deadline_timeout' | 'forfeit' | 'awarded_forfeit_win' | 'no_contest' | 'operator_void' | null;
+  guessesUsed?: number | null;
+  solveElapsedMs?: number | null;
   user?: UserWithProfile | null;
   ratingEvents?: RatingEventRow[];
 };
@@ -60,6 +64,9 @@ type MatchParticipantWithUser = {
 type MatchWithParticipants = {
   id: string;
   mode: 'ranked' | 'casual' | string;
+  rankedMode?: string | null;
+  rulesetVersion?: string | null;
+  completionReason?: string | null;
   status: 'pending' | 'active' | 'completed' | 'voided' | 'cancelled' | string;
   startedAt?: Date | string | null;
   completedAt?: Date | string | null;
@@ -86,32 +93,37 @@ function handleFor(user: UserWithProfile | null | undefined): string | null {
   return user?.profile?.publicHandle?.trim() || null;
 }
 
-function effectiveRatingEvent(participant: MatchParticipantWithUser): RatingEventRow | null {
+function effectiveRatingEvent(participant: MatchParticipantWithUser, expectedVersion?: string | null): RatingEventRow | null {
   const events = (participant.ratingEvents ?? []).filter((event) => !event.voidedByEventId);
+  if (expectedVersion) return events.find((event) => event.algorithmConfigVersion === expectedVersion) ?? null;
   return events.find((event) => event.algorithmConfigVersion === 'standard_1v1_glicko_v1')
+    ?? events.find((event) => event.algorithmConfigVersion === 'speed_1v1_glicko_v1')
     ?? events.find((event) => event.algorithmConfigVersion === 'placement_mmr_v1')
     ?? null;
 }
 
-function ratingDeltaFor(participant: MatchParticipantWithUser): number | null {
-  const event = effectiveRatingEvent(participant);
+function ratingDeltaFor(participant: MatchParticipantWithUser, expectedVersion?: string | null): number | null {
+  const event = effectiveRatingEvent(participant, expectedVersion);
   if (!event) return null;
   if (typeof event.delta === 'number') return event.delta;
   const metadata = typeof event.metadata === 'object' && event.metadata !== null ? event.metadata as { ratingDelta?: unknown } : {};
   return typeof metadata.ratingDelta === 'number' ? metadata.ratingDelta : null;
 }
 
-function ratingIdentityFor(participants: MatchParticipantWithUser[]): {
-  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | null;
+function ratingIdentityFor(participants: MatchParticipantWithUser[], expectedVersion?: string | null): {
+  algorithm: 'placement_mmr_v1' | 'standard_1v1_glicko_v1' | 'speed_1v1_glicko_v1' | null;
   algorithmConfigVersion: string | null;
 } {
-  const events = participants.map(effectiveRatingEvent).filter((event): event is RatingEventRow => event !== null);
+  const events = participants.map((participant) => effectiveRatingEvent(participant, expectedVersion)).filter((event): event is RatingEventRow => event !== null);
   const versions = new Set(events.map((event) => event.algorithmConfigVersion).filter(Boolean));
   if (versions.size !== 1) return { algorithm: null, algorithmConfigVersion: null };
   const event = events[0];
   if (!event?.algorithmConfigVersion) return { algorithm: null, algorithmConfigVersion: null };
   if (event.algorithmConfigVersion === 'standard_1v1_glicko_v1') {
     return { algorithm: 'standard_1v1_glicko_v1', algorithmConfigVersion: event.algorithmConfigVersion };
+  }
+  if (event.algorithmConfigVersion === 'speed_1v1_glicko_v1') {
+    return { algorithm: 'speed_1v1_glicko_v1', algorithmConfigVersion: event.algorithmConfigVersion };
   }
   if (event.algorithmConfigVersion === 'placement_mmr_v1') {
     return { algorithm: 'placement_mmr_v1', algorithmConfigVersion: event.algorithmConfigVersion };
@@ -168,12 +180,22 @@ export class ProfileReadService {
     });
   }
 
-  async listCurrentUserMatchHistory(input: { userId?: string; limit?: number; cursor?: string }): Promise<MatchHistoryList> {
+  async listCurrentUserMatchHistory(input: { userId?: string; limit?: number; cursor?: string; mode?: RankedMode }): Promise<MatchHistoryList> {
     const userId = input.userId ?? stubCurrentUserId;
     const limit = normalizeLimit(input.limit);
+    const authoritativeAlgorithm = input.mode ? authoritativeRatingAlgorithmByMode[input.mode] : null;
     const rows = await (this.prisma.client as any).match.findMany({
       where: {
         mode: 'ranked',
+        ...(input.mode ? {
+          rankedMode: input.mode,
+          status: { in: ['completed', 'voided'] },
+          algorithmConfigVersion: authoritativeAlgorithm?.algorithmConfigVersion ?? '__disabled_mode__',
+          ...(input.mode === 'speed_1v1' ? {
+            rulesetVersion: 'speed_1v1_v1_75s',
+            adjudicatedAt: { not: null },
+          } : {}),
+        } : {}),
         participants: { some: { userId } },
         ...(input.cursor ? { createdAt: { lt: new Date(input.cursor) } } : {}),
       },
@@ -202,7 +224,26 @@ export class ProfileReadService {
     });
   }
 
+  async listProfileMatchHistoryByHandle(handle: string, input: { mode: RankedMode; limit?: number; cursor?: string }): Promise<MatchHistoryList> {
+    const profile = await (this.prisma.client as any).userProfile.findUnique({
+      where: { publicHandle: handle.trim().toLowerCase() },
+      include: { user: true },
+    }) as ({ user: UserWithProfile } | null);
+    if (!profile) {
+      throw new NotFoundException({ code: 'profile_not_found', message: 'Profile summary was not found.', details: { handle } });
+    }
+    return await this.listCurrentUserMatchHistory({
+      userId: profile.user.id,
+      mode: input.mode,
+      ...(input.limit ? { limit: input.limit } : {}),
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+    });
+  }
+
   toMatchHistorySummary(match: MatchWithParticipants, viewerUserId: string): MatchHistorySummary {
+    const expectedRatingVersion = match.mode === 'ranked'
+      ? (match.rankedMode ? authoritativeRatingAlgorithmByMode[normalizeRankedMode(match.rankedMode)]?.algorithmConfigVersion ?? null : null)
+      : null;
     const participants = [...(match.participants ?? [])].sort((left, right) => {
       const placementDelta = (left.placement ?? Number.MAX_SAFE_INTEGER) - (right.placement ?? Number.MAX_SAFE_INTEGER);
       if (placementDelta !== 0) return placementDelta;
@@ -217,14 +258,23 @@ export class ProfileReadService {
         placement: participant.placement ?? null,
         outcome: normalizeOutcome(participant.outcome),
         finalScore: Math.max(0, participant.finalScore ?? 0),
-        ratingDelta: normalizeStatus(match.status) === 'completed' ? ratingDeltaFor(participant) : null,
+        ratingDelta: normalizeStatus(match.status) === 'completed' ? ratingDeltaFor(participant, expectedRatingVersion) : null,
+        ...(match.rankedMode === 'speed_1v1' && (match.status === 'completed' || match.status === 'voided') ? {
+          result: participant.result ?? null,
+          terminalReason: participant.terminalReason ?? null,
+          guessesUsed: participant.guessesUsed ?? null,
+          solveElapsedMs: participant.solveElapsedMs ?? null,
+        } : {}),
       };
     });
     const viewer = dataParticipants.find((participant) => participant.userId === viewerUserId) ?? null;
-    const ratingIdentity = ratingIdentityFor(participants);
+    const ratingIdentity = ratingIdentityFor(participants, expectedRatingVersion);
     return matchHistorySummarySchema.parse({
       matchId: match.id,
       mode: normalizeMode(match.mode),
+      rankedMode: match.rankedMode ? normalizeRankedMode(match.rankedMode) : null,
+      rulesetVersion: match.rulesetVersion ?? null,
+      speedCompletionReason: match.rankedMode === 'speed_1v1' ? match.completionReason ?? null : null,
       status: normalizeStatus(match.status),
       ratingAlgorithm: ratingIdentity.algorithm,
       ratingAlgorithmConfigVersion: ratingIdentity.algorithmConfigVersion,

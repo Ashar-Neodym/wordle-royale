@@ -73,6 +73,7 @@ export function isRecognizedMatchmakingTicketUniqueError(error: unknown): boolea
     .filter((value): value is string => typeof value === 'string');
   if (namedTargets.some((value) =>
     value === 'MatchmakingTicket_userId_mode_idempotencyKey_key'
+    || value === 'matchmaking_ticket_one_active_ranked_per_user'
     || value === 'matchmaking_ticket_one_active_per_user_mode')) return true;
 
   if (Array.isArray(metadata.target)) {
@@ -81,9 +82,8 @@ export function isRecognizedMatchmakingTicketUniqueError(error: unknown): boolea
       && fields.includes('userId')
       && fields.includes('mode')
       && fields.includes('idempotencyKey');
-    const isActiveTicket = fields.length === 2
-      && fields.includes('userId')
-      && fields.includes('mode');
+    const isActiveTicket = (fields.length === 1 && fields[0] === 'userId')
+      || (fields.length === 2 && fields.includes('userId') && fields.includes('mode'));
     return isIdempotencyKey || isActiveTicket;
   }
   return false;

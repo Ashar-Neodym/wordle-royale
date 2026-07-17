@@ -9,6 +9,7 @@ import { AppModule } from '../src/app.module.ts';
 import { RedisReadinessService } from '../src/health/redis-readiness.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import { ApiExceptionFilter } from '../src/shared/api-exception.filter.ts';
+import { ProfileReadService } from '../src/profile/profile-read.service.ts';
 
 const currentUserId = '11111111-1111-4111-8111-111111111111';
 const guestUserId = '22222222-2222-4222-8222-222222222222';
@@ -233,5 +234,52 @@ describe('profile and match history REST read models', () => {
     assert.equal(response.body.data.rating.rating, 1486);
     assert.equal(response.body.data.rating.algorithm, 'standard_1v1_glicko_v1');
     assert.equal(response.body.data.recentMatches.length, 2);
+  });
+
+  it('does not expose exact Speed timing or guess fields before terminal completion', () => {
+    const service = new ProfileReadService({ client: {} } as any);
+    const summary = service.toMatchHistorySummary({
+      id: activeMatchId,
+      mode: 'ranked',
+      status: 'active',
+      rankedMode: 'speed_1v1',
+      rulesetVersion: 'speed_1v1_v1_75s',
+      completionReason: null,
+      createdAt: new Date('2026-07-16T00:00:00.000Z'),
+      startedAt: new Date('2026-07-16T00:00:01.000Z'),
+      completedAt: null,
+      participants: [{
+        userId: currentUserId,
+        placement: null,
+        outcome: 'pending',
+        finalScore: 0,
+        result: null,
+        terminalReason: null,
+        guessesUsed: 2,
+        solveElapsedMs: 12_300,
+        user: { id: currentUserId, displayName: 'Player One', profile: { publicHandle: 'player_one', avatarUrl: null } },
+        ratingEvents: [],
+      }],
+    } as any, currentUserId);
+    const participant = summary.participants[0] as any;
+    assert.equal('solveElapsedMs' in participant, false);
+    assert.equal('guessesUsed' in participant, false);
+    assert.equal('terminalReason' in participant, false);
+  });
+
+  it('filters public Speed history to the authoritative terminal ruleset and rating identity', async () => {
+    let where: any;
+    const service = new ProfileReadService({
+      client: {
+        userProfile: { findUnique: async () => ({ user: { id: currentUserId } }) },
+        match: { findMany: async (args: any) => { where = args.where; return []; } },
+      },
+    } as any);
+    await service.listProfileMatchHistoryByHandle('player_one', { mode: 'speed_1v1' });
+    assert.equal(where.rankedMode, 'speed_1v1');
+    assert.deepEqual(where.status, { in: ['completed', 'voided'] });
+    assert.equal(where.algorithmConfigVersion, 'speed_1v1_glicko_v1');
+    assert.equal(where.rulesetVersion, 'speed_1v1_v1_75s');
+    assert.deepEqual(where.adjudicatedAt, { not: null });
   });
 });
