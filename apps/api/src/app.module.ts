@@ -10,6 +10,8 @@ import { GameplayPersistenceService } from './gameplay/gameplay-persistence.serv
 import { SpeedExpiryReconcilerService } from './gameplay/speed-expiry-reconciler.service.ts';
 import { SpeedGameplayService } from './gameplay/speed-gameplay.service.ts';
 import { SpeedRuntimeHealthService } from './gameplay/speed-runtime-health.service.ts';
+import { SpeedLifecycleActivationService } from './gameplay/speed-lifecycle-activation.service.ts';
+import { SpeedLifecycleCapabilityService } from './gameplay/speed-lifecycle-capability.service.ts';
 import { HealthController } from './health/health.controller.ts';
 import { ReadinessService } from './health/readiness.service.ts';
 import { SpeedOperationalReadinessService } from './health/speed-operational-readiness.service.ts';
@@ -33,6 +35,6 @@ import { ProfileService } from './profile/profile.service.ts';
     }),
   ],
   controllers: [HealthController, AuthController, LobbyController, GameplayController, LeaderboardController, MatchmakingController, SpeedMatchmakingController],
-  providers: [PrismaService, StandardDictionaryService, RedisReadinessService, SpeedRuntimeHealthService, SpeedOperationalReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, SpeedGameplayService, SpeedExpiryReconcilerService, LeaderboardReadService, MatchmakingService],
+  providers: [PrismaService, StandardDictionaryService, RedisReadinessService, SpeedRuntimeHealthService, SpeedLifecycleCapabilityService, SpeedLifecycleActivationService, SpeedOperationalReadinessService, ReadinessService, PreviewDemoSessionService, CurrentUserService, ProfileService, ProfileReadService, LobbyService, GameplayPersistenceService, SpeedGameplayService, SpeedExpiryReconcilerService, LeaderboardReadService, MatchmakingService],
 })
 export class AppModule {}

@@ -97,6 +97,13 @@ export class SpeedRuntimeHealthService {
       && withinBudget;
   }
 
+  isPassCompletionEligible(passIdentity: SpeedReconcilerPassToken): boolean {
+    return this.schedulerRunning
+      && passIdentity.schedulerEpoch === this.schedulerEpoch
+      && this.isCurrentPass(passIdentity)
+      && this.now() - passIdentity.startedAt <= SPEED_RECONCILER_MAX_PASS_MS;
+  }
+
   isReconcilerReady(): boolean {
     return this.snapshot().ready;
   }

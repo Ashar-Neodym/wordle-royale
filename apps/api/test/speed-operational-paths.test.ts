@@ -44,6 +44,20 @@ describe('Ticket 166 fail-closed Speed operation paths', () => {
     for (const operation of operations) await assert.rejects(operation(), isStableUnavailable);
   });
 
+  it('keeps persisted snapshot reads available while activation-only creation is closed', async () => {
+    let dependencyChecks = 0;
+    let transactionReached = false;
+    const operational = {
+      assertAvailable: async () => { throw unavailable(); },
+      assertDependenciesAvailable: async () => { dependencyChecks += 1; },
+    } as any;
+    const prisma = { client: { $transaction: async () => { transactionReached = true; throw new Error('persistence_reached'); } } } as any;
+    const service = new SpeedGameplayService(prisma, {} as any, operational);
+    await assert.rejects(service.getSnapshot('match-1', 'user-1'), /persistence_reached/);
+    assert.equal(dependencyChecks, 1);
+    assert.equal(transactionReached, true);
+  });
+
   it('sanitizes the controller dispatch lookup when the enabled Speed database is unavailable', async () => {
     const previous = process.env.SPEED_1V1_QUEUE_ENABLED;
     process.env.SPEED_1V1_QUEUE_ENABLED = 'true';

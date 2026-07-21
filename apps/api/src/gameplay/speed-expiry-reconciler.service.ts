@@ -57,7 +57,10 @@ export class SpeedExpiryReconcilerService implements OnModuleInit, OnModuleDestr
     if (pass === null) return;
     this.running = true;
     try {
-      this.processed += await this.gameplay.reconcileDue();
+      this.processed += await this.gameplay.reconcileDue(
+        25,
+        () => this.runtimeHealth.isPassCompletionEligible(pass),
+      );
       if (this.runtimeHealth.markPassSucceeded(pass)) this.lastSuccessAt = new Date();
       else this.obsoleteCompletions += 1;
     } catch {

@@ -21,13 +21,14 @@ describe('Speed 1v1 public contracts', () => {
       roundId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       mode: 'speed_1v1',
       rulesetVersion: 'speed_1v1_v1_75s',
+      readyLifecycleVersion: 'speed_ready_v1_match_created_20s',
       state: 'in_progress',
       serverTime: timestamp,
       readyDeadlineAt: timestamp,
       startsAt: timestamp,
       deadlineAt: timestamp,
       timeControl: { roundTimeMs: 75_000, solveTimeBucketMs: 100, maxGuesses: 6 },
-      readiness: { viewerReady: true, readyCount: 2 },
+      readiness: { phase: 'legacy', viewerReady: true, readyCount: 2, viewerReadyAt: timestamp, viewerReadyOperationId: id },
       myState: { acceptedGuesses: [{ clientRequestId: id, guess: 'crane', guessNumber: 1, feedback: [{ letter: 'c', state: 'absent' }, { letter: 'r', state: 'absent' }, { letter: 'a', state: 'absent' }, { letter: 'n', state: 'absent' }, { letter: 'e', state: 'absent' }], submittedAt: timestamp }], terminalReason: null, guessesUsed: null, solveElapsedMs: null, result: null },
       opponentProgress: { acceptedGuessCount: 2, terminal: false },
     });
@@ -40,14 +41,18 @@ describe('Speed 1v1 public contracts', () => {
     const speed = speedRankedModeIdentitySchema.parse({
       id: 'speed_1v1', enabled: true, queueEnabled: true,
       rulesetVersion: 'speed_1v1_v1_75s',
+      readyLifecycleVersion: 'speed_ready_v2_first_ack_90s',
       ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1',
       timeControl: {
-        roundTimeSeconds: 75, readyWindowSeconds: 20, countdownSeconds: 3,
+        roundTimeSeconds: 75, invitationWindowSeconds: 90, readyWindowSeconds: 20,
+        readyWindowStartsOn: 'first_valid_ready_acknowledgement', countdownSeconds: 3,
         maxGuesses: 6, solveTimeBucketMs: 100,
         tieBreaker: 'server_solve_time_bucket',
       },
     });
-    assert.equal(speed.timeControl.roundTimeSeconds, 75);
-    assert.equal(speed.timeControl.tieBreaker, 'server_solve_time_bucket');
+    const timeControl = speed.timeControl;
+    assert.ok(timeControl);
+    assert.equal(timeControl.roundTimeSeconds, 75);
+    assert.equal(timeControl.tieBreaker, 'server_solve_time_bucket');
   });
 });

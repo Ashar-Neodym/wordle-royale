@@ -27,12 +27,32 @@ function createService(input: { database?: 'ok' | 'unavailable'; schema?: 'ok' |
   return new SpeedOperationalReadinessService({
     checkDatabase: async () => dependency(input.database ?? 'ok'),
     checkApplicationSchema: async () => dependency(input.schema ?? 'ok'),
+    checkSpeedReadyLifecycleSchema: async () => dependency(input.schema ?? 'ok'),
   } as any, {
     checkStandardDictionary: async () => dependency(input.dictionary ?? 'ok'),
   } as any, runtime);
 }
 
 describe('Ticket 166 Speed operational readiness', () => {
+  it('keeps Speed-specific lifecycle checks isolated when Speed is disabled', async () => {
+    delete process.env.SPEED_1V1_QUEUE_ENABLED;
+    let dependencyChecks = 0;
+    const readiness = new SpeedOperationalReadinessService({
+      checkDatabase: async () => { dependencyChecks += 1; return dependency('ok'); },
+      checkApplicationSchema: async () => { dependencyChecks += 1; return dependency('ok'); },
+      checkSpeedReadyLifecycleSchema: async () => { dependencyChecks += 1; return dependency('unavailable'); },
+    } as any, {
+      checkStandardDictionary: async () => { dependencyChecks += 1; return dependency('ok'); },
+    } as any, new SpeedRuntimeHealthService());
+
+    assert.deepEqual((await readiness.check()).reason, 'feature_disabled');
+    assert.equal(dependencyChecks, 0);
+    const catalog = new LeaderboardReadService({ client: {} } as any, readiness);
+    const modes = await catalog.listRankedModes();
+    assert.equal(modes.modes.find((mode) => mode.id === 'standard_1v1')?.enabled, true);
+    assert.equal(modes.modes.find((mode) => mode.id === 'speed_1v1')?.enabled, false);
+  });
+
   it('fails closed for each required dependency with one stable public error', async () => {
     for (const input of [
       { database: 'unavailable' as const },
@@ -56,7 +76,7 @@ describe('Ticket 166 Speed operational readiness', () => {
     const readiness = createService({ dictionary: 'unavailable' });
     const catalog = new LeaderboardReadService({ client: {} } as any, readiness);
     const speed = (await catalog.listRankedModes()).modes.find((mode) => mode.id === 'speed_1v1');
-    assert.equal(speed?.enabled, false);
+    assert.equal(speed?.enabled, true);
     assert.equal(speed?.queueEnabled, false);
     assert.equal(speed?.rulesetVersion, 'speed_1v1_v1_75s');
     assert.equal(speed?.ratingAlgorithmConfigVersion, 'speed_1v1_glicko_v1');

@@ -5,6 +5,9 @@ import { StandardDictionaryService } from '../dictionary/standard-dictionary.ser
 import type { StandardDictionarySelection } from '../dictionary/standard-dictionary.service.ts';
 import { GameplayPersistenceService } from '../gameplay/gameplay-persistence.service.ts';
 import { SpeedGameplayService } from '../gameplay/speed-gameplay.service.ts';
+import { SpeedLifecycleActivationService } from '../gameplay/speed-lifecycle-activation.service.ts';
+import { SPEED_LIFECYCLE_CONTROL_PROTOCOL, SPEED_LIFECYCLE_V1 } from '../gameplay/speed-lifecycle-activation.constants.ts';
+import type { SpeedCreationAuthority } from '../gameplay/speed-lifecycle-activation.types.ts';
 import { SpeedOperationalReadinessService } from '../health/speed-operational-readiness.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { STANDARD_1V1_RATING_ALGORITHM, STANDARD_1V1_RATING_ALGORITHM_VERSION } from '../rating/standard-1v1-rating.ts';
@@ -81,6 +84,7 @@ type TicketRecord = {
   expiresAt: Date | string;
   cancelledAt: Date | string | null;
   timedOutAt: Date | string | null;
+  readyLifecycleVersion: string | null;
   matchedOpponent?: {
     id: string;
     displayName: string;
@@ -122,6 +126,7 @@ export class MatchmakingService {
     @Optional() @Inject(MATCHMAKING_LIFECYCLE_DEPENDENCIES) lifecycleDependencies?: MatchmakingLifecycleDependencies,
     @Optional() @Inject(SpeedGameplayService) private readonly speedGameplay?: SpeedGameplayService,
     @Optional() @Inject(SpeedOperationalReadinessService) private readonly speedOperational?: SpeedOperationalReadinessService,
+    @Optional() @Inject(SpeedLifecycleActivationService) private readonly speedActivation?: SpeedLifecycleActivationService,
   ) {
     this.transactionBudget = matchmakingTransactionBudget();
     this.lifecycleDependencies = lifecycleDependencies ?? defaultMatchmakingLifecycleDependencies();
@@ -147,7 +152,7 @@ export class MatchmakingService {
   }
 
   async getCurrentSpeedTicket(userId: string, now?: Date): Promise<Speed1v1Ticket | null> {
-    await this.assertSpeedOperational();
+    await this.assertSpeedDependencies();
     return await this.getCurrentAutomaticTicket(userId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket | null;
   }
 
@@ -156,7 +161,7 @@ export class MatchmakingService {
   }
 
   async getSpeedTicket(userId: string, ticketId: string, now?: Date): Promise<Speed1v1Ticket> {
-    await this.assertSpeedOperational();
+    await this.assertSpeedDependencies();
     return await this.getAutomaticTicket(userId, ticketId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket;
   }
 
@@ -165,7 +170,7 @@ export class MatchmakingService {
   }
 
   async cancelSpeedTicket(userId: string, ticketId: string, now?: Date): Promise<Speed1v1Ticket> {
-    await this.assertSpeedOperational();
+    await this.assertSpeedDependencies();
     return await this.cancelAutomaticTicket(userId, ticketId, QUEUE_POLICIES.speed_1v1, now) as Speed1v1Ticket;
   }
 
@@ -180,6 +185,7 @@ export class MatchmakingService {
     return await this.runLifecycle({
       initial: async (tx, context) => {
         const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+        const authority = await this.creationAuthority(tx, policy);
         const dictionary = await this.requireDictionary(tx);
         await this.lockUserActivity(tx, userId);
         await this.expireQueuedTickets(tx, attemptNow);
@@ -189,13 +195,13 @@ export class MatchmakingService {
           where: { userId_mode_idempotencyKey: { userId, mode: policy.mode, idempotencyKey: input.clientRequestId } },
           include: TICKET_INCLUDE,
         }) as TicketRecord | null;
-        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, attemptNow, dictionary, policy)), created: false };
+        if (replay) return { ticket: this.toDto(await this.attemptPair(tx, replay, attemptNow, dictionary, policy, authority)), created: false };
 
         const active = await this.findActiveTicket(tx, userId);
         if (active) {
           if (active.mode !== policy.mode) throw this.rankedActivityConflict(active.mode);
           await this.writeAudit(tx, userId, 'matchmaking_duplicate_active_ticket', active.id, null, { state: active.state, mode: policy.mode });
-          return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy)), created: false };
+          return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy, authority)), created: false };
         }
         if (await this.hasActiveRankedMatch(tx, userId)) throw this.rankedActivityConflict('active_match');
 
@@ -218,6 +224,7 @@ export class MatchmakingService {
               expansionStep: 0,
               idempotencyKey: input.clientRequestId,
               expiresAt,
+              readyLifecycleVersion: authority?.activeVersion ?? null,
             },
             include: TICKET_INCLUDE,
           }) as TicketRecord;
@@ -229,10 +236,11 @@ export class MatchmakingService {
           throw error;
         }
         await this.writeAudit(tx, userId, 'matchmaking_queued', ticket.id, null, { mode: policy.mode, ratingAtQueue: profile.rating, provisional });
-        return { ticket: this.toDto(await this.attemptPair(tx, ticket, attemptNow, dictionary, policy)), created: true };
+        return { ticket: this.toDto(await this.attemptPair(tx, ticket, attemptNow, dictionary, policy, authority)), created: true };
       },
       recoverUnique: async (tx, context) => {
         const attemptNow = now && context.attempt === 1 ? now : context.attemptNow;
+        const authority = await this.creationAuthority(tx, policy);
         const dictionary = await this.requireDictionary(tx);
         await this.lockUserActivity(tx, userId);
         const replay = await tx.matchmakingTicket.findUnique({
@@ -242,7 +250,7 @@ export class MatchmakingService {
         const active = replay ?? await this.findActiveTicket(tx, userId);
         if (!active) throw new MatchmakingRecoveryPendingError();
         if (active.mode !== policy.mode) throw this.rankedActivityConflict(active.mode);
-        return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy)), created: false };
+        return { ticket: this.toDto(await this.attemptPair(tx, active, attemptNow, dictionary, policy, authority)), created: false };
       },
     });
   }
@@ -255,7 +263,8 @@ export class MatchmakingService {
       await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
       const ticket = await this.findActiveTicket(tx, userId, policy.mode);
       if (!ticket) return null;
-      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy));
+      const authority = await this.optionalCreationAuthority(tx, policy);
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy, authority));
     } });
   }
 
@@ -267,7 +276,8 @@ export class MatchmakingService {
       await this.releaseCompletedMatchedTickets(tx, userId, attemptNow);
       const ticket = await tx.matchmakingTicket.findFirst({ where: { id: ticketId, userId, mode: policy.mode }, include: TICKET_INCLUDE }) as TicketRecord | null;
       if (!ticket) throw new NotFoundException({ code: 'ticket_not_found', message: 'Matchmaking ticket was not found.' });
-      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy));
+      const authority = await this.optionalCreationAuthority(tx, policy);
+      return this.toDto(await this.attemptPair(tx, ticket, attemptNow, undefined, policy, authority));
     } });
   }
 
@@ -304,8 +314,10 @@ export class MatchmakingService {
     now: Date,
     selectedDictionary: StandardDictionarySelection | undefined,
     policy: QueuePolicy,
+    authority?: SpeedCreationAuthority,
   ): Promise<TicketRecord> {
     if (ticket.state !== 'queued') return ticket;
+    if (policy.mode === 'speed_1v1' && !authority) return ticket;
     const dictionary = selectedDictionary ?? await this.requireDictionary(tx);
     if (asDate(ticket.expiresAt).getTime() <= now.getTime()) {
       return await tx.matchmakingTicket.update({
@@ -328,6 +340,8 @@ export class MatchmakingService {
          FROM "MatchmakingTicket" AS candidate
         WHERE candidate."state" = 'queued'
           AND candidate."mode" = $11::"RankedMode"
+          AND ($11::"RankedMode" <> 'speed_1v1'::"RankedMode"
+               OR COALESCE(candidate."readyLifecycleVersion", $12) = $13)
           AND candidate."rated" = TRUE
           AND candidate."userId" <> $1
           AND candidate."expiresAt" > $2
@@ -376,6 +390,8 @@ export class MatchmakingService {
       new Date(now.getTime() - 12 * 60 * 60 * 1000),
       allowRecentOpponent,
       policy.mode,
+      SPEED_LIFECYCLE_V1,
+      authority?.activeVersion ?? SPEED_LIFECYCLE_V1,
     ) as LockedCandidate[];
     let repeatCooldownRelaxed = false;
     let candidateRows = await queryCandidate(false);
@@ -388,6 +404,10 @@ export class MatchmakingService {
 
     const candidate = await tx.matchmakingTicket.findUnique({ where: { id: candidateId } }) as TicketRecord | null;
     if (!candidate || candidate.state !== 'queued' || candidate.userId === ticket.userId) return ticket;
+    if (authority) {
+      this.assertTicketVersion(authority, ticket.readyLifecycleVersion);
+      this.assertTicketVersion(authority, candidate.readyLifecycleVersion);
+    }
     // The candidate may still be committing its own join transaction. Do not
     // wait while holding the requester lock: that creates symmetric waits when
     // two first joins select each other. A later status poll can pair them.
@@ -439,6 +459,8 @@ export class MatchmakingService {
           dictionaryReleaseId: dictionaryRelease.releaseId,
           participantUserIds: ordered.map((entry) => entry.userId),
           idempotencyKey,
+          readyLifecycleVersion: authority!.activeVersion,
+          activationGeneration: authority!.generation,
         }, tx)
       : await this.gameplay.startRankedMatch({
           dictionaryReleaseId: dictionaryRelease.releaseId,
@@ -615,6 +637,31 @@ export class MatchmakingService {
     if (this.speedOperational) return await this.speedOperational.assertAvailable();
     if (process.env.NODE_ENV === 'test') return;
     throw new ServiceUnavailableException({ code: 'speed_1v1_unavailable', message: 'Speed 1v1 is temporarily unavailable. Retry later.' });
+  }
+
+  private async assertSpeedDependencies(): Promise<void> {
+    if (this.speedOperational) return await this.speedOperational.assertDependenciesAvailable();
+    if (process.env.NODE_ENV === 'test') return;
+    throw new ServiceUnavailableException({ code: 'speed_1v1_unavailable', message: 'Speed 1v1 is temporarily unavailable. Retry later.' });
+  }
+
+  private async creationAuthority(tx: any, policy: QueuePolicy): Promise<SpeedCreationAuthority | undefined> {
+    if (policy.mode !== 'speed_1v1') return undefined;
+    if (this.speedActivation) return await this.speedActivation.lockCreationAuthority(tx);
+    if (process.env.NODE_ENV === 'test') return { protocol: SPEED_LIFECYCLE_CONTROL_PROTOCOL, phase: 'v1_open', activeVersion: SPEED_LIFECYCLE_V1, generation: 1n };
+    throw new ServiceUnavailableException({ code: 'speed_lifecycle_activation_unavailable', message: 'Speed lifecycle activation is temporarily unavailable.' });
+  }
+
+  private async optionalCreationAuthority(tx: any, policy: QueuePolicy): Promise<SpeedCreationAuthority | undefined> {
+    if (policy.mode !== 'speed_1v1') return undefined;
+    try { return await this.creationAuthority(tx, policy); } catch { return undefined; }
+  }
+
+  private assertTicketVersion(authority: SpeedCreationAuthority, version: string | null): void {
+    if (this.speedActivation) return this.speedActivation.assertTicketVersion(authority, version);
+    if ((version ?? SPEED_LIFECYCLE_V1) !== authority.activeVersion) {
+      throw new ServiceUnavailableException({ code: 'speed_lifecycle_version_mismatch', message: 'Speed lifecycle compatibility is temporarily unavailable.' });
+    }
   }
 
   private requireSpeedGameplay(): SpeedGameplayService {

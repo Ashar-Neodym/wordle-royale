@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { cancelSpeed1v1Ticket, cancelStandard1v1Ticket, completeRankedMatch, createLobby, createSpeed1v1Ticket, createStandard1v1Ticket, forfeitSpeedMatch, getApiBaseUrl, getCurrentSpeed1v1Ticket, getCurrentStandard1v1Ticket, getRankedMatchState, getSpeed1v1Ticket, getStandard1v1Ticket, joinLobby, joinLobbyByCode, markSpeedMatchReady, startRankedMatch, submitGuess } from '../lib/api-client';
+import { cancelSpeed1v1Ticket, cancelStandard1v1Ticket, completeRankedMatch, createLobby, createSpeed1v1Ticket, createStandard1v1Ticket, forfeitSpeedMatch, getApiBaseUrl, getCurrentSpeed1v1Ticket, getCurrentStandard1v1Ticket, getRankedMatchState, getSpeed1v1Ticket, getSpeedMatchStateForRecovery, getStandard1v1Ticket, joinLobby, joinLobbyByCode, markSpeedMatchReady, startRankedMatch, submitGuess, submitSpeedGuess } from '../lib/api-client';
 import type { ApiClientResult, CreateStandard1v1TicketRequest, LiveMatchState, Standard1v1Ticket } from '../lib/api-client';
 import type { CreateLobbyRequest, GuessResult, Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contracts';
+import { raceSpeedOperation, SPEED_MUTATION_POLICY } from '../lib/speed-mutation-policy';
 
 const rankedLobbyDefaults: CreateLobbyRequest = {
   clientRequestId: '00000000-0000-4000-8000-000000000000',
@@ -154,16 +155,33 @@ export async function getSpeedMatchStateAction(matchId: string): Promise<ApiClie
   return getRankedMatchState(matchId);
 }
 
+export async function getSpeedMatchRecoveryStateAction(matchId: string): Promise<ApiClientResult<LiveMatchState>> {
+  return getSpeedMatchStateForRecovery(matchId);
+}
+
+async function runSpeedServerAction<T>(operation: () => Promise<ApiClientResult<T>>): Promise<ApiClientResult<T>> {
+  const outcome = await raceSpeedOperation(operation, SPEED_MUTATION_POLICY.serverActionMs);
+  if (outcome.kind === 'settled') return outcome.value;
+  return {
+    status: 'unavailable',
+    apiUrl: getApiBaseUrl(),
+    data: null,
+    requestId: null,
+    error: 'Speed server action exceeded its 30-second hosted budget. The mutation outcome is uncertain.',
+    errorCode: 'speed_server_action_timeout',
+  };
+}
+
 export async function markSpeedMatchReadyAction(matchId: string, clientRequestId: string): Promise<ApiClientResult<SpeedMatchSnapshot>> {
-  return markSpeedMatchReady(matchId, { clientRequestId });
+  return runSpeedServerAction(() => markSpeedMatchReady(matchId, { clientRequestId }));
 }
 
 export async function forfeitSpeedMatchAction(matchId: string, clientRequestId: string): Promise<ApiClientResult<SpeedMatchSnapshot>> {
-  return forfeitSpeedMatch(matchId, { clientRequestId });
+  return runSpeedServerAction(() => forfeitSpeedMatch(matchId, { clientRequestId }));
 }
 
 export async function submitSpeedGuessAction(matchId: string, roundId: string, guess: string, clientRequestId: string): Promise<ApiClientResult<GuessResult>> {
-  return submitGuess({ clientRequestId, matchId, roundId, guess: guess.toLowerCase(), clientSubmittedAt: new Date().toISOString() });
+  return runSpeedServerAction(() => submitSpeedGuess({ clientRequestId, matchId, roundId, guess: guess.toLowerCase(), clientSubmittedAt: new Date().toISOString() }));
 }
 
 export async function createRankedLobbyAction(): Promise<void> {

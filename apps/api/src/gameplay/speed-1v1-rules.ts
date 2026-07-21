@@ -1,6 +1,9 @@
 export const SPEED_1V1_RULESET_VERSION = 'speed_1v1_v1_75s' as const;
 export const SPEED_1V1_ADJUDICATION_VERSION = 'speed_1v1_adjudication_v1' as const;
 export const SPEED_READY_WINDOW_MS = 20_000;
+export const SPEED_INVITATION_WINDOW_MS = 90_000;
+export const SPEED_READY_LIFECYCLE_V1 = 'speed_ready_v1_match_created_20s' as const;
+export const SPEED_READY_LIFECYCLE_V2 = 'speed_ready_v2_first_ack_90s' as const;
 export const SPEED_COUNTDOWN_MS = 3_000;
 export const SPEED_ROUND_TIME_MS = 75_000;
 export const SPEED_SOLVE_BUCKET_MS = 100;
