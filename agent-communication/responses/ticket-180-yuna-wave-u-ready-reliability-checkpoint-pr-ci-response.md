@@ -2,7 +2,7 @@
 
 Task: Wave U Ready Reliability Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 193 PASS and local/PostgreSQL gates confirmed; branch/PR/CI evidence pending.
+Status: **PASS** — Ticket 193 authorized checkpointing; canonical and disposable-PostgreSQL gates passed; branch pushed; PR #11 opened; implementation-head GitHub/Vercel checks passed; no merge or production action performed.
 
 ## What I understood
 
@@ -103,7 +103,41 @@ Expected excluded artifacts:
 
 ## Branch/PR/CI
 
-Pending final checkpoint operations.
+```text
+base = main @ 07aa546b157199a192cc8d156b52a26a4eeb8118
+branch = wave-u/hosted-speed-ready-reliability
+checkpoint commit = 05b3b6d889fbd1dcdc1700caf4ae0cfb2d17e918
+commit subject = feat: checkpoint wave u ready reliability
+local SHA = remote SHA
+staged paths = 86
+blocked staged paths = []
+```
+
+Pull request:
+
+- PR #11: https://github.com/Ashar-Neodym/wordle-royale/pull/11
+- base: `main`
+- head: `wave-u/hosted-speed-ready-reliability`
+- state at implementation checkpoint: open, non-draft
+
+Implementation-head checks:
+
+```text
+Workspace checks = PASS, 1m28s
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29825948203
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29825948203/job/88619215300
+Vercel PR Preview = PASS
+Vercel Preview Comments = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/J4s5SpzMCdj2vrh3KiqbJDXUCXWe
+```
+
+The Vercel result is an automatic PR Preview, not production deployment evidence or authorization.
+
+Checkpoint hygiene:
+
+- `git diff --cached --check` passed after removing trailing whitespace from 13 Markdown evidence/contract files without semantic edits.
+- `.env.preview.local`, generated builds, Expo/Next caches, tsbuildinfo, logs, dumps, coverage, and temporary PostgreSQL artifacts remained excluded.
+- The branch was created from exact `origin/main`, not from the already-merged Wave T topic history.
 
 ## Safety and approval boundaries
 
