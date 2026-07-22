@@ -121,6 +121,8 @@ enum SpeedCompletionReason {
   deadline
   forfeit
   ready_timeout
+  invitation_timeout
+  pre_start_cancelled
   operator_void
 }
 
@@ -252,6 +254,9 @@ model Match {
   algorithmConfigVersion String?
   rulesetVersion         String?
   readyDeadlineAt        DateTime?
+  readyLifecycleVersion  String?
+  invitationExpiresAt    DateTime?
+  readyWindowStartedAt   DateTime?
   adjudicatedAt          DateTime?
   adjudicationVersion    String?
   completionReason       SpeedCompletionReason?
@@ -495,6 +500,7 @@ model MatchmakingTicket {
   timedOutAt                        DateTime?
   failedAt                          DateTime?
   failureCode                       String?
+  readyLifecycleVersion             String?
 
   user            UserAccount  @relation("MatchmakingTicketUser", fields: [userId], references: [id], onDelete: Cascade)
   matchedOpponent UserAccount? @relation("MatchmakingTicketOpponent", fields: [matchedOpponentUserId], references: [id], onDelete: SetNull)
@@ -505,6 +511,36 @@ model MatchmakingTicket {
   @@index([state, expiresAt])
   @@index([matchedMatchId])
   @@index([matchedOpponentUserId])
+}
+
+model SpeedLifecycleActivation {
+  key                   String   @id
+  controlProtocol       String
+  phase                 String
+  activeCreationVersion String?
+  generation            BigInt
+  targetReleaseId       String?
+  expectedReplicaCount  Int?
+  transitionReason      String?
+  updatedAt             DateTime @updatedAt
+  createdAt             DateTime @default(now())
+}
+
+model SpeedLifecycleCapabilityLease {
+  instanceBootId          String   @id
+  serviceId               String
+  releaseId               String
+  controlProtocol         String
+  supportsV1              Boolean
+  supportsV2              Boolean
+  supportsLegacyReconcile Boolean
+  observedGeneration      BigInt?
+  startedAt               DateTime
+  lastSeenAt              DateTime
+  expiresAt               DateTime
+
+  @@index([releaseId, expiresAt])
+  @@index([controlProtocol, expiresAt])
 }
 
 model AnalyticsEvent {

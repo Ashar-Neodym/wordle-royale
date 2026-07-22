@@ -23,6 +23,7 @@ import type {
 } from '@wordle-royale/contracts';
 import { cookies } from 'next/headers';
 import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy';
+import { SPEED_MUTATION_POLICY } from './speed-mutation-policy';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
 
@@ -293,6 +294,19 @@ async function requestReadEnvelope<T>(path: string, options: RequestInit = {}): 
   throw new Error('Hosted read attempt accounting failed.');
 }
 
+async function requestSpeedRecoveryReadEnvelope<T>(path: string): Promise<ApiClientResult<T>> {
+  for (let attempt = 1; attempt <= SPEED_MUTATION_POLICY.recoveryReadAttempts; attempt += 1) {
+    const outcome = await requestEnvelopeAttempt<T>(path, {
+      timeoutMs: SPEED_MUTATION_POLICY.recoveryReadTimeoutMs,
+    });
+    if (outcome.result.status === 'connected'
+      || !outcome.retryableRead
+      || attempt === SPEED_MUTATION_POLICY.recoveryReadAttempts) return outcome.result;
+    await new Promise((resolve) => setTimeout(resolve, SPEED_MUTATION_POLICY.recoveryRetryDelayMs));
+  }
+  throw new Error('Speed recovery read attempt accounting failed.');
+}
+
 export async function getHealth(): Promise<ApiClientResult<ApiHealthPayload>> {
   return requestReadEnvelope<ApiHealthPayload>('/healthz');
 }
@@ -381,12 +395,24 @@ export async function getRankedMatchState(matchId: string): Promise<ApiClientRes
   return requestReadEnvelope<LiveMatchState>(`/matches/${encodeURIComponent(matchId)}/state`);
 }
 
+export async function getSpeedMatchStateForRecovery(matchId: string): Promise<ApiClientResult<LiveMatchState>> {
+  return requestSpeedRecoveryReadEnvelope<LiveMatchState>(`/matches/${encodeURIComponent(matchId)}/state`);
+}
+
 export async function markSpeedMatchReady(matchId: string, body: MarkSpeedMatchReadyRequest): Promise<ApiClientResult<SpeedMatchSnapshot>> {
-  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/ready`, { method: 'POST', body: JSON.stringify(body) });
+  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/ready`, { method: 'POST', body: JSON.stringify(body), timeoutMs: SPEED_MUTATION_POLICY.apiProxyMs });
 }
 
 export async function forfeitSpeedMatch(matchId: string, body: ForfeitSpeedMatchRequest): Promise<ApiClientResult<SpeedMatchSnapshot>> {
-  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/forfeit`, { method: 'POST', body: JSON.stringify(body) });
+  return requestEnvelope<SpeedMatchSnapshot>(`/matches/${encodeURIComponent(matchId)}/forfeit`, { method: 'POST', body: JSON.stringify(body), timeoutMs: SPEED_MUTATION_POLICY.apiProxyMs });
+}
+
+export async function submitSpeedGuess(body: SubmitGuessRequest): Promise<ApiClientResult<GuessResult>> {
+  return requestEnvelope<GuessResult>(`/matches/${encodeURIComponent(body.matchId)}/rounds/${encodeURIComponent(body.roundId)}/guesses`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    timeoutMs: SPEED_MUTATION_POLICY.apiProxyMs,
+  });
 }
 
 export async function submitGuess(body: SubmitGuessRequest): Promise<ApiClientResult<GuessResult>> {

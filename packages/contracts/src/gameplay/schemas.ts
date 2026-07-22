@@ -102,32 +102,28 @@ export const rejectedGuessResultSchema = z.object({
 export const guessResultSchema = z.discriminatedUnion('accepted', [acceptedGuessResultSchema, rejectedGuessResultSchema]);
 
 export const speedRulesetVersionSchema = z.literal('speed_1v1_v1_75s');
-export const speedMatchStateSchema = z.enum(['waiting_ready', 'countdown', 'in_progress', 'finalizing', 'completed', 'voided']);
+export const speedReadyLifecycleVersionSchema = z.enum(['speed_ready_v1_match_created_20s', 'speed_ready_v2_first_ack_90s']);
+export const speedMatchStateSchema = z.enum(['waiting_ready', 'waiting_invitation', 'waiting_opponent_ready', 'countdown', 'in_progress', 'finalizing', 'completed', 'voided']);
 export const speedTerminalReasonSchema = z.enum(['solved', 'max_guesses', 'deadline_timeout', 'forfeit', 'awarded_forfeit_win', 'no_contest', 'operator_void']);
 export const speedParticipantResultSchema = z.enum(['win', 'loss', 'draw', 'void']);
-export const speedCompletionReasonSchema = z.enum(['all_players_terminal', 'deadline', 'forfeit', 'ready_timeout', 'operator_void']);
+export const speedCompletionReasonSchema = z.enum(['all_players_terminal', 'deadline', 'forfeit', 'ready_timeout', 'invitation_timeout', 'pre_start_cancelled', 'operator_void']);
 
 export const markSpeedMatchReadyRequestSchema = clientRequestSchema;
 export const forfeitSpeedMatchRequestSchema = clientRequestSchema;
 
-export const speedMatchSnapshotSchema = z.object({
+const speedMatchSnapshotBaseSchema = z.object({
   matchId: idSchema,
   roundId: idSchema,
   mode: z.literal('speed_1v1'),
   rulesetVersion: speedRulesetVersionSchema,
   state: speedMatchStateSchema,
   serverTime: timestampSchema,
-  readyDeadlineAt: timestampSchema,
   startsAt: timestampSchema.nullable(),
   deadlineAt: timestampSchema.nullable(),
   timeControl: z.object({
     roundTimeMs: z.literal(75_000),
     solveTimeBucketMs: z.literal(100),
     maxGuesses: z.literal(6),
-  }),
-  readiness: z.object({
-    viewerReady: z.boolean(),
-    readyCount: z.number().int().min(0).max(2),
   }),
   myState: z.object({
     acceptedGuesses: z.array(z.object({
@@ -148,9 +144,40 @@ export const speedMatchSnapshotSchema = z.object({
   }),
 });
 
+export const speedMatchSnapshotV1Schema = speedMatchSnapshotBaseSchema.extend({
+  readyLifecycleVersion: z.literal('speed_ready_v1_match_created_20s'),
+  readyDeadlineAt: timestampSchema,
+  readiness: z.object({
+    phase: z.literal('legacy'),
+    viewerReady: z.boolean(),
+    readyCount: z.number().int().min(0).max(2),
+    viewerReadyAt: timestampSchema.nullable(),
+    viewerReadyOperationId: z.string().min(1).nullable(),
+  }),
+});
+
+export const speedMatchSnapshotV2Schema = speedMatchSnapshotBaseSchema.extend({
+  readyLifecycleVersion: z.literal('speed_ready_v2_first_ack_90s'),
+  state: z.enum(['waiting_invitation', 'waiting_opponent_ready', 'countdown', 'in_progress', 'finalizing', 'completed', 'voided']),
+  invitationExpiresAt: timestampSchema,
+  readyWindowStartedAt: timestampSchema.nullable(),
+  readyDeadlineAt: timestampSchema.nullable(),
+  readiness: z.object({
+    phase: z.enum(['invitation', 'opponent_ready', 'locked']),
+    viewerReady: z.boolean(),
+    readyCount: z.number().int().min(0).max(2),
+    viewerReadyAt: timestampSchema.nullable(),
+    viewerReadyOperationId: z.string().min(1).nullable(),
+  }),
+});
+
+export const speedMatchSnapshotSchema = z.discriminatedUnion('readyLifecycleVersion', [speedMatchSnapshotV1Schema, speedMatchSnapshotV2Schema]);
+
 export const speedRankedModeTimeControlSchema = z.object({
   roundTimeSeconds: z.literal(75),
+  invitationWindowSeconds: z.literal(90),
   readyWindowSeconds: z.literal(20),
+  readyWindowStartsOn: z.literal('first_valid_ready_acknowledgement'),
   countdownSeconds: z.literal(3),
   maxGuesses: z.literal(6),
   solveTimeBucketMs: z.literal(100),
@@ -162,8 +189,10 @@ export const speedRankedModeIdentitySchema = z.object({
   enabled: z.boolean(),
   queueEnabled: z.boolean(),
   rulesetVersion: speedRulesetVersionSchema,
+  readyLifecycleVersion: z.enum(['speed_ready_v1_match_created_20s', 'speed_ready_v2_first_ack_90s']).optional(),
+  unavailableReason: z.enum(['lifecycle_activation_draining', 'speed_temporarily_unavailable']).optional(),
   ratingAlgorithmConfigVersion: z.literal('speed_1v1_glicko_v1'),
-  timeControl: speedRankedModeTimeControlSchema,
+  timeControl: speedRankedModeTimeControlSchema.optional(),
 });
 
 

@@ -5,7 +5,7 @@ const localPassword = ['wordle', 'local', 'password'].join('_');
 const baseDatabaseUrl = process.env.SPEED_TEST_DATABASE_URL
   ?? process.env.DATABASE_URL
   ?? [`postgresql://wordle:${localPassword}@localhost:5432/wordle_royale_local?schema=public`].join('');
-const schemaName = `ticket170_${process.pid}_${Date.now()}`;
+const schemaName = `ticket177_${process.pid}_${Date.now()}`;
 const databaseUrlForSchema = (schema) => {
   const url = new URL(baseDatabaseUrl);
   url.searchParams.set('schema', schema);
@@ -20,7 +20,7 @@ const run = (command, args, env) => {
 const admin = new PrismaClient({ datasources: { db: { url: databaseUrlForSchema('public') } } });
 const schemaDatabaseUrl = databaseUrlForSchema(schemaName);
 let exitCode = 0;
-console.log(`Ticket 170 deterministic PostgreSQL timing schema: ${schemaName}`);
+console.log(`Ticket 177 deterministic PostgreSQL ready/timing schema: ${schemaName}`);
 try {
   await admin.$executeRawUnsafe(`CREATE SCHEMA "${schemaName}"`);
   run('pnpm', ['db:migrate:deploy'], { DATABASE_URL: schemaDatabaseUrl });
@@ -36,7 +36,7 @@ try {
 } finally {
   try {
     await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-    console.log(`Dropped Ticket 170 PostgreSQL timing schema: ${schemaName}`);
+    console.log(`Dropped Ticket 177 PostgreSQL ready/timing schema: ${schemaName}`);
   } catch (error) {
     exitCode = 1;
     console.error(error instanceof Error ? error.message : error);

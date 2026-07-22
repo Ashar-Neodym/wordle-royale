@@ -17,10 +17,13 @@ export class ReadinessService {
   ) {}
 
   async getReadiness(): Promise<ReadinessStatus> {
-    const [database, applicationSchema, redis] = await Promise.all([
+    const [database, applicationSchema, redis, speedLifecycleSchema] = await Promise.all([
       this.prisma.checkDatabase(),
       this.prisma.checkApplicationSchema(),
       this.redis.checkRedis(),
+      speedQueueEnabled()
+        ? this.prisma.checkSpeedReadyLifecycleSchema(false)
+        : Promise.resolve({ status: 'not_checked_stub' as const, checkedAt: new Date().toISOString() }),
     ]);
     const checkedAt = new Date().toISOString();
     const standardDictionary = !standardQueueEnabled() && !speedQueueEnabled()
@@ -30,13 +33,20 @@ export class ReadinessService {
         : applicationSchema.status !== 'ok'
           ? { status: 'unavailable' as const, checkedAt, message: 'Standard dictionary availability depends on the migrated application schema.' }
           : await this.dictionary.checkStandardDictionary();
-    const operational = this.speedOperational?.evaluate({ database, applicationSchema, dictionary: standardDictionary })
-      ?? { available: false, reason: speedQueueEnabled() ? 'reconciler_unavailable' as const : 'feature_disabled' as const };
-    const speedRuntime = operational.reason === 'feature_disabled'
+    const evaluated = this.speedOperational
+      ? await this.speedOperational.check()
+      : { available: false, reason: speedQueueEnabled() ? 'reconciler_unavailable' as const : 'feature_disabled' as const };
+    const activationOnlyReasons = new Set(['activation_unavailable', 'activation_draining', 'activation_protocol_unsupported', 'active_version_unsupported', 'capability_lease_unavailable', 'activation_schema_unavailable']);
+    const speedRuntime = evaluated.reason === 'feature_disabled'
       ? { status: 'not_checked_stub' as const, checkedAt, message: 'Speed gameplay is not required because Speed matchmaking is disabled.' }
-      : operational.available
-        ? { status: 'ok' as const, checkedAt, message: 'Speed rules, persistence, dictionary, and expiry reconciliation are available.' }
+      : evaluated.available || activationOnlyReasons.has(evaluated.reason)
+        ? { status: 'ok' as const, checkedAt, message: 'Speed persisted-row gameplay and expiry reconciliation dependencies are available.' }
         : { status: 'unavailable' as const, checkedAt, message: 'Speed gameplay operational readiness is unavailable.' };
+    const speedLifecycleActivation = evaluated.available
+      ? { status: 'ok' as const, checkedAt, message: 'Speed lifecycle creation authority is available.' }
+      : activationOnlyReasons.has(evaluated.reason)
+        ? { status: 'unavailable' as const, checkedAt, message: 'Speed lifecycle creation is safely closed.' }
+        : { status: 'not_checked_stub' as const, checkedAt, message: 'Speed lifecycle activation was not evaluated independently.' };
 
     const blockingStatuses = [database.status, applicationSchema.status, standardDictionary.status, speedRuntime.status, redis.status].filter((value) => value !== 'not_checked_stub');
     const status = blockingStatuses.every((value) => value === 'ok')
@@ -50,7 +60,7 @@ export class ReadinessService {
       service: 'wordle-royale-api',
       environment: process.env.NODE_ENV ?? 'development',
       checkedAt: new Date().toISOString(),
-      dependencies: { database, applicationSchema, standardDictionary, speedRuntime, redis },
+      dependencies: { database, applicationSchema, standardDictionary, speedRuntime, speedLifecycleActivation, redis },
     };
   }
 }

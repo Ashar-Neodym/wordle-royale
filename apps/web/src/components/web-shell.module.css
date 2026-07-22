@@ -56,6 +56,11 @@
 .panelWide { padding: 16px; margin-bottom: 12px; }
 .successPanel { border-color: #698a4e; background: #283426; margin-bottom: 12px; }
 .errorPanel { border-color: #9c5c52; background: #3a2724; margin-bottom: 12px; }
+.statusStrip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; padding: 10px 12px; border: 1px solid #65768d; border-radius: 4px; background: #242d38; color: var(--wr-human-text); }
+.statusStrip strong { text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
+.statusStrip[data-state='uncertain'], .statusStrip[data-state='retry_safe'] { border-color: #b58a45; background: #352f22; }
+.statusStrip[data-state='confirmed'] { border-color: #698a4e; background: #283426; }
+.statusStrip[data-state='expired'] { border-color: #9c5c52; background: #3a2724; }
 .cardTopline, .roomSummary, .reportRow, .leaderRow, .memberRow, .progressRow, .statusCard { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .reportRow > div, .leaderRow > div, .memberRow > div, .statusCard > div { min-width: 0; }
 .statusCard { justify-content: flex-start; min-height: auto; font-size: 13px; }

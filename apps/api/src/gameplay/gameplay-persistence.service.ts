@@ -107,7 +107,10 @@ function finalizeReasonFromPersistedSpeedCompletion(completionReason: string | n
     case 'deadline': return 'timeout';
     case 'forfeit': return 'forfeit';
     case 'ready_timeout':
+    case 'invitation_timeout':
+    case 'pre_start_cancelled':
     case 'operator_void': return 'voided';
+    default: throw new BadRequestException({ code: 'speed_completion_identity_invalid', message: 'Speed completion identity is unsupported.' });
   }
 }
 

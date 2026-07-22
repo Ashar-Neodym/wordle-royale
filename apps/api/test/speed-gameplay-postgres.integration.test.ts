@@ -5,6 +5,7 @@ import { localFixtureUsers } from '../src/auth/current-user.service.ts';
 import { StandardDictionaryService } from '../src/dictionary/standard-dictionary.service.ts';
 import { GameplayPersistenceService } from '../src/gameplay/gameplay-persistence.service.ts';
 import { SpeedGameplayService } from '../src/gameplay/speed-gameplay.service.ts';
+import { SpeedLifecycleActivationService } from '../src/gameplay/speed-lifecycle-activation.service.ts';
 import { MatchmakingService } from '../src/matchmaking/matchmaking.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 
@@ -15,13 +16,16 @@ suite('Ticket 158 PostgreSQL Speed queue and gameplay', () => {
   const client = new PrismaClient();
   const prisma = { client } as unknown as PrismaService;
   const ratings = new GameplayPersistenceService(prisma);
-  const operational = { assertAvailable: async () => {} } as any;
+  const operational = { assertAvailable: async () => {}, assertDependenciesAvailable: async () => {} } as any;
   const speed = new SpeedGameplayService(prisma, ratings, operational);
   const dictionary = new StandardDictionaryService(prisma);
-  const matchmaking = new MatchmakingService(prisma, ratings, dictionary, undefined, speed);
+  const activation = new SpeedLifecycleActivationService(prisma);
+  const matchmaking = new MatchmakingService(prisma, ratings, dictionary, undefined, speed, operational, activation);
 
   before(async () => {
     await client.$connect();
+    await client.$executeRawUnsafe(`UPDATE "SpeedLifecycleActivation" SET "phase"='closing_to_v2', "activeCreationVersion"=NULL, "generation"=2, "targetReleaseId"='ticket-test-release', "expectedReplicaCount"=1, "transitionReason"='disposable_test_activation', "updatedAt"=clock_timestamp() WHERE "key"='speed_1v1'`);
+    await client.$executeRawUnsafe(`UPDATE "SpeedLifecycleActivation" SET "phase"='v2_open', "activeCreationVersion"='speed_ready_v2_first_ack_90s', "generation"=3, "transitionReason"='disposable_test_activation', "updatedAt"=clock_timestamp() WHERE "key"='speed_1v1'`);
   });
 
   beforeEach(async () => {
@@ -55,6 +59,8 @@ suite('Ticket 158 PostgreSQL Speed queue and gameplay', () => {
       dictionaryReleaseId: releaseId,
       participantUserIds: [localFixtureUsers.playerOne, localFixtureUsers.guestPlayer],
       idempotencyKey: key,
+      readyLifecycleVersion: 'speed_ready_v2_first_ack_90s',
+      activationGeneration: 3n,
     }, tx));
   }
 
@@ -86,6 +92,10 @@ suite('Ticket 158 PostgreSQL Speed queue and gameplay', () => {
     assert.equal(match?.rankedMode, 'speed_1v1');
     assert.equal(match?.status, 'pending');
     assert.equal(match?.rulesetVersion, 'speed_1v1_v1_75s');
+    assert.equal(match?.readyLifecycleVersion, 'speed_ready_v2_first_ack_90s');
+    assert.ok(match?.invitationExpiresAt);
+    assert.equal(match?.readyWindowStartedAt, null);
+    assert.equal(match?.readyDeadlineAt, null);
     assert.equal(match?.rounds[0]?.startedAt, null);
     assert.equal(match?.participants.length, 2);
 
@@ -189,11 +199,20 @@ suite('Ticket 158 PostgreSQL Speed queue and gameplay', () => {
 
   it('reconciles ready timeout to no-contest and post-reveal forfeit to a rated loss', async () => {
     const waiting = await createMatch('speed-ready-timeout');
-    await client.match.update({ where: { id: waiting.matchId }, data: { readyDeadlineAt: new Date(Date.now() - 1_000) } });
+    await client.match.update({ where: { id: waiting.matchId }, data: { invitationExpiresAt: new Date(Date.now() - 1_000) } });
     const voided = await speed.getSnapshot(waiting.matchId, localFixtureUsers.playerOne);
     assert.equal(voided.state, 'voided');
     assert.equal(voided.myState.result, 'void');
+    assert.equal((await client.match.findUnique({ where: { id: waiting.matchId } }))?.completionReason, 'invitation_timeout');
     assert.equal(await client.ratingEvent.count({ where: { matchId: waiting.matchId, type: 'apply' } }), 0);
+
+    const cancelled = await createMatch('speed-pre-start-cancel');
+    const cancelledSnapshot = await speed.forfeit(cancelled.matchId, localFixtureUsers.playerOne, 'pre-start-cancel-one');
+    assert.equal(cancelledSnapshot.state, 'voided');
+    assert.equal((await client.match.findUnique({ where: { id: cancelled.matchId } }))?.completionReason, 'pre_start_cancelled');
+    assert.equal(await client.ratingEvent.count({ where: { matchId: cancelled.matchId, type: 'apply' } }), 0);
+    const readyAfterCancellation = await speed.markReady(cancelled.matchId, localFixtureUsers.guestPlayer, 'ready-after-pre-start-cancel');
+    assert.equal(readyAfterCancellation.state, 'voided');
 
     const game = await revealMatch('speed-forfeit');
     const forfeited = await speed.forfeit(game.matchId, localFixtureUsers.playerOne, 'forfeit-one');

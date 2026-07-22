@@ -176,9 +176,9 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 159 | Ruby | Speed Rating Settlement and Read Models | Complete; independently verified including fresh-PostgreSQL convergence |
 | 160 | Luna | Live Speed Queue and Countdown UX | Complete; Ticket 161 found one mutation-correlation blocker |
 | 161 | Jasmine | Wave T Speed Integration QA | Complete; FAIL with four release blockers |
-| 162 | Yuna | Wave T Speed Checkpoint PR and CI | Blocked on focused post-172 Jasmine PASS |
-| 163 | Yuna | Hosted Wave T Speed Deploy and Smoke | Blocked on approved 162 merge/main CI |
-| 164 | Jasmine | Final Hosted Wave T Speed QA | Blocked on 163 PASS |
+| 162 | Yuna | Wave T Speed Checkpoint PR and CI | Complete; PR #10 open, latest head checks green, merge approval required |
+| 163 | Yuna | Hosted Wave T Speed Deploy and Smoke | Complete; PASS with hosted concurrent-ready latency warning |
+| 164 | Jasmine | Final Hosted Wave T Speed QA | Complete; FAIL, simultaneous ready cannot reliably beat current 20s-from-match-creation deadline |
 | 165 | Yuna | Railway Revision Observability | Backlog; non-blocking |
 
 ## Wave T-Fix — Ticket 161 release blockers
@@ -194,25 +194,59 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 172 | Freya | Bounded Freshness-Aware Speed Reconciler Health | Complete; stale/hung detection works, but Ticket 173 found obsolete completion revival |
 | 173 | Jasmine | Final Reconciler Health Focused Recheck | Complete; FAIL on missing scheduler/pass generation fence |
 | 174 | Freya | Generation-Fenced Speed Reconciler Completion | Complete; epoch/pass fencing and late success/failure rejection independently reviewed PASS |
-| 175 | Jasmine | Adversarial Reconciler Generation-Fence Recheck | Ready now |
+| 175 | Jasmine | Adversarial Reconciler Generation-Fence Recheck | Complete; PASS, no release blocker remains |
+
+## Wave U — Hosted Speed Ready Reliability
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 176 | Elisa | Hosted Speed Ready Lifecycle Contract | Complete; Ashar approved 90s invitation plus first-ack 20s ready lifecycle v2 |
+| 177 | Freya | Server-Authoritative Hosted Ready Lifecycle | Complete; Ticket 179 found readiness/race/activation blockers |
+| 178 | Luna | Hosted-Latency Speed Mutation Budgets and Recovery UX | Complete; Ticket 179 found four recovery truthfulness blockers |
+| 179 | Jasmine | Wave U Ready Reliability Integration QA | Complete; FAIL with seven release blockers |
+| 180 | Yuna | Wave U Ready Reliability Checkpoint PR and CI | Blocked on Ticket 193 PASS |
+| 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Blocked on approved 180 merge/main CI |
+| 182 | Jasmine | Final Hosted Wave U QA | Blocked on 181 PASS |
+
+## Wave U-Fix — Ticket 179 release blockers
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 183 | Luna | Truthful Speed Mutation Recovery and Snapshot Ordering | Complete; Ticket 188 found two remaining monotonic/deadline-proof defects |
+| 184 | Freya | Schema-Isolated Complete Speed Lifecycle Readiness | Complete; exact active-schema lifecycle/readiness contract and disposable mutation matrix PASS |
+| 185 | Freya | Deterministic Hostile Speed Lifecycle Race Matrix | Complete; deterministic PostgreSQL lock/barrier matrix PASS across 10 fresh schemas (70/70) |
+| 186 | Elisa | Mixed-Version Speed Lifecycle Activation Contract | Complete; shared DB gate/two-phase activation contract delivered |
+| 187 | Freya | Fail-Closed Mixed-Version Lifecycle Activation Gate | Complete; fail-closed DB authority/capability gate and 10-schema mixed-version matrix PASS (60/60), no hosted activation |
+| 188 | Jasmine | Focused Wave U Release-Blocker Recheck | Complete; FAIL with three narrow blockers |
+
+## Wave U-Fix-2 — Ticket 188 blockers
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 189 | Luna | Monotonic Speed Snapshot and Current Retry-Deadline Proof | Complete; Ticket 191 found two remaining clock/phase defects |
+| 190 | Freya | Exact Activation Index Collation and Opclass Readiness | Complete; Ticket 191 independently PASS |
+| 191 | Jasmine | Focused Ticket 188 Blocker Recheck | Complete; FAIL with two frontend blockers |
+
+## Wave U-Fix-3 — Ticket 191 blockers
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 192 | Luna | Non-Regressing Authoritative Clock and Readiness Phase | Ready now |
+| 193 | Jasmine | Final Frontend Clock/Phase Adversarial Recheck | Blocked on 192 |
 
 ## Recommended order
 
-Wave S is complete. Wave T core implementation is substantial, but Ticket 161 correctly blocked release on catalog readiness, repeated-word mutation correlation, immutable completion identity, and deterministic PostgreSQL timing proof.
+Wave T is merged and hosted. Wave U v2 remains local/unmerged. Ticket 191 closed the activation-index blocker and most frontend cases, but found two final frontend ordering defects; Ticket 180 is blocked.
 
-Wave T-Fix execution:
+Wave U-Fix-3 execution:
 
-1. TF.0 parallel: 166 + 167 + 170 (Freya, one backend pass with separate responses) and 169 (Ruby).
-2. TF.1: 168 completed the authoritative uncertain-operation retry behavior.
-3. TF.2: 171 passed the original four blockers but found an unbounded hung-reconciler health blocker.
-4. TF.2a: 172 added freshness/hung detection; 173 found obsolete completion can revive health.
-5. TF.2b: 174 completed scheduler/pass generation fencing; 175 adversarial recheck is next.
-6. TF.3 only after 175 PASS: 162 (Yuna checkpoint branch/PR/CI; no merge).
-7. Approval gate: Ashar approves PR merge; Athena merges and monitors main CI/deployment.
-8. TF.4 after deployed: 163 (Yuna hosted Speed smoke).
-9. TF.5 after 163 PASS: 164 (Jasmine final hosted QA).
+1. Now: 192 (Luna preserves non-regressing authoritative time and readiness phase).
+2. After 192: 193 (Jasmine focused adversarial recheck).
+3. Only after 193 PASS: 180 (Yuna checkpoint PR/CI; no merge).
+4. Approval gate: Ashar approves merge; Athena monitors main CI/deployment and any separately authorized activation operation.
+5. Then 181 hosted simultaneous-ready smoke and 182 final hosted QA.
 
-Ticket 165 remains optional operational backlog and does not block Speed.
+Current hosted Speed remains Wave T/v1; unmerged Wave U defects are not deployed. Ticket 165 remains optional operational backlog.
 
 ## Persistent constraints
 

@@ -3,6 +3,7 @@ import { authoritativeRatingAlgorithmByMode, defaultProvisionalGames, defaultRan
 import type { RankedMode, SpeedRankedModeTimeControl } from '@wordle-royale/contracts';
 import { SpeedOperationalReadinessService } from '../health/speed-operational-readiness.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
+import { speedQueueEnabled } from '../matchmaking/matchmaking-config.ts';
 
 const DEFAULT_LEADERBOARD_LIMIT = 20;
 const MAX_LEADERBOARD_LIMIT = 100;
@@ -113,6 +114,8 @@ export interface RankedModeReadModel {
   enabled: boolean;
   queueEnabled?: boolean;
   rulesetVersion?: string;
+  readyLifecycleVersion?: 'speed_ready_v1_match_created_20s' | 'speed_ready_v2_first_ack_90s';
+  unavailableReason?: 'lifecycle_activation_draining' | 'speed_temporarily_unavailable';
   ratingAlgorithmConfigVersion?: string | null;
   timeControl?: SpeedRankedModeTimeControl;
   provisionalGames: number;
@@ -223,11 +226,22 @@ export class LeaderboardReadService {
   ) {}
 
   async listRankedModes(): Promise<{ modes: RankedModeReadModel[] }> {
-    const speedEnabled = (await this.speedOperational?.check())?.available === true;
+    const speedStatus = await this.speedOperational?.check();
+    const speedConfigured = speedQueueEnabled();
+    const speedQueueAvailable = speedStatus?.available === true;
+    const activeVersion = speedStatus && 'activeVersion' in speedStatus
+      ? speedStatus.activeVersion ?? undefined
+      : 'speed_ready_v2_first_ack_90s';
+    const unavailableReason = !speedQueueAvailable
+      ? speedStatus?.reason === 'activation_draining' ? 'lifecycle_activation_draining' as const : 'speed_temporarily_unavailable' as const
+      : undefined;
+    const speedTimeControl: SpeedRankedModeTimeControl | undefined = activeVersion === 'speed_ready_v2_first_ack_90s'
+      ? { roundTimeSeconds: 75, invitationWindowSeconds: 90, readyWindowSeconds: 20, readyWindowStartsOn: 'first_valid_ready_acknowledgement' as const, countdownSeconds: 3, maxGuesses: 6, solveTimeBucketMs: 100, tieBreaker: 'server_solve_time_bucket' as const }
+      : undefined;
     return {
       modes: [
         { id: 'standard_1v1', label: 'Standard', players: '1v1', rated: true, enabled: true, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Primary chess-style 1v1 ladder; fewer guesses wins, same guesses draw.' },
-        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: speedEnabled, queueEnabled: speedEnabled, rulesetVersion: 'speed_1v1_v1_75s', ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1', timeControl: { roundTimeSeconds: 75, readyWindowSeconds: 20, countdownSeconds: 3, maxGuesses: 6, solveTimeBucketMs: 100, tieBreaker: 'server_solve_time_bucket' }, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: speedEnabled ? 'Live separate Speed ladder using immutable server-adjudicated outcomes and speed_1v1_glicko_v1.' : 'Speed is unavailable until its feature gate and operational dependencies are ready.' },
+        { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: speedConfigured, queueEnabled: speedQueueAvailable, rulesetVersion: 'speed_1v1_v1_75s', ...(activeVersion ? { readyLifecycleVersion: activeVersion } : {}), ...(unavailableReason ? { unavailableReason } : {}), ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1', ...(speedTimeControl ? { timeControl: speedTimeControl } : {}), provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: speedQueueAvailable ? 'Live separate Speed ladder using immutable server-adjudicated outcomes and speed_1v1_glicko_v1.' : 'Speed creation is temporarily unavailable; existing matches remain supported.' },
         { id: 'classic_1v1', label: 'Classic', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
         { id: 'multiplayer_lobby', label: 'Multiplayer / Lobby', players: '2-4', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared as a separate pairwise-placement ladder; keep disabled until abuse policy is locked.' },
       ],

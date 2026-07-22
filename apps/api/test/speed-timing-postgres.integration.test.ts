@@ -11,11 +11,11 @@ const suite = enabled ? describe : describe.skip;
 const base = new Date('2026-07-16T12:00:00.000Z');
 const at = (milliseconds: number) => new Date(base.getTime() + milliseconds);
 
-suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
+suite('Ticket 177 deterministic PostgreSQL Speed ready lifecycle and timing proof', () => {
   const client = new PrismaClient();
   const prisma = { client } as unknown as PrismaService;
   const ratings = new GameplayPersistenceService(prisma);
-  const operational = { assertAvailable: async () => {} } as any;
+  const operational = { assertAvailable: async () => {}, assertDependenciesAvailable: async () => {} } as any;
   const speed = new SpeedGameplayService(prisma, ratings, operational);
   let releaseId: string;
   let answer: string;
@@ -23,6 +23,8 @@ suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
 
   before(async () => {
     await client.$connect();
+    await client.$executeRawUnsafe(`UPDATE "SpeedLifecycleActivation" SET "phase"='closing_to_v2', "activeCreationVersion"=NULL, "generation"=2, "targetReleaseId"='ticket-test-release', "expectedReplicaCount"=1, "transitionReason"='disposable_test_activation', "updatedAt"=clock_timestamp() WHERE "key"='speed_1v1'`);
+    await client.$executeRawUnsafe(`UPDATE "SpeedLifecycleActivation" SET "phase"='v2_open', "activeCreationVersion"='speed_ready_v2_first_ack_90s', "generation"=3, "transitionReason"='disposable_test_activation', "updatedAt"=clock_timestamp() WHERE "key"='speed_1v1'`);
     await client.$executeRawUnsafe('CREATE TABLE IF NOT EXISTS "SpeedTimingTestClock" ("id" integer PRIMARY KEY, "now" timestamptz NOT NULL)');
     await client.$executeRawUnsafe('INSERT INTO "SpeedTimingTestClock" ("id", "now") VALUES (1, $1) ON CONFLICT ("id") DO UPDATE SET "now" = EXCLUDED."now"', base);
     const release = await client.dictionaryRelease.findFirst({ orderBy: { version: 'desc' } });
@@ -65,6 +67,8 @@ suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
       dictionaryReleaseId: releaseId,
       participantUserIds: [localFixtureUsers.playerOne, localFixtureUsers.guestPlayer],
       idempotencyKey: key,
+      readyLifecycleVersion: 'speed_ready_v2_first_ack_90s',
+      activationGeneration: 3n,
     }, tx));
   }
 
@@ -84,14 +88,83 @@ suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
     return await speed.submitGuess({ matchId: match.matchId, roundId: match.roundId, userId, guess: answer, clientRequestId });
   }
 
-  it('proves exact ready, countdown, and hard-deadline boundary behavior using database-owned event times', async () => {
-    const waiting = await createMatch('timing-ready-boundary');
-    await setClock(at(20_000));
-    const readyBoundary = await speed.getSnapshot(waiting.matchId, localFixtureUsers.playerOne);
-    assert.equal(readyBoundary.state, 'voided');
-    assert.equal(readyBoundary.myState.result, 'void');
-    assert.equal((await client.match.findUnique({ where: { id: waiting.matchId } }))?.status, 'voided');
+  it('proves v2 invitation and ready-window exact boundaries using database-owned event times', async () => {
+    const invitationBoundary = await createMatch('timing-invitation-boundary');
+    const created = await client.match.findUnique({ where: { id: invitationBoundary.matchId } });
+    assert.equal(created?.readyLifecycleVersion, 'speed_ready_v2_first_ack_90s');
+    assert.equal(created?.invitationExpiresAt?.toISOString(), at(90_000).toISOString());
+    assert.equal(created?.readyWindowStartedAt, null);
+    assert.equal(created?.readyDeadlineAt, null);
 
+    await setClock(at(90_000));
+    const firstReady = await speed.markReady(invitationBoundary.matchId, localFixtureUsers.playerOne, 'timing-invitation-boundary-one');
+    assert.equal(firstReady.state, 'waiting_opponent_ready');
+    assert.equal(firstReady.readyLifecycleVersion, 'speed_ready_v2_first_ack_90s');
+    assert.ok('readyWindowStartedAt' in firstReady);
+    assert.equal(firstReady.readyWindowStartedAt, at(90_000).toISOString());
+    assert.equal(firstReady.readyDeadlineAt, at(110_000).toISOString());
+
+    await setClock(at(110_000));
+    const secondReady = await speed.markReady(invitationBoundary.matchId, localFixtureUsers.guestPlayer, 'timing-invitation-boundary-two');
+    assert.equal(secondReady.state, 'countdown');
+    assert.equal(secondReady.startsAt, at(113_000).toISOString());
+    assert.equal(secondReady.deadlineAt, at(188_000).toISOString());
+
+    const invitationLate = await createMatch('timing-invitation-late');
+    await setClock(at(90_001));
+    await assert.rejects(
+      speed.markReady(invitationLate.matchId, localFixtureUsers.playerOne, 'timing-invitation-late-one'),
+      (error: any) => error?.response?.code === 'invitation_expired',
+    );
+    const expiredInvitation = await client.match.findUnique({ where: { id: invitationLate.matchId } });
+    assert.equal(expiredInvitation?.status, 'voided');
+    assert.equal(expiredInvitation?.completionReason, 'invitation_timeout');
+    assert.equal(await client.ratingEvent.count({ where: { matchId: invitationLate.matchId, type: 'apply' } }), 0);
+
+    const readyLate = await createMatch('timing-ready-late');
+    await setClock(at(1_000));
+    await speed.markReady(readyLate.matchId, localFixtureUsers.playerOne, 'timing-ready-late-one');
+    await setClock(at(21_001));
+    await assert.rejects(
+      speed.markReady(readyLate.matchId, localFixtureUsers.guestPlayer, 'timing-ready-late-two'),
+      (error: any) => error?.response?.code === 'ready_deadline_passed',
+    );
+    const expiredReady = await client.match.findUnique({ where: { id: readyLate.matchId } });
+    assert.equal(expiredReady?.status, 'voided');
+    assert.equal(expiredReady?.completionReason, 'ready_timeout');
+    assert.equal(await client.ratingEvent.count({ where: { matchId: readyLate.matchId, type: 'apply' } }), 0);
+  });
+
+  it('preserves operation-first replay, first-ready timestamps, and hosted-shaped logical delay without wall-clock sleeping', async () => {
+    const game = await createMatch('timing-hosted-delay');
+    await setClock(at(18_000));
+    const first = await speed.markReady(game.matchId, localFixtureUsers.playerOne, '17700000-0000-4000-8000-000000000001');
+    assert.equal(first.readiness.viewerReadyOperationId, '17700000-0000-4000-8000-000000000001');
+    assert.equal(first.readyDeadlineAt, at(38_000).toISOString());
+
+    await setClock(at(37_000));
+    const second = await speed.markReady(game.matchId, localFixtureUsers.guestPlayer, '17700000-0000-4000-8000-000000000002');
+    assert.equal(second.state, 'countdown');
+    assert.equal(second.startsAt, at(40_000).toISOString());
+
+    const originalReadyAt = (await client.matchParticipant.findFirst({ where: { matchId: game.matchId, userId: localFixtureUsers.playerOne } }))?.readyAt;
+    const differentId = await speed.markReady(game.matchId, localFixtureUsers.playerOne, '17700000-0000-4000-8000-000000000003');
+    assert.equal(differentId.readiness.viewerReadyOperationId, '17700000-0000-4000-8000-000000000001');
+    assert.equal((await client.matchParticipant.findFirst({ where: { matchId: game.matchId, userId: localFixtureUsers.playerOne } }))?.readyAt?.toISOString(), originalReadyAt?.toISOString());
+    assert.equal(await client.matchMutationRequest.count({ where: { matchId: game.matchId, participant: { userId: localFixtureUsers.playerOne }, kind: 'speed_ready' } }), 1);
+
+    const expiring = await createMatch('timing-replay-after-expiry');
+    await setClock(at(1_000));
+    await speed.markReady(expiring.matchId, localFixtureUsers.playerOne, '17700000-0000-4000-8000-000000000004');
+    await setClock(at(21_001));
+    const terminal = await speed.getSnapshot(expiring.matchId, localFixtureUsers.playerOne);
+    assert.equal(terminal.state, 'voided');
+    const replay = await speed.markReady(expiring.matchId, localFixtureUsers.playerOne, '17700000-0000-4000-8000-000000000004');
+    assert.equal(replay.state, 'voided');
+    assert.equal(replay.readiness.viewerReadyOperationId, '17700000-0000-4000-8000-000000000004');
+  });
+
+  it('preserves exact countdown and hard-deadline behavior', async () => {
     const game = await revealMatch('timing-round-boundaries');
     await setClock(at(4_999));
     const early = await speed.submitGuess({ matchId: game.matchId, roundId: game.roundId, userId: localFixtureUsers.playerOne, guess: alternate, clientRequestId: '17000000-0000-4000-8000-000000000001' });
@@ -123,6 +196,8 @@ suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
     ]);
     const persistedMatch = await client.match.findUnique({ where: { id: game.matchId } });
     const persistedRound = await client.matchRound.findUnique({ where: { id: game.roundId } });
+    assert.equal(persistedMatch?.readyWindowStartedAt?.toISOString(), at(2_000).toISOString());
+    assert.equal(persistedMatch?.readyDeadlineAt?.toISOString(), at(22_000).toISOString());
     assert.equal(persistedMatch?.startedAt?.toISOString(), at(5_000).toISOString());
     assert.equal(persistedRound?.startedAt?.toISOString(), at(5_000).toISOString());
     assert.equal(persistedRound?.deadlineAt?.toISOString(), at(80_000).toISOString());
@@ -132,6 +207,30 @@ suite('Ticket 170 deterministic PostgreSQL Speed timing proof', () => {
     const reconnected = await speed.getSnapshot(game.matchId, localFixtureUsers.playerOne);
     assert.equal(reconnected.startsAt, persistedMatch?.startedAt?.toISOString());
     assert.equal(reconnected.deadlineAt, persistedRound?.deadlineAt?.toISOString());
+  });
+
+  it('keeps legacy null-version pending rows on their original fixed ready deadline without extension', async () => {
+    const legacy = await createMatch('timing-legacy-v1');
+    await client.match.update({
+      where: { id: legacy.matchId },
+      data: {
+        readyLifecycleVersion: null,
+        invitationExpiresAt: null,
+        readyWindowStartedAt: null,
+        readyDeadlineAt: at(20_000),
+      },
+    });
+    await setClock(at(20_000));
+    const boundary = await speed.getSnapshot(legacy.matchId, localFixtureUsers.playerOne);
+    assert.equal(boundary.readyLifecycleVersion, 'speed_ready_v1_match_created_20s');
+    assert.equal(boundary.state, 'waiting_ready');
+    await setClock(at(20_001));
+    const expired = await speed.getSnapshot(legacy.matchId, localFixtureUsers.playerOne);
+    assert.equal(expired.state, 'voided');
+    const persisted = await client.match.findUnique({ where: { id: legacy.matchId } });
+    assert.equal(persisted?.completionReason, 'ready_timeout');
+    assert.equal(persisted?.invitationExpiresAt, null);
+    assert.equal(persisted?.readyDeadlineAt?.toISOString(), at(20_000).toISOString());
   });
 
   it('proves same-bucket ties and adjacent-bucket winners at the 100 ms edge', async () => {

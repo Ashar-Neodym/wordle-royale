@@ -28,6 +28,7 @@ function operational(runtime: SpeedRuntimeHealthService) {
   return new SpeedOperationalReadinessService({
     checkDatabase: async () => ({ status: 'ok' }),
     checkApplicationSchema: async () => ({ status: 'ok' }),
+    checkSpeedReadyLifecycleSchema: async () => ({ status: 'ok' }),
   } as any, {
     checkStandardDictionary: async () => ({ status: 'ok' }),
   } as any, runtime);
@@ -50,6 +51,7 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     const timedOut = runtime.markPassStarted(epoch)!;
     now += SPEED_RECONCILER_MAX_PASS_MS + 1;
     assert.equal(runtime.isReconcilerReady(), false, 'hung pass must exceed a bounded budget');
+    assert.equal(runtime.isPassCompletionEligible(timedOut), false, 'timed-out generation cannot authorize a database commit');
     assert.equal(runtime.markPassSucceeded(timedOut), false, 'timed-out completion is obsolete evidence');
     assert.equal(runtime.isReconcilerReady(), false, 'obsolete completion cannot revive Speed');
 
@@ -213,6 +215,7 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     const catalog = new LeaderboardReadService({ client: {} } as any, operational(runtime));
     const modes = (await catalog.listRankedModes()).modes;
     assert.equal(modes.find((mode) => mode.id === 'standard_1v1')?.enabled, true);
-    assert.equal(modes.find((mode) => mode.id === 'speed_1v1')?.enabled, false);
+    assert.equal(modes.find((mode) => mode.id === 'speed_1v1')?.enabled, true);
+    assert.equal(modes.find((mode) => mode.id === 'speed_1v1')?.queueEnabled, false);
   });
 });
