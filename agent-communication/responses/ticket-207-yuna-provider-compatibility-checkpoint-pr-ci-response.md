@@ -2,7 +2,7 @@
 
 Task: Provider-Compatibility Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 206 PASS and local/provider-mock/disposable-PostgreSQL gates confirmed; focused branch/PR/final-head checks pending.
+Status: **PASS** — Ticket 206 authorized checkpointing; focused local/provider-mock/PostgreSQL gates passed; branch pushed; PR #13 opened; implementation-head GitHub/Vercel checks passed; no merge or hosted/provider/lifecycle action performed.
 
 ## What I understood
 
@@ -105,7 +105,37 @@ Also excluded: all real environment files, generated builds/caches, provider aut
 
 ## Branch/PR/CI
 
-Pending.
+```text
+base = main @ 6992ce1ef12b4d1b7e51869be7b2f7c70340e839
+branch = wave-v/railway-live-schema-compatibility
+checkpoint commit = a6d94f6e1fbf989b1dbc03ca122a26a8956f29b4
+commit subject = fix: support railway live fleet schema
+local SHA = remote SHA
+staged paths = 11
+blocked staged paths = []
+```
+
+Pull request:
+
+- PR #13: https://github.com/Ashar-Neodym/wordle-royale/pull/13
+- base: `main`
+- head: `wave-v/railway-live-schema-compatibility`
+- state at implementation checkpoint: open, non-draft
+
+Implementation-head checks:
+
+```text
+Workspace checks = PASS, 1m28s
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29986440329
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29986440329/job/89139243027
+Vercel PR Preview = PASS
+Vercel Preview Comments = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/mzbDcQe1hhPVqujugjUxZkdHPx4V
+```
+
+The Vercel result is an automatic PR Preview, not production deployment evidence or authorization.
+
+The checkpoint used explicit staging. The broader dirty communication files listed in the exclusions were preserved in the working tree and were not staged or committed.
 
 ## Safety boundaries
 
