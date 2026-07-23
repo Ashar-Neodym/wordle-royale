@@ -5,6 +5,17 @@ import { sha256, type RailwayInventoryObservation, type RailwayScope } from './s
 const INACTIVE_STATUSES = new Set(['FAILED', 'CRASHED', 'REMOVED', 'SLEEPING', 'SKIPPED']);
 const FULL_SHA = /^[0-9a-fA-F]{40}$/;
 const SUPPORTED_RAILWAY_CLI_VERSIONS = new Set(['5.27.1']);
+export const RAILWAY_INVENTORY_ERROR_CODES = new Set([
+  'railway_cli_missing', 'railway_inventory_unavailable', 'railway_inventory_schema_unsupported',
+  'railway_auth_missing', 'railway_scope_mismatch', 'railway_inventory_truncated',
+  'railway_target_not_success', 'railway_extra_success_deployment', 'railway_rollout_not_settled',
+  'railway_artifact_mismatch', 'railway_artifact_identity_ambiguous', 'railway_replica_count_unknown',
+  'railway_replica_count_mismatch', 'railway_inventory_timeout',
+]);
+
+export function isRailwayInventoryErrorCode(value: unknown): value is string {
+  return typeof value === 'string' && RAILWAY_INVENTORY_ERROR_CODES.has(value);
+}
 
 export type RailwayCommandResult = { stdout: string; stderr: string };
 export interface RailwayCommandExecutor {
@@ -43,8 +54,9 @@ export class RailwayCliExecutor implements RailwayCommandExecutor {
 type Deployment = { id: string; status: string; createdAt: string; meta: unknown };
 type RegionalAllocation = Array<{ region: string; replicaCount: number }>;
 type ServiceInstance = {
-  numReplicas: number;
+  numReplicas: number | null;
   replicaIds: string[];
+  observedInstances: Array<{ id: string; status: 'RUNNING' | 'REMOVED' }>;
   regionalAllocation: RegionalAllocation;
   healthHosts: string[];
   latestDeployment: { id: string; status: string };
@@ -123,21 +135,24 @@ export class RailwayInventoryAdapter {
     const artifactIdentity = `git:${candidates[0]!.toLowerCase()}`;
     if (artifactIdentity !== expectedArtifact.toLowerCase()) throw new RailwayInventoryError('railway_artifact_mismatch');
 
-    if (!Number.isInteger(serviceInstance.numReplicas) || serviceInstance.numReplicas < 1) throw new RailwayInventoryError('railway_replica_count_unknown');
-    if (serviceInstance.numReplicas !== expectedReplicas) throw new RailwayInventoryError('railway_replica_count_mismatch');
+    const servingReplicaCount = serviceInstance.numReplicas;
+    if (typeof servingReplicaCount !== 'number' || !Number.isSafeInteger(servingReplicaCount) || servingReplicaCount < 1) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
+    }
+    if (servingReplicaCount !== expectedReplicas) throw new RailwayInventoryError('railway_replica_count_mismatch');
 
     const inactivePriorDeploymentIds = deployments.filter(({ id }) => id !== scope.deploymentId).map(({ id }) => id).sort();
     const releaseId = `railway:deployment:${scope.deploymentId}`;
     const servingReplicaIdsDigest = sha256(serviceInstance.replicaIds);
     const regionalAllocationDigest = sha256(serviceInstance.regionalAllocation);
     const inventoryDigest = sha256({
-      schema: 2, scope, releaseId, artifactIdentity, servingReplicaCount: serviceInstance.numReplicas,
+      schema: 2, scope, releaseId, artifactIdentity, servingReplicaCount,
       servingReplicaIds: serviceInstance.replicaIds, regionalAllocation: serviceInstance.regionalAllocation,
       healthHosts: serviceInstance.healthHosts,
       deployments: deployments.map(({ id, status, createdAt }) => ({ id, status, createdAt })).sort((a, b) => a.id.localeCompare(b.id)),
     });
     return {
-      ...scope, releaseId, artifactIdentity, servingReplicaCount: serviceInstance.numReplicas,
+      ...scope, releaseId, artifactIdentity, servingReplicaCount,
       servingReplicaIds: serviceInstance.replicaIds, servingReplicaIdsDigest,
       regionalAllocation: serviceInstance.regionalAllocation, regionalAllocationDigest,
       healthHosts: serviceInstance.healthHosts, inactivePriorDeploymentIds, rolloutSettled: true,
@@ -196,29 +211,51 @@ export class RailwayInventoryAdapter {
     const instances = instanceEdges.map((edge) => this.record(this.record(edge).node)).filter((node) => node.serviceId === scope.serviceId);
     if (instances.length !== 1) throw new RailwayInventoryError('railway_scope_mismatch');
     const row = instances[0]!;
-    if (row.environmentId !== scope.environmentId || typeof row.numReplicas !== 'number') throw new RailwayInventoryError('railway_inventory_schema_unsupported');
+    if (row.environmentId !== scope.environmentId || (row.numReplicas !== null && typeof row.numReplicas !== 'number')) {
+      throw new RailwayInventoryError('railway_inventory_schema_unsupported');
+    }
+    if (typeof row.numReplicas === 'number' && (!Number.isSafeInteger(row.numReplicas) || row.numReplicas < 1)) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
+    }
     const active = Array.isArray(row.activeDeployments) ? row.activeDeployments.map((item: unknown) => this.record(item)) : [];
-    if (active.length !== 1 || active[0]!.id !== scope.deploymentId || active[0]!.status !== 'SUCCESS' || active[0]!.deploymentStopped === true) {
+    if (active.length !== 1 || active[0]!.id !== scope.deploymentId || active[0]!.status !== 'SUCCESS' || active[0]!.deploymentStopped !== false) {
       throw new RailwayInventoryError('railway_target_not_success');
     }
     const replicaInstances = Array.isArray(active[0]!.instances) ? active[0]!.instances.map((item: unknown) => this.record(item)) : [];
-    if (replicaInstances.some((instance) => instance.status !== 'SUCCESS')) throw new RailwayInventoryError('railway_rollout_not_settled');
-    const replicaIds = replicaInstances.map((instance) => typeof instance.id === 'string' ? instance.id : '');
-    if (!Number.isInteger(row.numReplicas) || row.numReplicas < 1 || replicaIds.length !== row.numReplicas
+    if (replicaInstances.some((instance) => instance.status !== 'RUNNING' && instance.status !== 'REMOVED')) {
+      throw new RailwayInventoryError('railway_rollout_not_settled');
+    }
+    const observedInstances = replicaInstances.map((instance) => ({
+      id: typeof instance.id === 'string' ? instance.id : '',
+      status: instance.status as 'RUNNING' | 'REMOVED',
+    }));
+    if (observedInstances.some(({ id }) => !id || id !== id.trim())
+      || new Set(observedInstances.map(({ id }) => id)).size !== observedInstances.length) {
+      throw new RailwayInventoryError('railway_inventory_schema_unsupported');
+    }
+    observedInstances.sort((left, right) => left.id.localeCompare(right.id) || left.status.localeCompare(right.status));
+    const replicaIds = observedInstances.filter((instance) => instance.status === 'RUNNING').map(({ id }) => id);
+    if (!replicaIds.length || (row.numReplicas !== null && replicaIds.length !== row.numReplicas)
       || replicaIds.some((id) => !id || id !== id.trim()) || new Set(replicaIds).size !== replicaIds.length) {
       throw new RailwayInventoryError('railway_replica_count_unknown');
     }
     replicaIds.sort();
     const latest = this.record(row.latestDeployment);
     const domains = this.record(row.domains);
-    const domainRows = [...(Array.isArray(domains.serviceDomains) ? domains.serviceDomains : []), ...(Array.isArray(domains.customDomains) ? domains.customDomains : [])];
-    const healthHosts = domainRows.map((item) => this.record(item).domain)
-      .filter((domain): domain is string => typeof domain === 'string').map((domain) => domain.trim().toLowerCase()).sort();
+    if (!Array.isArray(domains.serviceDomains) || !Array.isArray(domains.customDomains)) {
+      throw new RailwayInventoryError('railway_inventory_schema_unsupported');
+    }
+    const domainRows = [...domains.serviceDomains, ...domains.customDomains];
+    const rawHealthHosts = domainRows.map((item) => this.record(item).domain);
+    if (rawHealthHosts.some((domain) => typeof domain !== 'string' || !domain || domain !== domain.trim().toLowerCase())) {
+      throw new RailwayInventoryError('railway_inventory_schema_unsupported');
+    }
+    const healthHosts = (rawHealthHosts as string[]).sort();
     if (typeof latest.id !== 'string' || typeof latest.status !== 'string' || !healthHosts.length
       || new Set(healthHosts).size !== healthHosts.length || healthHosts.some((host) => host.includes('/') || host.includes(':'))) {
       throw new RailwayInventoryError('railway_inventory_schema_unsupported');
     }
-    return { numReplicas: row.numReplicas, replicaIds, regionalAllocation: [], healthHosts, latestDeployment: { id: latest.id, status: latest.status } };
+    return { numReplicas: row.numReplicas, replicaIds, observedInstances, regionalAllocation: [], healthHosts, latestDeployment: { id: latest.id, status: latest.status } };
   }
 
   private deployments(value: unknown): { deployments: Deployment[]; truncated: boolean } {
@@ -228,7 +265,9 @@ export class RailwayInventoryAdapter {
     const truncated = !Array.isArray(value) && (record.hasNextPage === true || record.nextPage != null || record.nextCursor != null);
     const deployments = raw.map((item): Deployment => {
       const row = this.record(item);
-      if (typeof row.id !== 'string' || typeof row.status !== 'string' || typeof row.createdAt !== 'string' || !('meta' in row)) {
+      if (typeof row.id !== 'string' || !row.id || row.id !== row.id.trim()
+        || typeof row.status !== 'string' || !row.status || row.status !== row.status.trim()
+        || typeof row.createdAt !== 'string' || !row.createdAt || row.createdAt !== row.createdAt.trim() || !('meta' in row)) {
         throw new RailwayInventoryError('railway_inventory_schema_unsupported');
       }
       return { id: row.id, status: row.status, createdAt: row.createdAt, meta: row.meta };
@@ -243,19 +282,29 @@ export class RailwayInventoryAdapter {
     const row = this.record((root.services as Record<string, unknown>)[scope.serviceId]);
     if (!Object.keys(row).length) throw new RailwayInventoryError('railway_inventory_schema_unsupported');
     const multiRegion = this.record(row.deploy).multiRegionConfig;
-    let regionalAllocation: RegionalAllocation = [];
-    if (multiRegion != null) {
-      if (!multiRegion || typeof multiRegion !== 'object' || Array.isArray(multiRegion)) throw new RailwayInventoryError('railway_replica_count_unknown');
-      const entries = Object.entries(multiRegion as Record<string, unknown>);
-      if (!entries.length || entries.some(([region]) => !region.trim() || region !== region.trim())) throw new RailwayInventoryError('railway_replica_count_unknown');
-      const counts = entries.map(([, entry]) => this.record(entry).numReplicas);
-      if (counts.some((count) => typeof count !== 'number' || !Number.isInteger(count) || count < 0)) throw new RailwayInventoryError('railway_replica_count_unknown');
-      if (counts.reduce<number>((sum, count) => sum + Number(count), 0) !== status.numReplicas) throw new RailwayInventoryError('railway_replica_count_unknown');
-      regionalAllocation = entries.map(([region, entry]) => ({ region: region.trim(), replicaCount: Number(this.record(entry).numReplicas) }))
-        .filter(({ replicaCount }) => replicaCount > 0).sort((left, right) => left.region.localeCompare(right.region));
-      if (!regionalAllocation.length) throw new RailwayInventoryError('railway_replica_count_unknown');
+    if (!multiRegion || typeof multiRegion !== 'object' || Array.isArray(multiRegion)) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
     }
-    return { ...status, regionalAllocation };
+    const entries = Object.entries(multiRegion as Record<string, unknown>);
+    if (!entries.length || entries.some(([region]) => !region.trim() || region !== region.trim())) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
+    }
+    const regionalAllocation = entries.map(([region, entry]) => ({
+      region,
+      replicaCount: this.record(entry).numReplicas,
+    }));
+    if (regionalAllocation.some(({ replicaCount }) => typeof replicaCount !== 'number'
+      || !Number.isSafeInteger(replicaCount) || replicaCount < 1)) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
+    }
+    const regionalCount = regionalAllocation.reduce((sum, { replicaCount }) => sum + Number(replicaCount), 0);
+    if (!Number.isSafeInteger(regionalCount) || regionalCount < 1
+      || (status.numReplicas !== null && status.numReplicas !== regionalCount)
+      || status.replicaIds.length !== regionalCount) {
+      throw new RailwayInventoryError('railway_replica_count_unknown');
+    }
+    regionalAllocation.sort((left, right) => left.region.localeCompare(right.region));
+    return { ...status, numReplicas: regionalCount, regionalAllocation: regionalAllocation as RegionalAllocation };
   }
 
   private collectFullShas(value: unknown, found = new Set<string>()): Set<string> {

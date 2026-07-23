@@ -1,0 +1,61 @@
+{
+  "id": "project-id",
+  "environments": {
+    "edges": [
+      {
+        "node": {
+          "id": "environment-id",
+          "serviceInstances": {
+            "edges": [
+              {
+                "node": {
+                  "serviceId": "service-id",
+                  "environmentId": "environment-id",
+                  "numReplicas": null,
+                  "latestDeployment": {
+                    "id": "deployment-id",
+                    "status": "SUCCESS"
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "deployment-id",
+                      "status": "SUCCESS",
+                      "deploymentStopped": false,
+                      "instances": [
+                        {
+                          "id": "replica-running",
+                          "status": "RUNNING"
+                        },
+                        {
+                          "id": "replica-removed",
+                          "status": "REMOVED"
+                        }
+                      ]
+                    }
+                  ],
+                  "domains": {
+                    "serviceDomains": [
+                      {
+                        "domain": "api.example.test"
+                      }
+                    ],
+                    "customDomains": []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "services": {
+    "edges": [
+      {
+        "node": {
+          "id": "service-id"
+        }
+      }
+    ]
+  }
+}

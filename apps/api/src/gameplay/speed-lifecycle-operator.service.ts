@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
-import { RailwayInventoryAdapter, RailwayInventoryError } from './railway-inventory.adapter.ts';
+import { RailwayInventoryAdapter, RailwayInventoryError, isRailwayInventoryErrorCode } from './railway-inventory.adapter.ts';
 import {
   PROVIDER_PROOF_MAX_ACQUISITION_MS,
   PROVIDER_PROOF_MAX_AGE_MS,
@@ -239,7 +239,7 @@ export class SpeedLifecycleOperatorService {
     } catch (error) {
       const railwayError = error instanceof RailwayInventoryError
         || (error instanceof Error && error.name === 'RailwayInventoryError' && typeof (error as { code?: unknown }).code === 'string');
-      if (railwayError) {
+      if (railwayError && isRailwayInventoryErrorCode((error as { code?: unknown }).code)) {
         const code = (error as RailwayInventoryError).code;
         if (code === 'railway_inventory_timeout') {
           if (providerBudget < PROVIDER_PROOF_MAX_ACQUISITION_MS) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
