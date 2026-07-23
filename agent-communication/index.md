@@ -204,7 +204,7 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 177 | Freya | Server-Authoritative Hosted Ready Lifecycle | Complete; Ticket 179 found readiness/race/activation blockers |
 | 178 | Luna | Hosted-Latency Speed Mutation Budgets and Recovery UX | Complete; Ticket 179 found four recovery truthfulness blockers |
 | 179 | Jasmine | Wave U Ready Reliability Integration QA | Complete; FAIL with seven release blockers |
-| 180 | Yuna | Wave U Ready Reliability Checkpoint PR and CI | Blocked on Ticket 193 PASS |
+| 180 | Yuna | Wave U Ready Reliability Checkpoint PR and CI | Complete; PR #11 merged as e81e211, main CI and Railway compatibility deploy PASS |
 | 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Blocked on approved 180 merge/main CI |
 | 182 | Jasmine | Final Hosted Wave U QA | Blocked on 181 PASS |
 
@@ -231,22 +231,41 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 
 | Ticket | Agent | Title | Status |
 |---|---|---|---|
-| 192 | Luna | Non-Regressing Authoritative Clock and Readiness Phase | Ready now |
-| 193 | Jasmine | Final Frontend Clock/Phase Adversarial Recheck | Blocked on 192 |
+| 192 | Luna | Non-Regressing Authoritative Clock and Readiness Phase | Complete; non-regressing clock/phase implementation verified |
+| 193 | Jasmine | Final Frontend Clock/Phase Adversarial Recheck | Complete; PASS, no local Wave U release blocker remains |
+
+## Wave V — Trusted Hosted V2 Activation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 194 | Elisa | Railway Inventory-Proof and V2 Activation Runbook | Complete; operator-bound Railway proof and two-approval activation runbook delivered |
+| 195 | Freya | Operator-Bound Railway Inventory Verifier | Complete; local provider-bound verifier/operator tooling verified and independent review PASS; no hosted operation performed |
+| 196 | Jasmine | Trusted Activation Operator Independent QA | Complete; FAIL with four trusted-provider boundary blockers |
+| 197 | Yuna | Wave V Activation Tooling Checkpoint PR and CI | Blocked on Ticket 201 PASS |
+| 198 | Yuna | Hosted Lifecycle V2 Close/Drain/Open Activation | Blocked on approved 197 merge and explicit activation approval |
+
+## Wave V-Fix — Ticket 196 provider-boundary blockers
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 199 | Freya | Exact Railway Fleet Proof, Safe Command Serialization, and Public-Origin Fencing | Complete; all four provider-boundary blockers closed, canonical gates green, independent review PASS; no hosted operation performed |
+| 200 | Jasmine | Focused Trusted-Provider Boundary Recheck | Complete; FAIL only on omitted RFC 8215 local-use NAT64 /48 |
+| 201 | Jasmine | Final RFC 8215 NAT64 Origin-Fencing Recheck | Ready; Athena surgical fix and permanent regression tests green |
 
 ## Recommended order
 
-Wave T is merged and hosted. Wave U v2 remains local/unmerged. Ticket 191 closed the activation-index blocker and most frontend cases, but found two final frontend ordering defects; Ticket 180 is blocked.
+Wave U compatibility code/schema is merged and deployed at `e81e211`. Hosted Speed creation remains correctly fail-closed. Ticket 200 closed three of four provider-boundary groups and found one omitted RFC 8215 NAT64 prefix; Athena applied the surgical fix and permanent red-to-green regression locally.
 
-Wave U-Fix-3 execution:
+Wave V-Fix staged execution:
 
-1. Now: 192 (Luna preserves non-regressing authoritative time and readiness phase).
-2. After 192: 193 (Jasmine focused adversarial recheck).
-3. Only after 193 PASS: 180 (Yuna checkpoint PR/CI; no merge).
-4. Approval gate: Ashar approves merge; Athena monitors main CI/deployment and any separately authorized activation operation.
-5. Then 181 hosted simultaneous-ready smoke and 182 final hosted QA.
+1. **Send first:** 201 to Jasmine for the narrow independent NAT64 recheck. No implementation ticket is needed.
+2. **No parallel tickets:** only one focused QA gate remains.
+3. **Then checkpoint:** only after 201 PASS, send 197 to Yuna for PR/CI; no merge.
+4. **Approval gate:** return to Athena after 197. Ashar must approve merge; Athena verifies main CI/deployment.
+5. **Hosted activation:** Ticket 198 remains blocked until a separate explicit close approval and then a separate open approval after drain evidence.
+6. **Finally:** after 198 PASS, send 181 to Yuna; after 181 PASS, send 182 to Jasmine.
 
-Current hosted Speed remains Wave T/v1; unmerged Wave U defects are not deployed. Ticket 165 remains optional operational backlog.
+Process correction for future waves: define Jasmine's adversarial matrix before implementation, retain failures as permanent tests, require red-to-green plus pre-handoff adversarial review, and use direct surgical remediation for genuinely narrow defects. Hosted Speed creation remains safely unavailable; Standard and persisted Speed reads/reconciliation remain available.
 
 ## Persistent constraints
 
