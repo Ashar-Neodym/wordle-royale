@@ -37,16 +37,24 @@ export class SpeedOperationalReadinessService {
     @Optional() @Inject(SpeedLifecycleActivationService) private readonly activation?: SpeedLifecycleActivationService,
   ) {}
 
-  async check(requireReconciler = true): Promise<SpeedOperationalStatus> {
+  async checkPersistedRuntime(requireReconciler = true): Promise<SpeedOperationalStatus> {
     const checkedAt = new Date().toISOString();
     if (!speedQueueEnabled()) return { available: false, reason: 'feature_disabled', checkedAt };
-
     const database = await this.safeCheck(() => this.prisma.checkDatabase());
     if (database.status !== 'ok') return { available: false, reason: 'database_unavailable', checkedAt };
     const schema = await this.safeCheck(() => this.prisma.checkApplicationSchema());
-    if (schema.status !== 'ok') return { available: false, reason: 'schema_unavailable', checkedAt };
     const lifecycleSchema = await this.safeCheck(() => this.prisma.checkSpeedReadyLifecycleSchema(false));
-    if (lifecycleSchema.status !== 'ok') return { available: false, reason: 'schema_unavailable', checkedAt };
+    if (schema.status !== 'ok' || lifecycleSchema.status !== 'ok') return { available: false, reason: 'schema_unavailable', checkedAt };
+    const dictionary = await this.safeCheck(() => this.dictionary.checkStandardDictionary());
+    if (dictionary.status !== 'ok') return { available: false, reason: 'dictionary_unavailable', checkedAt };
+    if (requireReconciler && !this.runtimeHealth.isReconcilerReady()) return { available: false, reason: 'reconciler_unavailable', checkedAt };
+    return { available: true, reason: 'available', checkedAt };
+  }
+
+  async check(requireReconciler = true): Promise<SpeedOperationalStatus> {
+    const persisted = await this.checkPersistedRuntime(requireReconciler);
+    if (!persisted.available) return persisted;
+    const checkedAt = persisted.checkedAt;
     const activationSchema = await this.safeCheck(() => this.prisma.checkSpeedReadyLifecycleSchema(true));
     if (activationSchema.status !== 'ok') return { available: false, reason: 'activation_schema_unavailable', checkedAt };
 
@@ -56,10 +64,6 @@ export class SpeedOperationalReadinessService {
         ? { available: true as const, reason: 'available' as const, activeVersion: 'speed_ready_v2_first_ack_90s' as const, phase: 'v2_open' as const }
         : { available: false as const, reason: 'activation_unavailable' as const, activeVersion: null, phase: null };
     if (!activation.available) return { ...activation, checkedAt };
-
-    const dictionary = await this.safeCheck(() => this.dictionary.checkStandardDictionary());
-    if (dictionary.status !== 'ok') return { available: false, reason: 'dictionary_unavailable', checkedAt, activeVersion: activation.activeVersion, phase: activation.phase };
-    if (requireReconciler && !this.runtimeHealth.isReconcilerReady()) return { available: false, reason: 'reconciler_unavailable', checkedAt, activeVersion: activation.activeVersion, phase: activation.phase };
     return { available: true, reason: 'available', checkedAt, activeVersion: activation.activeVersion, phase: activation.phase };
   }
 

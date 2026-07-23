@@ -535,12 +535,50 @@ model SpeedLifecycleCapabilityLease {
   supportsV2              Boolean
   supportsLegacyReconcile Boolean
   observedGeneration      BigInt?
+  providerProjectId       String?
+  providerEnvironmentId   String?
+  providerServiceId       String?
+  providerDeploymentId    String?
+  providerReplicaId       String?
+  providerRegion          String?
+  providerArtifact        String?
   startedAt               DateTime
   lastSeenAt              DateTime
   expiresAt               DateTime
 
   @@index([releaseId, expiresAt])
   @@index([controlProtocol, expiresAt])
+  @@index([releaseId, providerReplicaId, expiresAt], map: "SpeedLifecycleCapabilityLease_release_replica_expiry_idx")
+  @@index([providerProjectId, providerEnvironmentId, providerServiceId, providerDeploymentId, expiresAt], map: "SpeedLifecycleCapabilityLease_provider_deployment_expiry_idx")
+}
+
+model SpeedLifecycleActivationAudit {
+  id                       String   @id @default(uuid()) @db.Uuid
+  proofProtocol            String
+  proofId                  String   @unique @db.Uuid
+  operation                String
+  approvalRef              String
+  operatorPrincipalHash    String
+  providerProjectId        String
+  providerEnvironmentId    String
+  providerServiceId        String
+  providerDeploymentId     String
+  artifactIdentity         String
+  releaseId                String
+  expectedReplicaCount     Int
+  inventoryDigest          String
+  leaseSetDigest           String
+  providerObservedBeforeAt DateTime @db.Timestamptz(6)
+  providerObservedAfterAt  DateTime @db.Timestamptz(6)
+  fromPhase                String
+  fromGeneration           BigInt
+  toPhase                  String
+  toGeneration             BigInt
+  result                    String
+  failureCode               String?
+  createdAt                 DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([createdAt])
 }
 
 model AnalyticsEvent {

@@ -93,6 +93,23 @@ describe('Ticket 166 Speed operational readiness', () => {
     assert.equal(speed?.queueEnabled, true);
   });
 
+  it('does not misclassify a closing phase as healthy when the reconciler is unhealthy', async () => {
+    process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
+    const runtime = new SpeedRuntimeHealthService();
+    const epoch = runtime.markSchedulerStarted();
+    const pass = runtime.markPassStarted(epoch)!;
+    runtime.markPassFailed(pass);
+    const readiness = new SpeedOperationalReadinessService({
+      checkDatabase: async () => dependency('ok'),
+      checkApplicationSchema: async () => dependency('ok'),
+      checkSpeedReadyLifecycleSchema: async () => dependency('ok'),
+    } as any, { checkStandardDictionary: async () => dependency('ok') } as any, runtime, {
+      checkLocalAvailability: async () => ({ available: false, reason: 'activation_draining', phase: 'closing_to_v2', activeVersion: null }),
+    } as any);
+    assert.equal((await readiness.checkPersistedRuntime()).reason, 'reconciler_unavailable');
+    assert.equal((await readiness.check()).reason, 'reconciler_unavailable');
+  });
+
   it('marks reconciler health ready only after success and clears it after a failure', async () => {
     process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
     const runtime = new SpeedRuntimeHealthService();

@@ -154,10 +154,10 @@ export class StandardDictionaryService {
     };
   }
 
-  async checkStandardDictionary(appEnv = resolvedAppEnv()): Promise<ReadinessDependency> {
+  async checkStandardDictionary(appEnv = resolvedAppEnv(), client: any = this.prisma.client): Promise<ReadinessDependency> {
     const checkedAt = new Date().toISOString();
     try {
-      const selection = await this.selectStandardDictionary(this.prisma.client, appEnv);
+      const selection = await this.selectStandardDictionary(client, appEnv);
       if (!selection) {
         return {
           status: 'unavailable',

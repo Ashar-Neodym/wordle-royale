@@ -2,6 +2,10 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { ReadinessDependency } from '@wordle-royale/contracts';
 
+type PrismaQueryClient = {
+  $queryRawUnsafe?: <T = unknown>(query: string, ...values: unknown[]) => Promise<T>;
+};
+
 export type PrismaClientLike = {
   $queryRaw?: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
   $queryRawUnsafe?: <T = unknown>(query: string, ...values: unknown[]) => Promise<T>;
@@ -77,12 +81,12 @@ export class PrismaService implements OnModuleDestroy {
     }
   }
 
-  async checkApplicationSchema(): Promise<ReadinessDependency> {
+  async checkApplicationSchema(queryClient: PrismaQueryClient = this.client): Promise<ReadinessDependency> {
     const checkedAt = new Date().toISOString();
     const startedAt = Date.now();
 
     try {
-      if (!this.client.$queryRawUnsafe) {
+      if (!queryClient.$queryRawUnsafe) {
         return {
           status: 'not_checked_stub',
           checkedAt,
@@ -91,7 +95,7 @@ export class PrismaService implements OnModuleDestroy {
       }
 
       const requiredTableList = requiredApplicationTables.map(sqlStringLiteral).join(', ');
-      const rows = await this.client.$queryRawUnsafe<Array<{ table_name: string }>>(
+      const rows = await queryClient.$queryRawUnsafe!<Array<{ table_name: string }>>(
         `SELECT table_name
            FROM information_schema.tables
           WHERE table_schema = current_schema()
@@ -127,12 +131,12 @@ export class PrismaService implements OnModuleDestroy {
     }
   }
 
-  async checkSpeedReadyLifecycleSchema(includeActivation = true): Promise<ReadinessDependency> {
+  async checkSpeedReadyLifecycleSchema(includeActivation = true, queryClient: PrismaQueryClient = this.client): Promise<ReadinessDependency> {
     const checkedAt = new Date().toISOString();
     const startedAt = Date.now();
     try {
-      if (!this.client.$queryRawUnsafe) return { status: 'not_checked_stub', checkedAt };
-      const rows = await this.client.$queryRawUnsafe<Array<{
+      if (!queryClient.$queryRawUnsafe) return { status: 'not_checked_stub', checkedAt };
+      const rows = await queryClient.$queryRawUnsafe!<Array<{
         columns_ok: boolean;
         enums_ok: boolean;
         mutation_unique_ok: boolean;
@@ -272,7 +276,7 @@ export class PrismaService implements OnModuleDestroy {
       if (!includeActivation) {
         return { status: 'ok', checkedAt, latencyMs: Date.now() - startedAt, message: 'Speed persisted-row lifecycle schema is ready.' };
       }
-      const activationRows = await this.client.$queryRawUnsafe<Array<{ schema_ok: boolean }>>(
+      const activationRows = await queryClient.$queryRawUnsafe!<Array<{ schema_ok: boolean }>>(
         `WITH expected_columns(table_name,column_name,data_type,is_nullable,datetime_precision,column_default) AS (
            VALUES
              ('MatchmakingTicket','readyLifecycleVersion','text','YES',NULL::integer,NULL::text),
@@ -294,9 +298,40 @@ export class PrismaService implements OnModuleDestroy {
              ('SpeedLifecycleCapabilityLease','supportsV2','boolean','NO',NULL,NULL),
              ('SpeedLifecycleCapabilityLease','supportsLegacyReconcile','boolean','NO',NULL,NULL),
              ('SpeedLifecycleCapabilityLease','observedGeneration','bigint','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerProjectId','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerEnvironmentId','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerServiceId','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerDeploymentId','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerReplicaId','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerRegion','text','YES',NULL,NULL),
+             ('SpeedLifecycleCapabilityLease','providerArtifact','text','YES',NULL,NULL),
              ('SpeedLifecycleCapabilityLease','startedAt','timestamp without time zone','NO',3,NULL),
              ('SpeedLifecycleCapabilityLease','lastSeenAt','timestamp without time zone','NO',3,NULL),
-             ('SpeedLifecycleCapabilityLease','expiresAt','timestamp without time zone','NO',3,NULL)
+             ('SpeedLifecycleCapabilityLease','expiresAt','timestamp without time zone','NO',3,NULL),
+             ('SpeedLifecycleActivationAudit','id','uuid','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','proofProtocol','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','proofId','uuid','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','operation','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','approvalRef','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','operatorPrincipalHash','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','providerProjectId','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','providerEnvironmentId','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','providerServiceId','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','providerDeploymentId','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','artifactIdentity','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','releaseId','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','expectedReplicaCount','integer','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','inventoryDigest','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','leaseSetDigest','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','providerObservedBeforeAt','timestamp with time zone','NO',6,NULL),
+             ('SpeedLifecycleActivationAudit','providerObservedAfterAt','timestamp with time zone','NO',6,NULL),
+             ('SpeedLifecycleActivationAudit','fromPhase','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','fromGeneration','bigint','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','toPhase','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','toGeneration','bigint','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','result','text','NO',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','failureCode','text','YES',NULL,NULL),
+             ('SpeedLifecycleActivationAudit','createdAt','timestamp with time zone','NO',6,'clock_timestamp()')
          ), expected_constraints(name,digest) AS (
            VALUES
              ('Match_ready_lifecycle_check','b34ed180e462bcdbfdcb3eb7a5a13e9f'),
@@ -312,18 +347,26 @@ export class PrismaService implements OnModuleDestroy {
              ('SpeedLifecycleCapabilityLease_generation_check','5f88f2fafa41b2ce7008398381dbee17'),
              ('SpeedLifecycleCapabilityLease_identity_check','6c2c91ae64adf2e22ccfd2545b7272ac'),
              ('SpeedLifecycleCapabilityLease_pkey','afc0bb0cfdfab272f2f9aba1c70bd52c'),
-             ('SpeedLifecycleCapabilityLease_time_check','4da48159b67fa306086b26071f693245')
+             ('SpeedLifecycleCapabilityLease_provider_identity_check','d58d9b1035fe4f1f49432eb1afe24a34'),
+             ('SpeedLifecycleCapabilityLease_time_check','4da48159b67fa306086b26071f693245'),
+             ('SpeedLifecycleActivationAudit_identity_check','f8d9451f0ac90082df1f4a2a43ef3fef'),
+             ('SpeedLifecycleActivationAudit_pkey','4c6419b3704337bbfe50f018842a9ad3'),
+             ('SpeedLifecycleActivationAudit_proofId_key','099910e45ef7eb80a8e26b3b2917f6be'),
+             ('SpeedLifecycleActivationAudit_protocol_check','94dccbb25244d8a7dacdf0118efd7eb6'),
+             ('SpeedLifecycleActivationAudit_result_check','94abfeee0a039ace42467e1ab36dbd04')
          ), actual_constraints AS (
            SELECT x.conname AS name, md5(pg_get_constraintdef(x.oid,true)) AS digest
              FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname=current_schema() AND (
-              c.relname IN ('SpeedLifecycleActivation','SpeedLifecycleCapabilityLease')
+              c.relname IN ('SpeedLifecycleActivation','SpeedLifecycleCapabilityLease','SpeedLifecycleActivationAudit')
               OR x.conname IN ('MatchmakingTicket_ready_lifecycle_check','Match_ready_lifecycle_check'))
          ), expected_functions(name,digest) AS (
            VALUES
              ('wr_speed_creation_guard','7a01d1f3d613bb33b16fb01cab105e71'),
              ('wr_speed_activation_transition_guard','75c08be173f011ffa15e999f20256deb'),
-             ('wr_speed_activation_truncate_guard','60de57bcc8762dd58ba320bdbb97c327')
+             ('wr_speed_activation_truncate_guard','60de57bcc8762dd58ba320bdbb97c327'),
+             ('wr_speed_activation_audit_row_guard','12e4b1aca2be925e5f9bb18eb879f6c5'),
+             ('wr_speed_activation_audit_truncate_guard','12e4b1aca2be925e5f9bb18eb879f6c5')
          ), actual_functions AS (
            SELECT p.proname AS name, md5(p.prosrc) AS digest
              FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
@@ -334,25 +377,28 @@ export class PrismaService implements OnModuleDestroy {
              ('MatchmakingTicket','speed_ticket_creation_guard',7::smallint,'wr_speed_creation_guard'),
              ('Match','speed_match_creation_guard',7::smallint,'wr_speed_creation_guard'),
              ('SpeedLifecycleActivation','speed_activation_transition_guard',27::smallint,'wr_speed_activation_transition_guard'),
-             ('SpeedLifecycleActivation','speed_activation_truncate_guard',34::smallint,'wr_speed_activation_truncate_guard')
+             ('SpeedLifecycleActivation','speed_activation_truncate_guard',34::smallint,'wr_speed_activation_truncate_guard'),
+             ('SpeedLifecycleActivationAudit','speed_activation_audit_row_guard',27::smallint,'wr_speed_activation_audit_row_guard'),
+             ('SpeedLifecycleActivationAudit','speed_activation_audit_truncate_guard',34::smallint,'wr_speed_activation_audit_truncate_guard')
          ), actual_triggers AS (
            SELECT c.relname AS table_name,t.tgname AS name,t.tgtype,p.proname AS function_name
              FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
              JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
             WHERE n.nspname=current_schema() AND pn.nspname=current_schema() AND NOT t.tgisinternal AND t.tgenabled='O'
-              AND c.relname IN ('MatchmakingTicket','Match','SpeedLifecycleActivation')
+              AND c.relname IN ('MatchmakingTicket','Match','SpeedLifecycleActivation','SpeedLifecycleActivationAudit')
          )
          SELECT
-           (SELECT count(*)=2 FROM information_schema.tables
+           (SELECT count(*)=3 FROM information_schema.tables
              WHERE table_schema=current_schema() AND table_type='BASE TABLE'
-               AND table_name IN ('SpeedLifecycleActivation','SpeedLifecycleCapabilityLease'))
+               AND table_name IN ('SpeedLifecycleActivation','SpeedLifecycleCapabilityLease','SpeedLifecycleActivationAudit'))
            AND NOT EXISTS (
              SELECT 1 FROM expected_columns e LEFT JOIN information_schema.columns c
                ON c.table_schema=current_schema() AND c.table_name=e.table_name AND c.column_name=e.column_name
               WHERE c.column_name IS NULL OR c.data_type<>e.data_type OR c.is_nullable<>e.is_nullable
                  OR c.datetime_precision IS DISTINCT FROM e.datetime_precision OR c.column_default IS DISTINCT FROM e.column_default)
            AND (SELECT count(*)=10 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='SpeedLifecycleActivation')
-           AND (SELECT count(*)=11 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='SpeedLifecycleCapabilityLease')
+           AND (SELECT count(*)=18 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='SpeedLifecycleCapabilityLease')
+           AND (SELECT count(*)=24 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='SpeedLifecycleActivationAudit')
            AND NOT EXISTS (SELECT 1 FROM expected_constraints e LEFT JOIN actual_constraints a USING(name) WHERE a.digest IS DISTINCT FROM e.digest)
            AND (SELECT count(*) FROM actual_constraints)=(SELECT count(*) FROM expected_constraints)
            AND NOT EXISTS (SELECT 1 FROM expected_functions e LEFT JOIN actual_functions a USING(name) WHERE a.digest IS DISTINCT FROM e.digest)
@@ -421,6 +467,50 @@ export class PrismaService implements OnModuleDestroy {
               AND i.indnkeyatts=2
               AND ARRAY(SELECT a.attname FROM unnest(i.indkey::smallint[]) WITH ORDINALITY k(attnum,ord)
                         JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum ORDER BY k.ord)=ARRAY['controlProtocol','expiresAt']::name[])
+          AND (SELECT count(*)=1 FROM pg_index i
+            JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_class x ON x.oid=i.indexrelid JOIN pg_am am ON am.oid=x.relam
+            WHERE n.nspname=current_schema() AND c.relname='SpeedLifecycleCapabilityLease'
+              AND x.relname='SpeedLifecycleCapabilityLease_release_replica_expiry_idx'
+              AND i.indisvalid AND i.indisready AND NOT i.indisunique AND NOT i.indisprimary AND am.amname='btree'
+              AND i.indnkeyatts=3 AND i.indnatts=3 AND i.indexprs IS NULL AND i.indpred IS NULL
+              AND ARRAY(SELECT a.attname FROM unnest(i.indkey::smallint[]) WITH ORDINALITY k(attnum,ord)
+                        JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum ORDER BY k.ord)=ARRAY['releaseId','providerReplicaId','expiresAt']::name[]
+              AND ARRAY(SELECT opn.nspname::text||'.'||opc.opcname::text FROM unnest(i.indclass::oid[]) WITH ORDINALITY k(opcoid,ord)
+                        JOIN pg_opclass opc ON opc.oid=k.opcoid JOIN pg_namespace opn ON opn.oid=opc.opcnamespace ORDER BY k.ord)
+                  =ARRAY['pg_catalog.text_ops','pg_catalog.text_ops','pg_catalog.timestamp_ops']::text[]
+              AND ARRAY(SELECT COALESCE(cn.nspname::text||'.'||coll.collname::text,'<noncollatable>') FROM unnest(i.indcollation::oid[]) WITH ORDINALITY k(coll_oid,ord)
+                        LEFT JOIN pg_collation coll ON coll.oid=k.coll_oid LEFT JOIN pg_namespace cn ON cn.oid=coll.collnamespace ORDER BY k.ord)
+                  =ARRAY['pg_catalog.default','pg_catalog.default','<noncollatable>']::text[])
+          AND (SELECT count(*)=1 FROM pg_index i
+            JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_class x ON x.oid=i.indexrelid JOIN pg_am am ON am.oid=x.relam
+            WHERE n.nspname=current_schema() AND c.relname='SpeedLifecycleCapabilityLease'
+              AND x.relname='SpeedLifecycleCapabilityLease_provider_deployment_expiry_idx'
+              AND i.indisvalid AND i.indisready AND NOT i.indisunique AND NOT i.indisprimary AND am.amname='btree'
+              AND i.indnkeyatts=5 AND i.indnatts=5 AND i.indexprs IS NULL AND i.indpred IS NULL
+              AND ARRAY(SELECT a.attname FROM unnest(i.indkey::smallint[]) WITH ORDINALITY k(attnum,ord)
+                        JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum ORDER BY k.ord)
+                  =ARRAY['providerProjectId','providerEnvironmentId','providerServiceId','providerDeploymentId','expiresAt']::name[]
+              AND ARRAY(SELECT opn.nspname::text||'.'||opc.opcname::text FROM unnest(i.indclass::oid[]) WITH ORDINALITY k(opcoid,ord)
+                        JOIN pg_opclass opc ON opc.oid=k.opcoid JOIN pg_namespace opn ON opn.oid=opc.opcnamespace ORDER BY k.ord)
+                  =ARRAY['pg_catalog.text_ops','pg_catalog.text_ops','pg_catalog.text_ops','pg_catalog.text_ops','pg_catalog.timestamp_ops']::text[]
+              AND ARRAY(SELECT COALESCE(cn.nspname::text||'.'||coll.collname::text,'<noncollatable>') FROM unnest(i.indcollation::oid[]) WITH ORDINALITY k(coll_oid,ord)
+                        LEFT JOIN pg_collation coll ON coll.oid=k.coll_oid LEFT JOIN pg_namespace cn ON cn.oid=coll.collnamespace ORDER BY k.ord)
+                  =ARRAY['pg_catalog.default','pg_catalog.default','pg_catalog.default','pg_catalog.default','<noncollatable>']::text[])
+          AND (SELECT count(*)=1 FROM pg_index i
+            JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_class x ON x.oid=i.indexrelid JOIN pg_am am ON am.oid=x.relam
+            WHERE n.nspname=current_schema() AND c.relname='SpeedLifecycleActivationAudit'
+              AND x.relname='SpeedLifecycleActivationAudit_createdAt_idx'
+              AND i.indisvalid AND i.indisready AND NOT i.indisunique AND NOT i.indisprimary AND am.amname='btree'
+              AND i.indnkeyatts=1 AND i.indnatts=1 AND i.indexprs IS NULL AND i.indpred IS NULL
+              AND ARRAY(SELECT a.attname FROM unnest(i.indkey::smallint[]) WITH ORDINALITY k(attnum,ord)
+                        JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum ORDER BY k.ord)=ARRAY['createdAt']::name[]
+              AND ARRAY(SELECT opn.nspname::text||'.'||opc.opcname::text FROM unnest(i.indclass::oid[]) WITH ORDINALITY k(opcoid,ord)
+                        JOIN pg_opclass opc ON opc.oid=k.opcoid JOIN pg_namespace opn ON opn.oid=opc.opcnamespace ORDER BY k.ord)=ARRAY['pg_catalog.timestamptz_ops']::text[]
+              AND ARRAY(SELECT COALESCE(cn.nspname::text||'.'||coll.collname::text,'<noncollatable>') FROM unnest(i.indcollation::oid[]) WITH ORDINALITY k(coll_oid,ord)
+                        LEFT JOIN pg_collation coll ON coll.oid=k.coll_oid LEFT JOIN pg_namespace cn ON cn.oid=coll.collnamespace ORDER BY k.ord)=ARRAY['<noncollatable>']::text[])
           AS schema_ok`,
       );
       if (!activationRows[0]?.schema_ok) {

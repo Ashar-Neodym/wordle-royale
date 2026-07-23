@@ -36,10 +36,13 @@ export class ReadinessService {
     const evaluated = this.speedOperational
       ? await this.speedOperational.check()
       : { available: false, reason: speedQueueEnabled() ? 'reconciler_unavailable' as const : 'feature_disabled' as const };
+    const persistedRuntime = this.speedOperational?.checkPersistedRuntime
+      ? await this.speedOperational.checkPersistedRuntime()
+      : evaluated;
     const activationOnlyReasons = new Set(['activation_unavailable', 'activation_draining', 'activation_protocol_unsupported', 'active_version_unsupported', 'capability_lease_unavailable', 'activation_schema_unavailable']);
-    const speedRuntime = evaluated.reason === 'feature_disabled'
+    const speedRuntime = persistedRuntime.reason === 'feature_disabled'
       ? { status: 'not_checked_stub' as const, checkedAt, message: 'Speed gameplay is not required because Speed matchmaking is disabled.' }
-      : evaluated.available || activationOnlyReasons.has(evaluated.reason)
+      : persistedRuntime.available || (!this.speedOperational?.checkPersistedRuntime && activationOnlyReasons.has(evaluated.reason))
         ? { status: 'ok' as const, checkedAt, message: 'Speed persisted-row gameplay and expiry reconciliation dependencies are available.' }
         : { status: 'unavailable' as const, checkedAt, message: 'Speed gameplay operational readiness is unavailable.' };
     const speedLifecycleActivation = evaluated.available
