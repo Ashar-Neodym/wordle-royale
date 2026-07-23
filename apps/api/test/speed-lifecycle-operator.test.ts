@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { RailwayInventoryAdapter } from '../src/gameplay/railway-inventory.adapter.ts';
+import { RailwayInventoryAdapter, RailwayInventoryError } from '../src/gameplay/railway-inventory.adapter.ts';
 import { sha256 } from '../src/gameplay/speed-lifecycle-proof.ts';
 import {
   DefaultOperatorReadinessVerifier,
@@ -90,6 +90,21 @@ describe('Ticket 195 operator-bound transition service', () => {
     assert.equal(result.nonTargetLeaseCount, 0);
     assert.equal(result.proof.expectedActivationGeneration, 1n);
     assert.equal(writes.length, 0);
+  });
+
+  it('preserves recognized sanitized Railway inventory failure codes', async () => {
+    for (const expected of ['railway_inventory_schema_unsupported', 'railway_replica_count_unknown', 'railway_rollout_not_settled']) {
+      const state = harness();
+      (state.service as any).railway = { observe: async () => { throw new RailwayInventoryError(expected); } };
+      assert.equal(await code(() => state.service.verify(target)), expected);
+      assert.deepEqual(state.writes, []);
+    }
+    const hostile = harness();
+    (hostile.service as any).railway = { observe: async () => {
+      throw Object.assign(new Error('raw provider failure'), { name: 'RailwayInventoryError', code: 'SECRET_provider_token_123' });
+    } };
+    assert.equal(await code(() => hostile.service.verify(target)), 'railway_inventory_unavailable');
+    assert.deepEqual(hostile.writes, []);
   });
 
   it('requires explicit approval and exact operation-specific confirmation', async () => {
