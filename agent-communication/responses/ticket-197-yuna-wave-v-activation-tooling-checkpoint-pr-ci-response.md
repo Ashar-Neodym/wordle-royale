@@ -2,7 +2,7 @@
 
 Task: Wave V Activation Tooling Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 201 PASS and local/provider-mock/PostgreSQL gates confirmed; branch/PR/final-head CI pending.
+Status: **PASS** — Ticket 201 authorized checkpointing; canonical, provider-mock, and disposable-PostgreSQL gates passed; branch pushed; PR #12 opened; implementation-head GitHub/Vercel checks passed; no merge or hosted/provider/lifecycle action performed.
 
 ## What I understood
 
@@ -104,7 +104,41 @@ Excluded:
 
 ## Branch/PR/CI
 
-Pending checkpoint operations.
+```text
+base = main @ e81e211e8995d594559d5cc2d33c88a7730ef2de
+branch = wave-v/trusted-activation-tooling
+checkpoint commit = f7b8dc0c62a30c46657c6286a7f77c3267ed64f6
+commit subject = feat: checkpoint wave v activation tooling
+local SHA = remote SHA
+staged paths = 40
+blocked staged paths = []
+```
+
+Pull request:
+
+- PR #12: https://github.com/Ashar-Neodym/wordle-royale/pull/12
+- base: `main`
+- head: `wave-v/trusted-activation-tooling`
+- state at implementation checkpoint: open, non-draft
+
+Implementation-head checks:
+
+```text
+Workspace checks = PASS, 1m21s
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29980274506
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/29980274506/job/89120427274
+Vercel PR Preview = PASS
+Vercel Preview Comments = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/GTSjYSPCVrtiUE6hi5UbLHJrxFvW
+```
+
+The Vercel result is an automatic PR Preview, not production deployment evidence or authorization.
+
+Checkpoint hygiene:
+
+- `git diff --cached --check` passed after removing trailing whitespace from six Markdown evidence/runbook files without semantic edits.
+- `.env.preview.local`, generated builds, Expo/Next caches, tsbuildinfo, logs, dumps, coverage, provider/session material, and temporary PostgreSQL artifacts remained excluded.
+- The branch was created from exact current `origin/main` after PR #11 merged, avoiding old topic-branch history.
 
 ## Safety boundaries
 
