@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { isPublicAddress } from '../src/gameplay/public-origin-readiness.ts';
+import { createPinnedLookup, isPublicAddress } from '../src/gameplay/public-origin-readiness.ts';
 import { DefaultOperatorReadinessVerifier, SpeedLifecycleOperatorError } from '../src/gameplay/speed-lifecycle-operator.service.ts';
 
 const healthy = {
@@ -21,6 +21,17 @@ async function failure(action: () => Promise<unknown>): Promise<string> {
 }
 
 describe('Ticket 199 public-origin readiness fencing', () => {
+  it('honors scalar and all-address Node lookup callback contracts for one pinned address', () => {
+    const lookup = createPinnedLookup('1.1.1.1');
+    let scalar: unknown[] = [];
+    let all: unknown[] = [];
+    lookup('api.example.test', {}, (...args: unknown[]) => { scalar = args; });
+    lookup('api.example.test', { all: true }, (...args: unknown[]) => { all = args; });
+    assert.deepEqual(scalar, [null, '1.1.1.1', 4]);
+    assert.deepEqual(all, [null, [{ address: '1.1.1.1', family: 4 }]]);
+    assert.throws(() => createPinnedLookup('not-an-ip'), /invalid_pinned_address/);
+  });
+
   it('classifies dangerous IPv4, IPv6, mapped, translated, and special-use forms as non-public', () => {
     for (const address of [
       '0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1',

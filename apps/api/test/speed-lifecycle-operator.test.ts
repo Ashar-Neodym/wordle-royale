@@ -9,8 +9,10 @@ import { RailwayInventoryAdapter, RailwayInventoryError } from '../src/gameplay/
 import { sha256 } from '../src/gameplay/speed-lifecycle-proof.ts';
 import {
   DefaultOperatorReadinessVerifier,
+  OPERATOR_READINESS_FETCH_MAX_MS,
   SpeedLifecycleOperatorError,
   SpeedLifecycleOperatorService,
+  orderReadinessAddresses,
   type OperatorTarget,
 } from '../src/gameplay/speed-lifecycle-operator.service.ts';
 
@@ -149,6 +151,74 @@ describe('Ticket 195 operator-bound transition service', () => {
       ]) assert.equal(await code(() => verifier.verify(healthUrl, ['api.example.test'])), 'railway_scope_mismatch');
       assert.equal(fetched, false);
     } finally { globalThis.fetch = originalFetch; }
+  });
+
+  it('accepts the public readiness envelope and fails closed on ambiguous or malformed dependency shapes', async () => {
+    const dependencies = {
+      database: { status: 'ok' },
+      applicationSchema: { status: 'ok' },
+      standardDictionary: { status: 'ok' },
+      speedRuntime: { status: 'ok' },
+    };
+    const makeVerifier = (body: unknown) => new DefaultOperatorReadinessVerifier({
+      checkApplicationSchema: async () => ({ status: 'ok' }),
+      checkSpeedReadyLifecycleSchema: async () => ({ status: 'ok' }),
+    } as any, { checkStandardDictionary: async () => ({ status: 'ok' }) } as any,
+    { resolve: async () => ['1.1.1.1'] } as any,
+    { getJson: async () => body } as any);
+
+    const expected = { schema: true, dictionary: true, reconciler: true, standard: true };
+    assert.deepEqual(
+      await makeVerifier({ data: { status: 'ok', dependencies }, error: null, requestId: 'fixture' })
+        .verify('https://api.example.test', ['api.example.test']),
+      expected,
+    );
+    assert.deepEqual(
+      await makeVerifier({ dependencies }).verify('https://api.example.test', ['api.example.test']),
+      expected,
+    );
+
+    const malformedValues = [null, undefined, 0, false, 'invalid', []];
+    const malformedBodies: unknown[] = [
+      null, 0, false, 'invalid', [], {},
+      { data: {} },
+      { data: { dependencies }, dependencies },
+      ...malformedValues.map((value) => ({ data: { dependencies }, dependencies: value })),
+      ...malformedValues.map((value) => ({ dependencies, data: value })),
+      ...malformedValues.map((value) => ({ dependencies: value })),
+      ...malformedValues.map((value) => ({ data: { dependencies: value } })),
+      { dependencies, data: {} },
+      { dependencies, data: { dependencies: null } },
+      { dependencies, data: { dependencies: undefined } },
+    ];
+    for (const body of malformedBodies) {
+      assert.equal(await code(() => makeVerifier(body).verify(
+        'https://api.example.test', ['api.example.test'],
+      )), 'reconciler_readiness_failed', JSON.stringify(body));
+    }
+  });
+
+  it('orders public IPv4 before IPv6 and keeps hosted readiness fetch bounded at twelve seconds', async () => {
+    assert.deepEqual(orderReadinessAddresses(['2606:4700::1', '8.8.8.8', '1.1.1.1', '2001:4860::1']), [
+      '1.1.1.1', '8.8.8.8', '2001:4860::1', '2606:4700::1',
+    ]);
+    let pinnedAddress = '';
+    let transportBudget = 0;
+    const verifier = new DefaultOperatorReadinessVerifier({
+      checkApplicationSchema: async () => ({ status: 'ok' }),
+      checkSpeedReadyLifecycleSchema: async () => ({ status: 'ok' }),
+    } as any, { checkStandardDictionary: async () => ({ status: 'ok' }) } as any,
+    { resolve: async () => ['2606:4700::1', '1.1.1.1'] } as any,
+    { getJson: async (_url: URL, address: string, timeoutMs: number) => {
+      pinnedAddress = address; transportBudget = timeoutMs;
+      return { data: { dependencies: {
+        speedRuntime: { status: 'ok' }, database: { status: 'ok' },
+        applicationSchema: { status: 'ok' }, standardDictionary: { status: 'ok' },
+      } } };
+    } } as any);
+    await verifier.verify('https://api.example.test', ['api.example.test'], 20_000);
+    assert.equal(pinnedAddress, '1.1.1.1');
+    assert.ok(transportBudget <= OPERATOR_READINESS_FETCH_MAX_MS && transportBudget > 11_000);
   });
 
   it('atomically closes and appends one audit without opening automatically', async () => {
