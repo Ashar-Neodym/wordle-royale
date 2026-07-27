@@ -2,7 +2,7 @@
 
 Task: Runtime-Readiness Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — authoritative Ticket 216 PASS and local/disposable-PostgreSQL gates confirmed; focused branch/PR/final-head checks pending.
+Status: **PASS** — authoritative Ticket 216 PASS accepted; focused local and disposable-PostgreSQL gates passed; branch pushed; PR #14 opened; implementation-head GitHub/Vercel checks passed; no merge or hosted/provider/lifecycle action performed.
 
 ## What I understood
 
@@ -118,7 +118,37 @@ Also excluded: real environment files, generated builds/caches, provider session
 
 ## Branch/PR/CI
 
-Pending.
+```text
+base = main @ 0f673773929e861284fa72939f77fb3de3df6aaa
+branch = wave-v/runtime-readiness
+checkpoint commit = e25d1b7728476b34b0c0e76eed9395d34fb95844
+commit subject = feat: checkpoint runtime readiness
+local SHA = remote SHA
+staged paths = 41
+blocked staged paths = []
+```
+
+Pull request:
+
+- PR #14: https://github.com/Ashar-Neodym/wordle-royale/pull/14
+- base: `main`
+- head: `wave-v/runtime-readiness`
+- state at implementation checkpoint: open, non-draft
+
+Implementation-head checks:
+
+```text
+Workspace checks = PASS, 1m27s
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/30235990400
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/30235990400/job/89883799748
+Vercel PR Preview = PASS
+Vercel Preview Comments = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/Cum5n7WtvvPTkQdtqFMZGhkYNQi4
+```
+
+The Vercel result is an automatic PR Preview, not production deployment evidence or authorization.
+
+The checkpoint used explicit staging. Excluded activation/preflight communication changes remain preserved locally and were not staged or committed.
 
 ## Safety boundaries
 
