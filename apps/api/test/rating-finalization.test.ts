@@ -48,6 +48,7 @@ function createRatingPrismaMock(options: {
 
   let transactionTail = Promise.resolve();
   let nonEmptyRatingEventReadCount = 0;
+  let participantReadCount = 0;
   const client: any = {
     $transaction: async (callback: (tx: any) => Promise<any>) => {
       const prior = transactionTail;
@@ -69,9 +70,12 @@ function createRatingPrismaMock(options: {
       },
     },
     matchParticipant: {
-      findMany: async (args: any) => created.matchParticipant
-        .filter((row) => row.matchId === args.where.matchId)
-        .sort((a, b) => a.seatNumber - b.seatNumber),
+      findMany: async (args: any) => {
+        participantReadCount += 1;
+        return created.matchParticipant
+          .filter((row) => row.matchId === args.where.matchId)
+          .sort((a, b) => a.seatNumber - b.seatNumber);
+      },
       update: async (args: any) => {
         const index = created.matchParticipant.findIndex((row) => row.id === args.where.id);
         created.matchParticipant[index] = { ...created.matchParticipant[index], ...args.data };
@@ -141,7 +145,7 @@ function createRatingPrismaMock(options: {
     },
   };
 
-  return { client, created };
+  return { client, created, participantReadCount: () => participantReadCount };
 }
 
 describe('GameplayPersistenceService rating finalization', () => {
@@ -395,6 +399,27 @@ describe('GameplayPersistenceService rating finalization', () => {
       /completed authoritative Speed adjudication/,
     );
     assert.equal(created.ratingEvent.length, 0);
+  });
+
+  it('rejects every converse Standard/Speed mode-algorithm contradiction before reads or writes', async () => {
+    const cases = [
+      { rankedMode: 'standard_1v1', algorithmConfigVersion: 'speed_1v1_glicko_v1' },
+      { rankedMode: 'speed_1v1', algorithmConfigVersion: 'standard_1v1_glicko_v1' },
+      { rankedMode: null, algorithmConfigVersion: 'speed_1v1_glicko_v1' },
+    ] as const;
+
+    for (const identity of cases) {
+      const mock = createRatingPrismaMock(identity);
+      const service = new GameplayPersistenceService({ client: mock.client } as any);
+      await assert.rejects(
+        () => service.finalizeRankedMatchRatings({ matchId }),
+        (error: any) => error?.getResponse?.()?.code === 'ranked_mode_algorithm_mismatch',
+      );
+      assert.equal(mock.participantReadCount(), 0);
+      assert.equal(mock.created.ratingProfile.length, 0);
+      assert.equal(mock.created.ratingEvent.length, 0);
+      assert.equal(mock.created.matchReport.length, 0);
+    }
   });
 
   it('does not rate unranked matches or mismatched Glicko-tagged matches', async () => {

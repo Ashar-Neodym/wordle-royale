@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { NestFactory } from '@nestjs/core';
+import {
+  SpeedLifecycleOperatorModule,
+  assertOperatorContextIsolated,
+} from '../scripts/speed-lifecycle-operator.module.ts';
 import { RailwayInventoryAdapter, RailwayInventoryError } from '../src/gameplay/railway-inventory.adapter.ts';
 import { sha256 } from '../src/gameplay/speed-lifecycle-proof.ts';
 import {
@@ -81,6 +86,19 @@ async function code(action: () => Promise<unknown>): Promise<string> {
   try { await action(); return 'PASS'; }
   catch (error) { return (error as SpeedLifecycleOperatorError).code; }
 }
+
+describe('operator CLI application context', () => {
+  it('resolves the operator service from the selected module while keeping runtime workers absent', async () => {
+    const app = await NestFactory.createApplicationContext(SpeedLifecycleOperatorModule, { logger: false });
+    try {
+      assertOperatorContextIsolated(app);
+      const service = app.select(SpeedLifecycleOperatorModule).get(SpeedLifecycleOperatorService, { strict: true });
+      assert.ok(service instanceof SpeedLifecycleOperatorService);
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe('Ticket 195 operator-bound transition service', () => {
   it('keeps dry-run read-only while proving exact provider leases and health', async () => {

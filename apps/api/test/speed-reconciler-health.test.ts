@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { SpeedExpiryReconcilerService } from '../src/gameplay/speed-expiry-reconciler.service.ts';
 import {
+  SPEED_RECONCILER_INTERVAL_MS,
   SPEED_RECONCILER_MAX_PASS_MS,
   SPEED_RECONCILER_SUCCESS_FRESHNESS_MS,
   SpeedRuntimeHealthService,
@@ -11,6 +12,7 @@ import { SpeedOperationalReadinessService } from '../src/health/speed-operationa
 import { LeaderboardReadService } from '../src/leaderboard/leaderboard-read.service.ts';
 
 const previousFlag = process.env.SPEED_1V1_QUEUE_ENABLED;
+const caughtUp = (processed = 0) => ({ selected: processed, processed, hasMore: false });
 
 afterEach(() => {
   if (previousFlag === undefined) delete process.env.SPEED_1V1_QUEUE_ENABLED;
@@ -67,14 +69,14 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     let now = 20_000;
     let behavior: 'success' | 'failure' | 'hang' = 'success';
     let calls = 0;
-    const hung = deferred<number>();
+    const hung = deferred<ReturnType<typeof caughtUp>>();
     const runtime = new SpeedRuntimeHealthService(() => now);
     const reconciler = new SpeedExpiryReconcilerService({
       reconcileDue: async () => {
         calls += 1;
         if (behavior === 'failure') throw new Error('reconciliation failed');
         if (behavior === 'hang') return await hung.promise;
-        return 0;
+        return caughtUp();
       },
     } as any, runtime);
     const readiness = operational(runtime);
@@ -100,7 +102,7 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     await reconciler.tick();
     assert.equal(calls, callsAtHang, 'single-flight suppresses overlap while obsolete work is unresolved');
 
-    hung.resolve(0);
+    hung.resolve(caughtUp());
     await pendingTick;
     assert.equal((await readiness.check()).reason, 'reconciler_unavailable', 'late obsolete success stays fenced');
     assert.equal(reconciler.metrics().obsoleteCompletions, 1);
@@ -117,10 +119,10 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
     let now = 25_000;
     let behavior: 'success' | 'late-failure' = 'success';
-    const delayedFailure = deferred<number>();
+    const delayedFailure = deferred<ReturnType<typeof caughtUp>>();
     const runtime = new SpeedRuntimeHealthService(() => now);
     const reconciler = new SpeedExpiryReconcilerService({
-      reconcileDue: async () => behavior === 'late-failure' ? await delayedFailure.promise : 0,
+      reconcileDue: async () => behavior === 'late-failure' ? await delayedFailure.promise : caughtUp(),
     } as any, runtime);
     const readiness = operational(runtime);
 
@@ -175,13 +177,13 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
     let calls = 0;
     let behavior: 'hang' | 'success' = 'hang';
-    const oldWork = deferred<number>();
+    const oldWork = deferred<ReturnType<typeof caughtUp>>();
     const runtime = new SpeedRuntimeHealthService();
     const reconciler = new SpeedExpiryReconcilerService({
       reconcileDue: async () => {
         calls += 1;
         if (behavior === 'hang') return await oldWork.promise;
-        return 0;
+        return caughtUp();
       },
     } as any, runtime);
 
@@ -194,13 +196,84 @@ describe('Tickets 172/174 bounded generation-fenced Speed reconciler health', ()
     assert.equal(calls, 1, 'restart does not overlap unresolved previous-epoch work');
 
     behavior = 'success';
-    oldWork.resolve(0);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(runtime.isReconcilerReady(), false, 'previous-epoch completion remains fenced');
-    await reconciler.tick();
-    assert.equal(calls, 2);
+    oldWork.resolve(caughtUp());
+    for (let attempt = 0; attempt < 20 && calls < 2; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    assert.equal(calls, 2, 'new-epoch demand automatically resumes after obsolete work settles');
+    assert.equal(reconciler.metrics().obsoleteCompletions, 1);
     assert.equal(runtime.isReconcilerReady(), true);
     reconciler.onModuleDestroy();
+  });
+
+  it('self-schedules every sentinel backlog generation immediately until caught up', async () => {
+    process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
+    let calls = 0;
+    const runtime = new SpeedRuntimeHealthService();
+    const reconciler = new SpeedExpiryReconcilerService({
+      reconcileDue: async () => {
+        calls += 1;
+        return calls <= 6
+          ? { selected: 11, processed: 10, hasMore: true }
+          : { selected: 1, processed: 1, hasMore: false };
+      },
+    } as any, runtime);
+    reconciler.onModuleInit();
+    for (let attempt = 0; attempt < 50 && calls < 7; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    assert.equal(calls, 7);
+    assert.equal(reconciler.metrics().processed, 61);
+    assert.equal(reconciler.metrics().immediateCatchups, 6);
+    assert.equal(runtime.isReconcilerReady(), true);
+    reconciler.onModuleDestroy();
+  });
+
+  it('autonomously retries late same-epoch success and failure after obsolete work settles', async () => {
+    process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
+    for (const outcome of ['success', 'failure'] as const) {
+      let now = 50_000;
+      let calls = 0;
+      const delayed = deferred<ReturnType<typeof caughtUp>>();
+      const scheduled: Array<{ delay: number; run: () => void }> = [];
+      const originalSetTimeout = globalThis.setTimeout;
+      const originalClearTimeout = globalThis.clearTimeout;
+      globalThis.setTimeout = ((handler: (...args: any[]) => void, delay?: number) => {
+        scheduled.push({ delay: Number(delay), run: () => handler() });
+        return { unref() {} } as any;
+      }) as typeof setTimeout;
+      globalThis.clearTimeout = (() => undefined) as typeof clearTimeout;
+      const runtime = new SpeedRuntimeHealthService(() => now);
+      const reconciler = new SpeedExpiryReconcilerService({
+        reconcileDue: async () => {
+          calls += 1;
+          if (calls === 1) return await delayed.promise;
+          return caughtUp();
+        },
+      } as any, runtime);
+      try {
+        reconciler.onModuleInit();
+        await Promise.resolve();
+        assert.equal(calls, 1);
+        now += SPEED_RECONCILER_MAX_PASS_MS + 1;
+        if (outcome === 'success') delayed.resolve(caughtUp());
+        else delayed.reject(new Error('late same-epoch failure'));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        assert.equal(reconciler.metrics().obsoleteCompletions, 1);
+        assert.equal(calls, 1);
+        const recovery = scheduled.find((entry) => entry.delay === SPEED_RECONCILER_INTERVAL_MS);
+        assert.ok(recovery, `${outcome} must schedule exactly one normal-delay recovery pass`);
+        recovery.run();
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(calls, 2);
+        assert.equal(runtime.isReconcilerReady(), true);
+      } finally {
+        reconciler.onModuleDestroy();
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
+      }
+    }
   });
 
   it('keeps Standard available while generation-fenced Speed health is unavailable', async () => {

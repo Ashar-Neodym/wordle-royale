@@ -31,7 +31,7 @@ describe('Ticket 166 fail-closed Speed operation paths', () => {
     for (const operation of operations) await assert.rejects(operation(), isStableUnavailable);
   });
 
-  it('blocks ready/guess/forfeit/state/reconciliation before gameplay persistence runs', async () => {
+  it('blocks ready/guess/forfeit/state before gameplay persistence runs', async () => {
     const operational = { assertAvailable: async () => { throw unavailable(); }, assertDependenciesAvailable: async () => { throw unavailable(); } } as any;
     const service = new SpeedGameplayService({} as any, {} as any, operational);
     const operations = [
@@ -39,9 +39,24 @@ describe('Ticket 166 fail-closed Speed operation paths', () => {
       () => service.submitGuess({ matchId: 'match-1', roundId: 'round-1', userId: 'user-1', guess: 'crane', clientRequestId: '16600000-0000-4000-8000-000000000002' }),
       () => service.forfeit('match-1', 'user-1', 'forfeit-1'),
       () => service.getSnapshot('match-1', 'user-1'),
-      () => service.reconcileDue(),
     ];
     for (const operation of operations) await assert.rejects(operation(), isStableUnavailable);
+  });
+
+  it('reconciles persisted deadlines without product-readiness dependency probes', async () => {
+    let dependencyChecks = 0;
+    const tx = {
+      $executeRawUnsafe: async () => 0,
+      $queryRawUnsafe: async () => [],
+    };
+    const prisma = { client: { $transaction: async (callback: (client: any) => Promise<unknown>) => await callback(tx) } } as any;
+    const operational = {
+      assertAvailable: async () => { throw unavailable(); },
+      assertDependenciesAvailable: async () => { dependencyChecks += 1; throw unavailable(); },
+    } as any;
+    const result = await new SpeedGameplayService(prisma, {} as any, operational).reconcileDue();
+    assert.deepEqual(result, { selected: 0, processed: 0, hasMore: false });
+    assert.equal(dependencyChecks, 0);
   });
 
   it('keeps persisted snapshot reads available while activation-only creation is closed', async () => {

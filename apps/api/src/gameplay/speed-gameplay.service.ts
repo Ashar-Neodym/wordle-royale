@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { acceptedGuessResultSchema, rejectedGuessResultSchema, speedMatchSnapshotSchema } from '@wordle-royale/contracts';
 import type { GuessResult, SpeedMatchSnapshot } from '@wordle-royale/contracts';
 import { isSolved, scoreGuess, validateGuess } from '@wordle-royale/game-engine';
@@ -8,9 +8,11 @@ import { SpeedOperationalReadinessService } from '../health/speed-operational-re
 import { isRetryableTransactionError, isTransactionExpiryError } from '../matchmaking/matchmaking-lifecycle.ts';
 import { speedQueueEnabled } from '../matchmaking/matchmaking-config.ts';
 import { GameplayPersistenceService } from './gameplay-persistence.service.ts';
+import { SpeedExpiryAdjudicationService, type SpeedParticipant } from './speed-expiry-adjudication.service.ts';
+import { SpeedExpiryReconciliationService, type SpeedReconcileDueInput, type SpeedReconcilePassResult } from './speed-expiry-reconciliation.service.ts';
+import { SPEED_RECONCILER_BATCH_SIZE, SPEED_RECONCILER_SELECTION_LIMIT } from './speed-reconciler-budget.ts';
+import { SpeedRatingSettlementService } from './speed-rating-settlement.service.ts';
 import {
-  adjudicateSpeedParticipants,
-  SPEED_1V1_ADJUDICATION_VERSION,
   SPEED_1V1_RULESET_VERSION,
   SPEED_COUNTDOWN_MS,
   SPEED_MAX_GUESSES,
@@ -44,19 +46,6 @@ type CreateSpeedMatchInput = {
   activationGeneration: bigint;
 };
 
-type SpeedParticipant = {
-  id: string;
-  userId: string;
-  outcome: string;
-  readyAt: Date | null;
-  lastServerEventAt: Date | null;
-  terminalAt: Date | null;
-  terminalReason: 'solved' | 'max_guesses' | 'deadline_timeout' | 'forfeit' | 'awarded_forfeit_win' | 'no_contest' | 'operator_void' | null;
-  guessesUsed: number | null;
-  solveElapsedMs: number | null;
-  solveTimeBucket: number | null;
-  result: 'win' | 'loss' | 'draw' | 'void' | null;
-};
 
 function hashAnswer(dictionaryReleaseId: string, word: string): string {
   return createHash('sha256').update(`${ANSWER_SALT_REF}:${dictionaryReleaseId}:${word}`).digest('hex');
@@ -76,6 +65,8 @@ export class SpeedGameplayService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(GameplayPersistenceService) private readonly ratings: GameplayPersistenceService,
     @Inject(SpeedOperationalReadinessService) private readonly operational: SpeedOperationalReadinessService,
+    @Optional() @Inject(SpeedExpiryReconciliationService) private readonly expiryReconciliation?: SpeedExpiryReconciliationService,
+    @Optional() @Inject(SpeedExpiryAdjudicationService) private readonly expiryAdjudication?: SpeedExpiryAdjudicationService,
   ) {}
 
   async isSpeedMatch(matchId: string): Promise<boolean> {
@@ -150,7 +141,7 @@ export class SpeedGameplayService {
       const now = await this.databaseNow(tx);
       if (replay) return { snapshot: await this.snapshotLocked(tx, state, now) };
 
-      await this.reconcileLocked(tx, state, now);
+      await this.adjudicationService().reconcileLocked(tx, state, now);
       state = await this.loadLockedState(tx, matchId, userId);
       if (state.match.status === 'voided') {
         const snapshot = await this.snapshotLocked(tx, state, now);
@@ -171,9 +162,9 @@ export class SpeedGameplayService {
 
       await tx.matchParticipant.update({
         where: { id: state.viewer.id },
-        data: { readyAt: now, lastServerEventAt: this.effectiveEventAt(now, state.round.startedAt, state.viewer.lastServerEventAt) },
+        data: { readyAt: now, lastServerEventAt: this.adjudicationService().effectiveEventAt(now, state.round.startedAt, state.viewer.lastServerEventAt) },
       });
-      if (this.lifecycleOf(state.match) === SPEED_READY_LIFECYCLE_V2 && !state.match.readyWindowStartedAt) {
+      if (this.adjudicationService().lifecycleOf(state.match) === SPEED_READY_LIFECYCLE_V2 && !state.match.readyWindowStartedAt) {
         await tx.match.update({
           where: { id: matchId },
           data: { readyWindowStartedAt: now, readyDeadlineAt: addMs(now, SPEED_READY_WINDOW_MS) },
@@ -209,7 +200,7 @@ export class SpeedGameplayService {
       const replay = await this.assertMutationReplay(tx, state.viewer.id, 'speed_guess', input.clientRequestId, hash);
       if (replay) return replay as GuessResult;
 
-      await this.reconcileLocked(tx, state, now);
+      await this.adjudicationService().reconcileLocked(tx, state, now);
       const fresh = await this.loadLockedState(tx, input.matchId, input.userId);
       if (fresh.round.deadlineAt && !speedGuessWithinDeadline(now, fresh.round.deadlineAt)) {
         return await this.persistRejected(tx, fresh, input.clientRequestId, hash, 'deadline_passed');
@@ -241,7 +232,7 @@ export class SpeedGameplayService {
       const attemptNumber = priorAttempts + 1;
       const feedback = scoreGuess(answer.normalizedWord, validation.normalized);
       const solved = isSolved(feedback);
-      const effectiveAt = this.effectiveEventAt(now, fresh.round.startedAt, fresh.viewer.lastServerEventAt);
+      const effectiveAt = this.adjudicationService().effectiveEventAt(now, fresh.round.startedAt, fresh.viewer.lastServerEventAt);
       await tx.guessAttempt.create({
         data: {
           matchId: input.matchId,
@@ -281,7 +272,7 @@ export class SpeedGameplayService {
             lastServerEventAt: effectiveAt,
           },
         });
-        await this.adjudicateIfReady(tx, input.matchId, fresh.round.id, effectiveAt, 'all_players_terminal');
+        await this.adjudicationService().adjudicateIfReady(tx, input.matchId, fresh.round.id, effectiveAt, 'all_players_terminal');
       } else {
         await tx.matchParticipant.update({ where: { id: fresh.viewer.id }, data: { lastServerEventAt: effectiveAt } });
       }
@@ -310,19 +301,19 @@ export class SpeedGameplayService {
       const now = await this.databaseNow(tx);
       const hash = requestHash('speed_forfeit', {});
       const replay = await this.assertMutationReplay(tx, state.viewer.id, 'speed_forfeit', clientRequestId, hash);
-      await this.reconcileLocked(tx, state, now);
+      await this.adjudicationService().reconcileLocked(tx, state, now);
       let fresh = await this.loadLockedState(tx, matchId, userId);
       if (replay || fresh.match.adjudicatedAt) return await this.snapshotLocked(tx, fresh, now);
       if (fresh.viewer.terminalReason) throw new ConflictException({ code: 'participant_terminal', message: 'A terminal Speed participant cannot forfeit.' });
 
       if (!fresh.round.startedAt || now.getTime() < fresh.round.startedAt.getTime()) {
-        await this.voidNoContest(tx, fresh, now, 'pre_start_cancelled');
+        await this.adjudicationService().voidNoContest(tx, fresh, now, 'pre_start_cancelled');
       } else {
         const opponent = fresh.participants.find((participant: SpeedParticipant) => participant.id !== fresh.viewer.id)!;
-        const effectiveAt = this.effectiveEventAt(now, fresh.round.startedAt, fresh.viewer.lastServerEventAt);
+        const effectiveAt = this.adjudicationService().effectiveEventAt(now, fresh.round.startedAt, fresh.viewer.lastServerEventAt);
         await tx.matchParticipant.update({ where: { id: fresh.viewer.id }, data: { outcome: 'abandoned', terminalAt: effectiveAt, terminalReason: 'forfeit', lastServerEventAt: effectiveAt } });
         await tx.matchParticipant.update({ where: { id: opponent.id }, data: { terminalAt: effectiveAt, terminalReason: 'awarded_forfeit_win', lastServerEventAt: effectiveAt } });
-        await this.adjudicateIfReady(tx, matchId, fresh.round.id, effectiveAt, 'forfeit', true);
+        await this.adjudicationService().adjudicateIfReady(tx, matchId, fresh.round.id, effectiveAt, 'forfeit', true);
       }
       await this.recordMutation(tx, matchId, fresh.viewer.id, 'speed_forfeit', clientRequestId, hash, null);
       fresh = await this.loadLockedState(tx, matchId, userId);
@@ -335,54 +326,19 @@ export class SpeedGameplayService {
     return await this.inTransaction(async (tx) => {
       const state = await this.lockState(tx, matchId, userId);
       const now = await this.databaseNow(tx);
-      await this.reconcileLocked(tx, state, now);
+      await this.adjudicationService().reconcileLocked(tx, state, now);
       return await this.snapshotLocked(tx, await this.loadLockedState(tx, matchId, userId), now);
     });
   }
 
-  async reconcileDue(
-    limit = 25,
-    completionGuard?: () => boolean,
-    beforeCommit?: () => Promise<void>,
-  ): Promise<number> {
-    await this.operational.assertDependenciesAvailable();
-    return await this.inReconcilerTransaction(async (tx) => {
-      const authoritativeClockSql = this.deterministicTestClockEnabled()
-        ? '(SELECT "now" FROM "SpeedTimingTestClock" WHERE "id" = 1)'
-        : 'clock_timestamp()';
-      const due = await tx.$queryRawUnsafe(
-        `WITH authoritative_clock AS (SELECT ${authoritativeClockSql} AS "now")
-         SELECT match."id"
-           FROM "Match" AS match
-           LEFT JOIN "MatchRound" AS round ON round."matchId" = match."id" AND round."roundNumber" = 1
-           CROSS JOIN authoritative_clock AS timing
-          WHERE match."rankedMode" = 'speed_1v1'
-            AND match."adjudicatedAt" IS NULL
-            AND ((match."status" = 'pending' AND (
-                  (match."readyLifecycleVersion" = 'speed_ready_v2_first_ack_90s'
-                    AND match."readyWindowStartedAt" IS NULL
-                    AND match."invitationExpiresAt" < timing."now")
-               OR (match."readyLifecycleVersion" = 'speed_ready_v2_first_ack_90s'
-                    AND match."readyWindowStartedAt" IS NOT NULL
-                    AND match."readyDeadlineAt" < timing."now")
-               OR (COALESCE(match."readyLifecycleVersion", 'speed_ready_v1_match_created_20s') = 'speed_ready_v1_match_created_20s'
-                    AND match."readyDeadlineAt" < timing."now")))
-              OR (match."status" = 'active' AND round."deadlineAt" < timing."now"))
-          ORDER BY COALESCE(round."deadlineAt", match."readyDeadlineAt", match."invitationExpiresAt"), match."id"
-          FOR UPDATE OF match SKIP LOCKED
-          LIMIT $1`,
-        limit,
-      ) as Array<{ id: string }>;
-      for (const row of due) {
-        const state = await this.lockState(tx, row.id);
-        await this.reconcileLocked(tx, state, await this.databaseNow(tx));
-      }
-      if (beforeCommit) await beforeCommit();
-      // The scheduler epoch/generation must still own this pass immediately
-      // before commit; otherwise throwing rolls back every expiry transition.
-      if (completionGuard && !completionGuard()) throw new Error('obsolete_speed_reconciler_pass');
-      return due.length;
-    });
+  async reconcileDue(input: SpeedReconcileDueInput = {
+      batchSize: SPEED_RECONCILER_BATCH_SIZE,
+      selectionLimit: SPEED_RECONCILER_SELECTION_LIMIT,
+      completionGuard: () => true,
+    }): Promise<SpeedReconcilePassResult> {
+    const reconciliation = this.expiryReconciliation
+      ?? new SpeedExpiryReconciliationService(this.prisma, this.adjudicationService());
+    return await reconciliation.reconcileDue(input);
   }
 
   private async persistRejected(tx: any, state: any, clientRequestId: string, hash: string, reason: string): Promise<GuessResult> {
@@ -398,100 +354,6 @@ export class SpeedGameplayService {
     return rejected;
   }
 
-  private async reconcileLocked(tx: any, state: any, now: Date): Promise<void> {
-    if (state.match.adjudicatedAt) return;
-    if (state.match.status === 'pending') {
-      const lifecycle = this.lifecycleOf(state.match);
-      const invitationExpired = lifecycle === SPEED_READY_LIFECYCLE_V2
-        && !state.match.readyWindowStartedAt
-        && state.match.invitationExpiresAt
-        && now.getTime() > state.match.invitationExpiresAt.getTime();
-      const readyExpired = ((lifecycle === SPEED_READY_LIFECYCLE_V2 && state.match.readyWindowStartedAt)
-        || lifecycle === SPEED_READY_LIFECYCLE_V1)
-        && state.match.readyDeadlineAt
-        && now.getTime() > state.match.readyDeadlineAt.getTime();
-      if (invitationExpired || readyExpired) {
-        await this.voidNoContest(tx, state, now, invitationExpired ? 'invitation_timeout' : 'ready_timeout');
-        return;
-      }
-    }
-    if (state.match.status === 'active' && state.round.deadlineAt && now.getTime() > state.round.deadlineAt.getTime()) {
-      for (const participant of state.participants as SpeedParticipant[]) {
-        if (!participant.terminalReason) {
-          await tx.matchParticipant.update({
-            where: { id: participant.id },
-            data: { outcome: 'failed', terminalAt: now, terminalReason: 'deadline_timeout', lastServerEventAt: this.effectiveEventAt(now, state.round.startedAt, participant.lastServerEventAt) },
-          });
-        }
-      }
-      await this.adjudicateIfReady(tx, state.match.id, state.round.id, now, 'deadline');
-    }
-  }
-
-  private async voidNoContest(tx: any, state: any, now: Date, reason: 'ready_timeout' | 'invitation_timeout' | 'pre_start_cancelled' | 'operator_void'): Promise<void> {
-    if (state.match.adjudicatedAt) return;
-    await tx.matchParticipant.updateMany({
-      where: { matchId: state.match.id },
-      data: { outcome: 'voided', terminalAt: now, terminalReason: reason === 'operator_void' ? 'operator_void' : 'no_contest', result: 'void', lastServerEventAt: now },
-    });
-    await tx.matchRound.update({ where: { id: state.round.id }, data: { completedAt: now } });
-    await tx.match.update({
-      where: { id: state.match.id },
-      data: {
-        status: 'voided',
-        voidedAt: now,
-        completedAt: now,
-        adjudicatedAt: now,
-        adjudicationVersion: SPEED_1V1_ADJUDICATION_VERSION,
-        completionReason: reason,
-        voidReason: reason,
-      },
-    });
-    await this.ratings.finalizeRankedMatchRatingsInTransaction(tx, state.match.id, 'voided', now);
-  }
-
-  private async adjudicateIfReady(tx: any, matchId: string, roundId: string, now: Date, reason: 'all_players_terminal' | 'deadline' | 'forfeit', force = false): Promise<void> {
-    const match = await tx.match.findUnique({ where: { id: matchId } });
-    if (match.adjudicatedAt) return;
-    const participants = await tx.matchParticipant.findMany({ where: { matchId }, orderBy: { id: 'asc' } }) as SpeedParticipant[];
-    if (participants.length !== 2 || (!force && participants.some((participant) => !participant.terminalReason))) return;
-    const adjudication = adjudicateSpeedParticipants(participants.map((participant) => ({
-      userId: participant.userId,
-      terminalReason: participant.terminalReason!,
-      guessesUsed: participant.guessesUsed,
-      solveElapsedMs: participant.solveElapsedMs,
-      solveTimeBucket: participant.solveTimeBucket,
-    })));
-    for (const participant of participants) {
-      const result = adjudication.results[participant.userId]!;
-      await tx.matchParticipant.update({
-        where: { id: participant.id },
-        data: {
-          result,
-          placement: result === 'win' ? 1 : result === 'loss' ? 2 : result === 'draw' ? 1 : null,
-          outcome: result === 'void' ? 'voided' : participant.terminalReason === 'solved' ? 'solved' : participant.terminalReason === 'forfeit' ? 'abandoned' : participant.outcome,
-        },
-      });
-    }
-    await tx.matchRound.update({ where: { id: roundId }, data: { completedAt: now } });
-    await tx.match.update({
-      where: { id: matchId },
-      data: {
-        status: adjudication.rated ? 'completed' : 'voided',
-        completedAt: now,
-        ...(adjudication.rated ? {} : { voidedAt: now, voidReason: reason }),
-        adjudicatedAt: now,
-        adjudicationVersion: SPEED_1V1_ADJUDICATION_VERSION,
-        completionReason: reason,
-      },
-    });
-    await this.ratings.finalizeRankedMatchRatingsInTransaction(
-      tx,
-      matchId,
-      reason === 'deadline' ? 'timeout' : reason === 'forfeit' ? 'forfeit' : 'all_players_final',
-      now,
-    );
-  }
 
   private async lockState(tx: any, matchId: string, userId?: string): Promise<any> {
     await tx.$queryRawUnsafe('SELECT "id" FROM "Match" WHERE "id" = $1 FOR UPDATE', matchId);
@@ -538,7 +400,7 @@ export class SpeedGameplayService {
       orderBy: { createdAt: 'asc' },
       select: { clientRequestId: true },
     }) as { clientRequestId: string } | null : null;
-    const lifecycle = this.lifecycleOf(state.match);
+    const lifecycle = this.adjudicationService().lifecycleOf(state.match);
     const readyCount = state.participants.filter((participant: SpeedParticipant) => participant.readyAt).length;
     const derivedState = state.match.status === 'voided'
       ? 'voided'
@@ -585,10 +447,6 @@ export class SpeedGameplayService {
     });
   }
 
-  private effectiveEventAt(dbNow: Date, startedAt?: Date | null, lastEventAt?: Date | null): Date {
-    return new Date(Math.max(dbNow.getTime(), startedAt?.getTime() ?? 0, lastEventAt?.getTime() ?? 0));
-  }
-
   private async databaseNow(tx: any): Promise<Date> {
     const rows = await tx.$queryRawUnsafe(this.deterministicTestClockEnabled()
       ? 'SELECT "now" FROM "SpeedTimingTestClock" WHERE "id" = 1'
@@ -618,12 +476,8 @@ export class SpeedGameplayService {
     await tx.matchMutationRequest.create({ data: { matchId, participantId, kind, clientRequestId, requestHash: hash, resultSnapshot: resultSnapshot ?? undefined } });
   }
 
-  private lifecycleOf(match: { readyLifecycleVersion?: string | null; readyDeadlineAt?: Date | null }): typeof SPEED_READY_LIFECYCLE_V1 | typeof SPEED_READY_LIFECYCLE_V2 {
-    if (match.readyLifecycleVersion === SPEED_READY_LIFECYCLE_V2) return SPEED_READY_LIFECYCLE_V2;
-    // Null plus a persisted ready deadline is the only supported legacy classifier;
-    // it is never upgraded or extended.
-    if (match.readyLifecycleVersion === SPEED_READY_LIFECYCLE_V1 || (!match.readyLifecycleVersion && match.readyDeadlineAt)) return SPEED_READY_LIFECYCLE_V1;
-    throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed ready lifecycle cannot be interpreted safely.' });
+  private adjudicationService(): SpeedExpiryAdjudicationService {
+    return this.expiryAdjudication ?? new SpeedExpiryAdjudicationService(new SpeedRatingSettlementService());
   }
 
   private async assertOperationalDependencies(): Promise<void> {
@@ -657,18 +511,6 @@ export class SpeedGameplayService {
     }
   }
 
-  private async inReconcilerTransaction<T>(callback: (tx: any) => Promise<T>): Promise<T> {
-    // Keep the database work strictly inside the two-second reconciler-health
-    // envelope. A timed-out pass fails health closed and is generation-fenced.
-    return await (this.prisma.client as any).$transaction(callback, {
-      isolationLevel: 'Serializable',
-      maxWait: 500,
-      timeout: process.env.RUN_SPEED_LIFECYCLE_RACE_POSTGRES_INTEGRATION === '1'
-        && this.deterministicTestClockEnabled()
-        ? 10_000
-        : 1_000,
-    });
-  }
 
   private async inTransaction<T>(callback: (tx: any) => Promise<T>, started = performance.now()): Promise<T> {
     for (let attempt = 1; attempt <= SPEED_MUTATION_MAX_ATTEMPTS; attempt += 1) {

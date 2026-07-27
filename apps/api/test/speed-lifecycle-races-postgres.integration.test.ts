@@ -3,7 +3,11 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import { localFixtureUsers } from '../src/auth/current-user.service.ts';
 import { GameplayPersistenceService } from '../src/gameplay/gameplay-persistence.service.ts';
+import { SpeedExpiryAdjudicationService } from '../src/gameplay/speed-expiry-adjudication.service.ts';
+import { SpeedExpiryReconciliationService } from '../src/gameplay/speed-expiry-reconciliation.service.ts';
 import { SpeedGameplayService } from '../src/gameplay/speed-gameplay.service.ts';
+import { SPEED_RECONCILER_BATCH_SIZE, SPEED_RECONCILER_SELECTION_LIMIT } from '../src/gameplay/speed-reconciler-budget.ts';
+import { SpeedRatingSettlementService } from '../src/gameplay/speed-rating-settlement.service.ts';
 import { SpeedRuntimeHealthService } from '../src/gameplay/speed-runtime-health.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 
@@ -77,6 +81,22 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
 
   async function setClock(now: Date) {
     await client.$executeRawUnsafe('UPDATE "SpeedTimingTestClock" SET "now" = $1 WHERE "id" = 1', now);
+  }
+
+  async function reconcileDue(
+    completionGuard: () => boolean = () => true,
+    beforeCommit?: () => Promise<void>,
+  ) {
+    const reconciliation = new SpeedExpiryReconciliationService(
+      prisma,
+      new SpeedExpiryAdjudicationService(new SpeedRatingSettlementService()),
+      beforeCommit,
+    );
+    return await reconciliation.reconcileDue({
+      batchSize: SPEED_RECONCILER_BATCH_SIZE,
+      selectionLimit: SPEED_RECONCILER_SELECTION_LIMIT,
+      completionGuard,
+    });
   }
 
   async function createMatch(key: string) {
@@ -267,11 +287,11 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
     await setClock(at(1_000));
     await speed.markReady(game.matchId, localFixtureUsers.playerOne, 'race-ready-worker-first');
     await setClock(at(21_000));
-    assert.equal(await speed.reconcileDue(), 0);
+    assert.equal((await reconcileDue()).processed, 0);
     await setClock(at(21_001));
     const reached = deferred();
     const release = deferred();
-    const worker = speed.reconcileDue(25, undefined, async () => { reached.resolve(); await release.promise; });
+    const worker = reconcileDue(() => true, async () => { reached.resolve(); await release.promise; });
     void worker.catch(() => undefined);
     await reached.promise;
     const lateReady = speed.markReady(game.matchId, localFixtureUsers.guestPlayer, 'race-ready-worker-late');
@@ -284,12 +304,26 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
       outcomes = await Promise.allSettled([worker, lateReady]);
     }
     assert.equal(outcomes[0]?.status, 'fulfilled');
-    if (outcomes[0]?.status === 'fulfilled') assert.equal(outcomes[0].value, 1);
+    if (outcomes[0]?.status === 'fulfilled') assert.equal((outcomes[0].value as any).processed, 1);
     assert.equal(outcomes[1]?.status, 'rejected');
     if (outcomes[1]?.status === 'rejected') assert.equal((outcomes[1].reason as any)?.response?.code, 'ready_deadline_passed');
-    assert.equal(await speed.reconcileDue(), 0);
+    assert.equal((await reconcileDue()).processed, 0);
     await assertNoContest(game.matchId, 'ready_timeout');
     assert.equal(await client.matchMutationRequest.count({ where: { matchId: game.matchId, kind: 'speed_ready' } }), 1);
+  });
+
+  it('mutates at most ten of eleven selected due rows and leaves the sentinel for catch-up', async () => {
+    const matches: Array<{ matchId: string }> = [];
+    for (let index = 0; index < 11; index += 1) matches.push(await createMatch(`sentinel-${index}`));
+    await setClock(at(90_001));
+    const ids = matches.map((match) => match.matchId);
+    const first = await reconcileDue();
+    assert.deepEqual(first, { selected: 11, processed: 10, hasMore: true });
+    assert.equal(await client.match.count({ where: { id: { in: ids }, adjudicatedAt: { not: null } } }), 10);
+    assert.equal(await client.match.count({ where: { id: { in: ids }, adjudicatedAt: null } }), 1);
+    const second = await reconcileDue();
+    assert.deepEqual(second, { selected: 1, processed: 1, hasMore: false });
+    assert.equal(await client.match.count({ where: { id: { in: ids }, adjudicatedAt: { not: null } } }), 11);
   });
 
   it('proves two reconcilers select and terminalize one due match exactly once', async () => {
@@ -297,23 +331,23 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
     await setClock(at(90_001));
     const reached = deferred();
     const release = deferred();
-    const first = speed.reconcileDue(25, undefined, async () => { reached.resolve(); await release.promise; });
+    const first = reconcileDue(() => true, async () => { reached.resolve(); await release.promise; });
     void first.catch(() => undefined);
     await reached.promise;
-    let second: number | undefined;
-    let firstOutcome: PromiseSettledResult<number> | undefined;
+    let second: Awaited<ReturnType<typeof reconcileDue>> | undefined;
+    let firstOutcome: PromiseSettledResult<Awaited<ReturnType<typeof reconcileDue>>> | undefined;
     try {
-      second = await speed.reconcileDue();
-      assert.equal(second, 0);
+      second = await reconcileDue();
+      assert.equal(second.processed, 0);
     } finally {
       release.resolve();
       [firstOutcome] = await Promise.allSettled([first]);
     }
     assert.equal(firstOutcome?.status, 'fulfilled');
-    if (firstOutcome?.status === 'fulfilled') assert.equal(firstOutcome.value, 1);
+    if (firstOutcome?.status === 'fulfilled') assert.equal(firstOutcome.value.processed, 1);
     const terminal = await assertNoContest(game.matchId, 'invitation_timeout');
     const timestamps = [terminal.adjudicatedAt, terminal.completedAt, terminal.voidedAt, terminal.rounds[0]?.completedAt].map((value) => value?.toISOString());
-    assert.equal(await speed.reconcileDue(), 0);
+    assert.equal((await reconcileDue()).processed, 0);
     const reread = await client.match.findUnique({ where: { id: game.matchId }, include: { rounds: true } });
     assert.deepEqual([reread?.adjudicatedAt, reread?.completedAt, reread?.voidedAt, reread?.rounds[0]?.completedAt].map((value) => value?.toISOString()), timestamps);
   });
@@ -328,10 +362,10 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
     assert.equal(health.isPassCompletionEligible(pass), true);
     const reached = deferred();
     const release = deferred();
-    const obsolete = speed.reconcileDue(25, () => health.isPassCompletionEligible(pass), async () => { reached.resolve(); await release.promise; });
+    const obsolete = reconcileDue(() => health.isPassCompletionEligible(pass), async () => { reached.resolve(); await release.promise; });
     void obsolete.catch(() => undefined);
     await reached.promise;
-    let outcome: PromiseSettledResult<number> | undefined;
+    let outcome: PromiseSettledResult<Awaited<ReturnType<typeof reconcileDue>>> | undefined;
     try {
       assert.equal(health.markSchedulerStopped(epoch), true);
       const nextEpoch = health.markSchedulerStarted();
@@ -342,7 +376,10 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
       [outcome] = await Promise.allSettled([obsolete]);
     }
     assert.equal(outcome?.status, 'rejected');
-    if (outcome?.status === 'rejected') assert.match(String(outcome.reason), /obsolete_speed_reconciler_pass/);
+    if (outcome?.status === 'rejected') {
+      assert.equal((outcome.reason as { errorClass?: unknown }).errorClass, 'obsolete_pass');
+      assert.doesNotMatch(String(outcome.reason), /obsolete_speed_reconciler_pass|SELECT|postgresql/i);
+    }
     const rolledBack = await client.match.findUnique({ where: { id: game.matchId }, include: { participants: true, rounds: true } });
     assert.equal(rolledBack?.status, 'pending');
     assert.equal(rolledBack?.adjudicatedAt, null);
@@ -392,7 +429,7 @@ suite('Ticket 185 deterministic hostile Speed lifecycle race matrix', () => {
     assert.deepEqual([(replayBeforeWorker as any).readyWindowStartedAt, replayBeforeWorker.readyDeadlineAt, replayBeforeWorker.startsAt, replayBeforeWorker.deadlineAt], immutable);
     assert.equal((await client.match.findUnique({ where: { id: game.matchId } }))?.status, 'pending');
     assert.equal(await client.matchMutationRequest.count({ where: { matchId: game.matchId, kind: 'speed_ready', clientRequestId: requestId } }), 1);
-    assert.equal(await speed.reconcileDue(), 1);
+    assert.equal((await reconcileDue()).processed, 1);
     const terminalReplay = await speed.markReady(game.matchId, localFixtureUsers.playerOne, requestId);
     assert.equal(terminalReplay.state, 'voided');
     assert.equal(terminalReplay.readiness.viewerReadyOperationId, requestId);
