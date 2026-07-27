@@ -2,7 +2,7 @@
 
 Task: Operator Compatibility Checkpoint PR and CI
 Agent: Yuna (checkpoint/devops)
-Status: In progress — Ticket 219 final PASS and required local gates confirmed; focused branch/PR/final-head checks pending.
+Status: **PASS** — Ticket 219 final PASS accepted; required local gates passed; focused branch pushed; PR #15 opened; implementation-head GitHub/Vercel checks passed; no merge or hosted/provider/database/lifecycle action performed.
 
 ## What I understood
 
@@ -100,7 +100,37 @@ Also excluded: real environment files, generated builds/caches, provider session
 
 ## Branch/PR/CI
 
-Pending.
+```text
+base = main @ 28d360bce952792e67928dc78f9bd0ca0316b683
+branch = wave-v/operator-readiness-compatibility
+checkpoint commit = c8217b56896e1608ca47de09e1e894c52c9f0dfa
+commit subject = fix: harden operator readiness compatibility
+local SHA = remote SHA
+staged paths = 10
+blocked staged paths = []
+```
+
+Pull request:
+
+- PR #15: https://github.com/Ashar-Neodym/wordle-royale/pull/15
+- base: `main`
+- head: `wave-v/operator-readiness-compatibility`
+- state at implementation checkpoint: open, non-draft
+
+Implementation-head checks:
+
+```text
+Workspace checks = PASS, 1m15s
+run = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/30243150377
+job = https://github.com/Ashar-Neodym/wordle-royale/actions/runs/30243150377/job/89904403934
+Vercel PR Preview = PASS
+Vercel Preview Comments = PASS
+preview = https://vercel.com/ashar-neodyms-projects/wordle-royale-web/4dKmqQtpPEnEZ7xaERVSZi8ZeB3f
+```
+
+The Vercel result is an automatic PR Preview, not production deployment evidence or authorization.
+
+Explicit staging excluded all activation/preflight communication files. Those concurrent files remain preserved locally and were not committed.
 
 ## Safety boundaries
 
