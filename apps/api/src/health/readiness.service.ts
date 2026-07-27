@@ -51,12 +51,16 @@ export class ReadinessService {
         ? { status: 'unavailable' as const, checkedAt, message: 'Speed lifecycle creation is safely closed.' }
         : { status: 'not_checked_stub' as const, checkedAt, message: 'Speed lifecycle activation was not evaluated independently.' };
 
-    const blockingStatuses = [database.status, applicationSchema.status, standardDictionary.status, speedRuntime.status, redis.status].filter((value) => value !== 'not_checked_stub');
-    const status = blockingStatuses.every((value) => value === 'ok')
+    const coreBlockingStatuses = [database.status, applicationSchema.status, standardDictionary.status, redis.status]
+      .filter((value) => value !== 'not_checked_stub');
+    const coreStatus = coreBlockingStatuses.every((value) => value === 'ok')
       ? 'ok'
-      : blockingStatuses.some((value) => value === 'unavailable')
+      : coreBlockingStatuses.some((value) => value === 'unavailable')
         ? 'unavailable'
         : 'degraded';
+    const status = coreStatus === 'ok' && speedRuntime.status === 'unavailable'
+      ? 'degraded'
+      : coreStatus;
 
     return {
       status,

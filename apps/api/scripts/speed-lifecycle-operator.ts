@@ -12,10 +12,17 @@ import { parseOperatorArgs } from './speed-lifecycle-operator-args.ts';
 async function main(): Promise<void> {
   let app;
   try {
-    const input = parseOperatorArgs(process.argv.slice(2));
+    const rawArgs = process.argv.slice(2);
+    const contextSmoke = rawArgs.length === 1 && rawArgs[0] === '--context-smoke';
+    const input = contextSmoke ? null : parseOperatorArgs(rawArgs);
     app = await NestFactory.createApplicationContext(SpeedLifecycleOperatorModule, { logger: false });
     assertOperatorContextIsolated(app);
-    const service = app.get(SpeedLifecycleOperatorService, { strict: true });
+    const service = app.select(SpeedLifecycleOperatorModule).get(SpeedLifecycleOperatorService, { strict: true });
+    if (contextSmoke) {
+      process.stdout.write(`${JSON.stringify({ result: 'PASS', mode: 'context-smoke', runtimeWorkersPresent: false })}\n`);
+      return;
+    }
+    if (!input) throw new Error('operator_input_unavailable');
     const operation = input.command === 'verify' ? undefined : input.command;
     if (!input.apply) {
       const result = operation

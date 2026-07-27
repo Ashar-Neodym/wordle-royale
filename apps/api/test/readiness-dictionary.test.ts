@@ -3,10 +3,13 @@ import { afterEach, describe, it } from 'node:test';
 import { ReadinessService } from '../src/health/readiness.service.ts';
 
 const originalQueueSetting = process.env.STANDARD_1V1_QUEUE_ENABLED;
+const originalSpeedQueueSetting = process.env.SPEED_1V1_QUEUE_ENABLED;
 
 afterEach(() => {
   if (originalQueueSetting === undefined) delete process.env.STANDARD_1V1_QUEUE_ENABLED;
   else process.env.STANDARD_1V1_QUEUE_ENABLED = originalQueueSetting;
+  if (originalSpeedQueueSetting === undefined) delete process.env.SPEED_1V1_QUEUE_ENABLED;
+  else process.env.SPEED_1V1_QUEUE_ENABLED = originalSpeedQueueSetting;
 });
 
 function dependency(status: 'ok' | 'unavailable' | 'not_checked_stub' = 'ok') {
@@ -49,6 +52,33 @@ describe('Standard dictionary readiness', () => {
     assert.equal(result.dependencies.standardDictionary!.status, 'not_checked_stub');
     assert.equal(result.status, 'ok');
     assert.equal(readiness.calls.dictionary, 0);
+  });
+
+  it('keeps a Speed-only runtime failure non-blocking for top-level core readiness', async () => {
+    process.env.STANDARD_1V1_QUEUE_ENABLED = 'true';
+    process.env.SPEED_1V1_QUEUE_ENABLED = 'true';
+    const speedUnavailable = {
+      check: async () => ({ available: false, reason: 'reconciler_unavailable' }),
+      checkPersistedRuntime: async () => ({ available: false, reason: 'reconciler_unavailable' }),
+    };
+    const prisma = {
+      checkDatabase: async () => dependency('ok'),
+      checkApplicationSchema: async () => dependency('ok'),
+      checkSpeedReadyLifecycleSchema: async () => dependency('ok'),
+    };
+    const service = new ReadinessService(
+      prisma as any,
+      { checkStandardDictionary: async () => dependency('ok') } as any,
+      { checkRedis: async () => dependency('not_checked_stub') } as any,
+      speedUnavailable as any,
+    );
+
+    const result = await service.getReadiness();
+    assert.equal(result.dependencies.speedRuntime?.status, 'unavailable');
+    assert.equal(result.dependencies.database?.status, 'ok');
+    assert.equal(result.dependencies.applicationSchema?.status, 'ok');
+    assert.equal(result.dependencies.standardDictionary?.status, 'ok');
+    assert.equal(result.status, 'degraded');
   });
 
   it('fails safely without querying dictionary tables when database or schema is unavailable', async () => {

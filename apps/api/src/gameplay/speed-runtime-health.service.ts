@@ -1,13 +1,18 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { performance } from 'node:perf_hooks';
+import {
+  SPEED_RECONCILER_BATCH_SIZE,
+  SPEED_RECONCILER_INTERVAL_MS,
+  SPEED_RECONCILER_MAX_PASS_MS,
+  SPEED_RECONCILER_SUCCESS_FRESHNESS_MS,
+} from './speed-reconciler-budget.ts';
+import type { SpeedReconcilePassResult } from './speed-expiry-reconciliation.service.ts';
 
-export const SPEED_RECONCILER_INTERVAL_MS = 1_000;
-// Two missed one-second completion opportunities are the bounded fail-closed budget.
-export const SPEED_RECONCILER_MAX_PASS_MS = SPEED_RECONCILER_INTERVAL_MS * 2;
-export const SPEED_RECONCILER_SUCCESS_FRESHNESS_MS = SPEED_RECONCILER_INTERVAL_MS * 2;
+export { SPEED_RECONCILER_INTERVAL_MS, SPEED_RECONCILER_MAX_PASS_MS, SPEED_RECONCILER_SUCCESS_FRESHNESS_MS } from './speed-reconciler-budget.ts';
 
 export const SPEED_RUNTIME_MONOTONIC_CLOCK = Symbol('SPEED_RUNTIME_MONOTONIC_CLOCK');
 export type SpeedRuntimeMonotonicClock = () => number;
+export type SpeedReconcilerCompletion = 'none' | 'caught_up_success' | 'backlog' | 'failed' | 'obsolete';
 
 export type SpeedReconcilerPassToken = Readonly<{
   schedulerEpoch: number;
@@ -21,9 +26,16 @@ export type SpeedReconcilerHealthSnapshot = {
   schedulerEpoch: number;
   passInFlight: boolean;
   passGeneration: number | null;
+  lastCompletion: SpeedReconcilerCompletion;
   lastCompletionSucceeded: boolean;
+  caughtUp: boolean;
   successAgeMs: number | null;
   inFlightAgeMs: number | null;
+  lastPassDurationMs: number | null;
+  lastProcessed: number;
+  backlogObserved: boolean;
+  intervalMs: number;
+  batchSize: number;
   successFreshnessMs: number;
   maxPassMs: number;
 };
@@ -35,7 +47,11 @@ export class SpeedRuntimeHealthService {
   private nextPassGeneration = 0;
   private currentPass: SpeedReconcilerPassToken | null = null;
   private lastSuccessfulCompletionAt: number | null = null;
-  private lastCompletionSucceeded = false;
+  private lastCompletion: SpeedReconcilerCompletion = 'none';
+  private caughtUp = false;
+  private lastPassDurationMs: number | null = null;
+  private lastProcessed = 0;
+  private backlogObserved = false;
   private readonly now: SpeedRuntimeMonotonicClock;
 
   constructor(
@@ -49,7 +65,11 @@ export class SpeedRuntimeHealthService {
     this.schedulerRunning = true;
     this.currentPass = null;
     this.lastSuccessfulCompletionAt = null;
-    this.lastCompletionSucceeded = false;
+    this.lastCompletion = 'none';
+    this.caughtUp = false;
+    this.lastPassDurationMs = null;
+    this.lastProcessed = 0;
+    this.backlogObserved = false;
     return this.schedulerEpoch;
   }
 
@@ -57,44 +77,60 @@ export class SpeedRuntimeHealthService {
     if (!this.schedulerRunning || schedulerEpoch !== this.schedulerEpoch) return false;
     this.schedulerRunning = false;
     this.currentPass = null;
-    this.lastCompletionSucceeded = false;
+    this.lastCompletion = 'none';
+    this.caughtUp = false;
     return true;
   }
 
   markPassStarted(schedulerEpoch: number): SpeedReconcilerPassToken | null {
     if (!this.schedulerRunning || schedulerEpoch !== this.schedulerEpoch || this.currentPass !== null) return null;
-    const passIdentity = Object.freeze({
-      schedulerEpoch,
-      generation: ++this.nextPassGeneration,
-      startedAt: this.now(),
-    });
+    const passIdentity = Object.freeze({ schedulerEpoch, generation: ++this.nextPassGeneration, startedAt: this.now() });
     this.currentPass = passIdentity;
     return passIdentity;
   }
 
-  markPassSucceeded(passIdentity: SpeedReconcilerPassToken): boolean {
+  markPassSucceeded(
+    passIdentity: SpeedReconcilerPassToken,
+    result: SpeedReconcilePassResult = { selected: 0, processed: 0, hasMore: false },
+  ): boolean {
     if (!this.isCurrentPass(passIdentity)) return false;
-    this.currentPass = null;
     const completedAt = this.now();
-    const withinBudget = completedAt - passIdentity.startedAt <= SPEED_RECONCILER_MAX_PASS_MS;
-    if (!this.schedulerRunning || passIdentity.schedulerEpoch !== this.schedulerEpoch || !withinBudget) {
-      this.lastCompletionSucceeded = false;
+    const duration = Math.max(0, completedAt - passIdentity.startedAt);
+    this.currentPass = null;
+    this.lastPassDurationMs = duration;
+    this.lastProcessed = result.processed;
+    this.backlogObserved = result.hasMore;
+    if (!this.schedulerRunning || passIdentity.schedulerEpoch !== this.schedulerEpoch || duration > SPEED_RECONCILER_MAX_PASS_MS) {
+      this.lastCompletion = 'obsolete';
+      this.caughtUp = false;
       return false;
     }
+    if (result.hasMore) {
+      this.lastCompletion = 'backlog';
+      this.caughtUp = false;
+      return true;
+    }
     this.lastSuccessfulCompletionAt = completedAt;
-    this.lastCompletionSucceeded = true;
+    this.lastCompletion = 'caught_up_success';
+    this.caughtUp = true;
     return true;
   }
 
   markPassFailed(passIdentity: SpeedReconcilerPassToken): boolean {
     if (!this.isCurrentPass(passIdentity)) return false;
-    this.currentPass = null;
-    this.lastCompletionSucceeded = false;
     const completedAt = this.now();
-    const withinBudget = completedAt - passIdentity.startedAt <= SPEED_RECONCILER_MAX_PASS_MS;
-    return this.schedulerRunning
-      && passIdentity.schedulerEpoch === this.schedulerEpoch
-      && withinBudget;
+    const duration = Math.max(0, completedAt - passIdentity.startedAt);
+    this.currentPass = null;
+    this.lastPassDurationMs = duration;
+    this.lastProcessed = 0;
+    this.backlogObserved = false;
+    this.caughtUp = false;
+    if (!this.schedulerRunning || passIdentity.schedulerEpoch !== this.schedulerEpoch || duration > SPEED_RECONCILER_MAX_PASS_MS) {
+      this.lastCompletion = 'obsolete';
+      return false;
+    }
+    this.lastCompletion = 'failed';
+    return true;
   }
 
   isPassCompletionEligible(passIdentity: SpeedReconcilerPassToken): boolean {
@@ -110,24 +146,27 @@ export class SpeedRuntimeHealthService {
 
   snapshot(): SpeedReconcilerHealthSnapshot {
     const now = this.now();
-    const successAgeMs = this.lastSuccessfulCompletionAt === null
-      ? null
-      : Math.max(0, now - this.lastSuccessfulCompletionAt);
-    const inFlightAgeMs = this.currentPass === null
-      ? null
-      : Math.max(0, now - this.currentPass.startedAt);
+    const successAgeMs = this.lastSuccessfulCompletionAt === null ? null : Math.max(0, now - this.lastSuccessfulCompletionAt);
+    const inFlightAgeMs = this.currentPass === null ? null : Math.max(0, now - this.currentPass.startedAt);
     const successFresh = successAgeMs !== null && successAgeMs <= SPEED_RECONCILER_SUCCESS_FRESHNESS_MS;
     const passWithinBudget = inFlightAgeMs === null || inFlightAgeMs <= SPEED_RECONCILER_MAX_PASS_MS;
-
+    const lastCompletionSucceeded = this.lastCompletion === 'caught_up_success';
     return {
-      ready: this.schedulerRunning && this.lastCompletionSucceeded && successFresh && passWithinBudget,
+      ready: this.schedulerRunning && lastCompletionSucceeded && this.caughtUp && successFresh && passWithinBudget,
       schedulerRunning: this.schedulerRunning,
       schedulerEpoch: this.schedulerEpoch,
       passInFlight: this.currentPass !== null,
       passGeneration: this.currentPass?.generation ?? null,
-      lastCompletionSucceeded: this.lastCompletionSucceeded,
+      lastCompletion: this.lastCompletion,
+      lastCompletionSucceeded,
+      caughtUp: this.caughtUp,
       successAgeMs,
       inFlightAgeMs,
+      lastPassDurationMs: this.lastPassDurationMs,
+      lastProcessed: this.lastProcessed,
+      backlogObserved: this.backlogObserved,
+      intervalMs: SPEED_RECONCILER_INTERVAL_MS,
+      batchSize: SPEED_RECONCILER_BATCH_SIZE,
       successFreshnessMs: SPEED_RECONCILER_SUCCESS_FRESHNESS_MS,
       maxPassMs: SPEED_RECONCILER_MAX_PASS_MS,
     };
