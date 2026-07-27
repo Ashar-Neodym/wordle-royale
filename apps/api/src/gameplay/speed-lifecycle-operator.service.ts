@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { RailwayInventoryAdapter, RailwayInventoryError, isRailwayInventoryErrorCode } from './railway-inventory.adapter.ts';
@@ -42,6 +43,10 @@ export type OperatorReadiness = {
 
 export interface OperatorReadinessVerifier {
   verify(healthUrl: string, allowedHealthHosts: readonly string[], timeoutMs?: number): Promise<OperatorReadiness>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export class SpeedLifecycleOperatorError extends Error {
@@ -89,6 +94,16 @@ const TRANSITIONS: Record<OperatorOperation, {
   'close-v1': { from: 'v2_open', to: 'closing_to_v1', activeVersion: null, confirmation: 'CLOSE SPEED V2 CREATION FOR V1 DRAIN', drainVersion: null },
   'open-v1': { from: 'closing_to_v1', to: 'v1_open', activeVersion: SPEED_LIFECYCLE_V1, confirmation: 'OPEN SPEED CREATION ON READY LIFECYCLE V1', drainVersion: SPEED_LIFECYCLE_V2 },
 };
+
+export const OPERATOR_READINESS_FETCH_MAX_MS = 12_000;
+
+export function orderReadinessAddresses(addresses: readonly string[]): string[] {
+  return [...addresses].sort((left, right) => {
+    const leftRank = isIP(left) === 4 ? 0 : 1;
+    const rightRank = isIP(right) === 4 ? 0 : 1;
+    return leftRank - rightRank || left.localeCompare(right);
+  });
+}
 
 export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifier {
   constructor(
@@ -148,7 +163,7 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
     if (dictionary.status !== 'ok') throw new SpeedLifecycleOperatorError('dictionary_readiness_failed');
     let addresses: string[];
     try {
-      addresses = [...new Set(await this.withDeadline(this.resolver.resolve(normalizedHost), remaining()))].sort();
+      addresses = orderReadinessAddresses([...new Set(await this.withDeadline(this.resolver.resolve(normalizedHost), remaining()))]);
     } catch (error) {
       if (error instanceof Error && error.name === 'TimeoutError') throw new SpeedLifecycleOperatorError('operator_wait_timeout');
       throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
@@ -159,15 +174,29 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
     }
     try {
       const body = await this.withDeadline(
-        this.transport.getJson(url, addresses[0]!, Math.max(1, Math.min(5_000, remaining()))),
+        this.transport.getJson(url, addresses[0]!, Math.max(1, Math.min(OPERATOR_READINESS_FETCH_MAX_MS, remaining()))),
         remaining(),
-      ) as {
-        dependencies?: Record<string, { status?: string }>;
-      };
+      ) as unknown;
       remaining();
-      if (body.dependencies?.speedRuntime?.status !== 'ok') throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
+      if (!isRecord(body)) throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
+      const hasDirect = Object.prototype.hasOwnProperty.call(body, 'dependencies');
+      const hasData = Object.prototype.hasOwnProperty.call(body, 'data');
+      if (hasDirect === hasData) throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
+      let selectedDependencies: unknown;
+      if (hasDirect) {
+        selectedDependencies = body.dependencies;
+      } else {
+        const data = body.data;
+        if (!isRecord(data) || !Object.prototype.hasOwnProperty.call(data, 'dependencies')) {
+          throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
+        }
+        selectedDependencies = data.dependencies;
+      }
+      if (!isRecord(selectedDependencies)) throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
+      const dependencies = selectedDependencies as Record<string, { status?: string }>;
+      if (dependencies.speedRuntime?.status !== 'ok') throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
       for (const dependency of ['database', 'applicationSchema', 'standardDictionary']) {
-        if (body.dependencies?.[dependency]?.status !== 'ok') throw new SpeedLifecycleOperatorError('standard_readiness_failed');
+        if (dependencies?.[dependency]?.status !== 'ok') throw new SpeedLifecycleOperatorError('standard_readiness_failed');
       }
     } catch (error) {
       if (performance.now() >= deadline || (error instanceof Error && error.name === 'TimeoutError')) throw new SpeedLifecycleOperatorError('operator_wait_timeout');

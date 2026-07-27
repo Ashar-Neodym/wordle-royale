@@ -19,6 +19,15 @@ export class SystemPublicOriginResolver implements PublicOriginResolver {
   }
 }
 
+export function createPinnedLookup(address: string): (...args: any[]) => void {
+  const family = isIP(address);
+  if (family !== 4 && family !== 6) throw new Error('invalid_pinned_address');
+  return (_hostname: string, options: { all?: boolean } | number, callback: (...args: any[]) => void): void => {
+    if (typeof options === 'object' && options.all) callback(null, [{ address, family }]);
+    else callback(null, address, family);
+  };
+}
+
 export class HttpsPinnedReadinessTransport implements PinnedReadinessTransport {
   async getJson(url: URL, address: string, timeoutMs: number): Promise<unknown> {
     return await new Promise<unknown>((resolve, reject) => {
@@ -35,7 +44,7 @@ export class HttpsPinnedReadinessTransport implements PinnedReadinessTransport {
       };
       requestHandle = request(url, {
         method: 'GET', headers: { accept: 'application/json' }, timeout: timeoutMs,
-        lookup: (_hostname, _options, callback) => callback(null, address, isIP(address) as 4 | 6),
+        lookup: createPinnedLookup(address),
       }, (response) => {
         if (response.statusCode == null || response.statusCode < 200 || response.statusCode >= 300) {
           response.resume(); settle(reject, new Error('not_ready')); return;
