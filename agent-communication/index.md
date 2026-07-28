@@ -205,7 +205,7 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 178 | Luna | Hosted-Latency Speed Mutation Budgets and Recovery UX | Complete; Ticket 179 found four recovery truthfulness blockers |
 | 179 | Jasmine | Wave U Ready Reliability Integration QA | Complete; FAIL with seven release blockers |
 | 180 | Yuna | Wave U Ready Reliability Checkpoint PR and CI | Complete; PR #11 merged as e81e211, main CI and Railway compatibility deploy PASS |
-| 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Complete — FAIL; reproducible simultaneous-ready HTTP 500/201 split, fail-closed void/no-contest; backend and web release blockers routed to Wave W |
+| 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Strict product FAIL: match `51d60455…`, 0.254ms skew, ready HTTP 503/201, persisted 1/2 + one receipt, safely voided `ready_timeout`, zero ratings; Wave X diagnosis running |
 | 182 | Jasmine | Final Hosted Wave U QA | Blocked on Wave W deploy and fresh Ticket 181 PASS |
 
 ## Wave U-Fix — Ticket 179 release blockers
@@ -302,18 +302,38 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 225 | Freya | Ready Receipt/Recovery Omitted-Case Repair | Complete — PASS candidate; focused/hosted/timing/race/full API gates green |
 | 226 | Luna | Strict Web Authority Contract and Redirect Repair | Complete — PASS candidate; strict schemas, redirect/origin fencing, truthful presentation and builds green |
 | 227 | Jasmine | Final Wave W Omitted-Case Independent Recheck | Complete — PASS; backend/web independent lanes plus local production-browser proof green |
-| 224 | Yuna | Wave W Checkpoint PR, CI, and Deploy Gate | Ready for one batched checkpoint PR; merge/deploy remain separately gated |
+| 224 | Yuna | Wave W Checkpoint PR, CI, and Deploy Gate | Complete — PASS; PR #16 merged as `1d8ef833`, exact main CI/Railway/Vercel/public revision/fleet acknowledgement green |
+
+## Wave X — Hosted smoke harness hardening
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 228 | Ruby | Precompiled Hosted Speed Smoke Harness | Historical local QA FAIL; initial harness overclaimed convergence/timing/cleanup |
+| 229 | Ruby | Harness Truthfulness Repair | Historical local QA FAIL; contract-realism gaps remained |
+| 230 | Ruby | Harness Contract-Realism Repair | Historical local QA FAIL; nullable `guessesUsed` mismatch remained |
+| 231 | Ruby / Jasmine | Nullable Schema Fix and Final Harness QA | Complete — PASS; harness 28/28, API 234/234, packages 68/68, full typecheck/lint/security green; no hosted access |
+| 232 | Ruby / Jasmine | Standard Catalog Harness Contract Fix | Complete — PASS; live preflight stopped before sessions, Standard-only field mismatch fixed, harness 31/31 |
+| 233 | Ruby / Jasmine | Public Snapshot Participant Projection Fix | Complete — PASS; invalid participant-array assumption removed, reciprocal ticket identity proof retained, harness 33/33 |
+
+## Wave X — Hosted Ready Timeout Closure
+
+| Ticket | Agent | Task | Status |
+|---|---|---|---|
+| 234 | Elisa | Hosted Ready 503 Lock/Timeout Diagnosis | Complete — PASS diagnosis; timeout while lock owner rolls back, waiter later commits |
+| 235 | Freya | Lock-Hold Round-Trip Reduction | Historical candidate; directionally sound but QA found timeout evidence insufficient |
+| 236 | Freya / Jasmine | Timeout Envelope and Lock Contention Proof | Complete — honest RED; natural 40001 retry and 7.1s request proved Ticket 235 insufficient |
+| 237 | Elisa | Ready Serialization Architecture Decision | Complete — PASS; ready-only ReadCommitted under explicit locks approved |
+| 238 | Freya / Jasmine | ReadCommitted Match-Locked Ready Repair | Complete — PASS local candidate; strict pressure 7/7, callbacks 2, retries 0, `[201,201]`, full regression green |
+| 239 | Yuna | Wave X Checkpoint PR and CI | Ready; merge/deploy separately gated |
 ## Recommended order
 
-Ticket 181 reproduced a release blocker at deployed `e91d515c`: simultaneous ready acknowledgements at 0.680ms dispatch skew returned HTTP 500/201 and only one ready persisted; the match safely voided/no-contest with no rating mutation. Public v2 remains open and healthy while remediation proceeds because the failure is fail-closed and a lifecycle disable/rollback is a separate mutation requiring approval. No further hosted gameplay is authorized.
+Ticket 181's original product FAIL is repaired and deployed at `1d8ef833`. The first approved rerun was operationally inconclusive: one controlled match expired before ready dispatch with zero mutations/ratings. Tickets 228–231 produced an independently accepted precompiled harness so no source reconstruction occurs inside the invitation window.
 
-1. **Now:** Ticket 224 creates one batched Wave W/W-Fix checkpoint PR from exact current `origin/main`.
-2. **After final-head CI and independent diff review:** request one explicit merge approval.
-3. **After approved merge/deployment:** verify exact deployed revision and public authority read-only.
-4. **Then:** request a fresh narrow hosted-gameplay approval for Ticket 181 rerun.
-5. **After Ticket 181 PASS:** send Ticket 182 for final independent hosted QA.
+1. **Now:** request a fresh narrow one-lifecycle approval for Ticket 181 using the precompiled harness.
+2. **After Ticket 181 PASS:** send Ticket 182 to Jasmine for final independent hosted QA.
+3. **Batching:** keep harness/tooling/coordination changes local until the next coherent checkpoint; do not create a small standalone PR.
 
-Ticket 223's valid historical FAIL is closed only by Tickets 225–227. Ticket 182 remains blocked. No further hosted gameplay, lifecycle transition, provider change, dictionary change, merge, or deployment is authorized yet.
+Ticket 223's valid historical FAIL is closed by Tickets 225–227. Ticket 181 remains unpassed solely because the approved rerun timed out before ready dispatch. Ticket 182 remains blocked. No further hosted gameplay, lifecycle transition, provider change, dictionary change, merge, or deployment is authorized yet.
 
 ## Persistent constraints
 

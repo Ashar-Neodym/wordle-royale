@@ -24,6 +24,9 @@ type AttemptEvidence = {
   callbackEntries: number;
   rawErrors: StructuredError[];
   lockWaitObserved: boolean;
+  lockSql: string[];
+  lockHolderMs: number[];
+  commitReturnMs: number[];
 };
 
 function delay(milliseconds: number): Promise<void> {
@@ -40,30 +43,50 @@ function structuredError(error: unknown): StructuredError {
   };
 }
 
-function delayedTransactionClient(client: PrismaClient, latencyMs: number, evidence: { callbackEntries: number; rawErrors: StructuredError[] }) {
-  const wrap = (target: any): any => new Proxy(target, {
+type PressureCapture = {
+  callbackEntries: number;
+  rawErrors: StructuredError[];
+  lockSql: string[];
+  lockHolderMs: number[];
+  commitReturnMs: number[];
+};
+
+function delayedTransactionClient(client: PrismaClient, latencyMs: number, evidence: PressureCapture) {
+  const wrap = (target: any, acquired?: () => void, operationLatencyMs = latencyMs): any => new Proxy(target, {
     get(object, property) {
       const value = Reflect.get(object, property, object);
       if (typeof value === 'function') {
         return async (...args: unknown[]) => {
+          if (property === '$queryRawUnsafe' && typeof args[0] === 'string' && args[0].includes('FOR UPDATE')) {
+            evidence.lockSql.push(args[0].replace(/\s+/g, ' ').trim());
+          }
           const result = await value.apply(object, args);
-          await delay(latencyMs);
+          if (property === '$queryRawUnsafe' && typeof args[0] === 'string' && /FROM "Match" WHERE .*FOR UPDATE/s.test(args[0])) acquired?.();
+          await delay(operationLatencyMs);
           return result;
         };
       }
-      if (value && typeof value === 'object') return wrap(value);
+      if (value && typeof value === 'object') return wrap(value, acquired, operationLatencyMs);
       return value;
     },
   });
   return {
     $transaction: async (callback: (tx: any) => Promise<unknown>, options: unknown) => {
+      const isCommit = (options as any)?.isolationLevel === 'ReadCommitted';
+      let lockAcquiredAt: number | null = null;
+      let callbackReturnedAt: number | null = null;
       try {
-        return await client.$transaction(async (tx) => {
-          evidence.callbackEntries += 1;
-          return await callback(wrap(tx));
+        const result = await client.$transaction(async (tx) => {
+          if (isCommit) evidence.callbackEntries += 1;
+          const value = await callback(wrap(tx, () => { lockAcquiredAt ??= performance.now(); }, isCommit ? latencyMs : 0));
+          callbackReturnedAt = performance.now();
+          if (isCommit && lockAcquiredAt !== null) evidence.lockHolderMs.push(callbackReturnedAt - lockAcquiredAt);
+          return value;
         }, options as any);
+        if (isCommit && callbackReturnedAt !== null) evidence.commitReturnMs.push(performance.now() - callbackReturnedAt);
+        return result;
       } catch (error) {
-        evidence.rawErrors.push(structuredError(error));
+        if (isCommit) evidence.rawErrors.push(structuredError(error));
         throw error;
       }
     },
@@ -125,7 +148,7 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
 
   async function runPair(latencyMs: number, key: string, concurrent: boolean): Promise<AttemptEvidence> {
     const match = await createMatch(key);
-    const capture = { callbackEntries: 0, rawErrors: [] as StructuredError[] };
+    const capture: PressureCapture = { callbackEntries: 0, rawErrors: [], lockSql: [], lockHolderMs: [], commitReturnMs: [] };
     const delayedPrisma = { client: delayedTransactionClient(client, latencyMs, capture) } as unknown as PrismaService;
     const service = new SpeedGameplayService(delayedPrisma, ratings, operational);
     let monitoring = true;
@@ -156,12 +179,22 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
           await Promise.resolve().then(two).then((value) => ({ status: 'fulfilled', value }) as const, (reason) => ({ status: 'rejected', reason }) as const)];
     monitoring = false;
     await monitorLoop;
-    return { matchId: match.matchId, results, elapsedMs: elapsed, callbackEntries: capture.callbackEntries, rawErrors: capture.rawErrors, lockWaitObserved };
+    return {
+      matchId: match.matchId,
+      results,
+      elapsedMs: elapsed,
+      callbackEntries: capture.callbackEntries,
+      rawErrors: capture.rawErrors,
+      lockWaitObserved,
+      lockSql: capture.lockSql,
+      lockHolderMs: capture.lockHolderMs,
+      commitReturnMs: capture.commitReturnMs,
+    };
   }
 
   async function runHttpPair(latencyMs: number) {
     const match = await createMatch('ticket221-http-green');
-    const capture = { callbackEntries: 0, rawErrors: [] as StructuredError[] };
+    const capture: PressureCapture = { callbackEntries: 0, rawErrors: [], lockSql: [], lockHolderMs: [], commitReturnMs: [] };
     const delayedPrisma = { client: delayedTransactionClient(client, latencyMs, capture) } as unknown as PrismaService;
     const service = new SpeedGameplayService(delayedPrisma, ratings, operational);
     const moduleRef = await Test.createTestingModule({
@@ -330,22 +363,49 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
 
     const frozenLatencyMs = Number(process.env.SPEED_READY_HOSTED_LATENCY_FROZEN_MS);
     assert.ok(Number.isFinite(frozenLatencyMs) && frozenLatencyMs > 0);
-    const green = await runPair(frozenLatencyMs, 'ticket221-green-frozen', true);
-    assert.equal(green.results.every((result) => result.status === 'fulfilled'), true);
-    assert.equal(green.callbackEntries >= 2, true);
-    assert.equal(green.lockWaitObserved, true);
+    const strictRequestEnvelopeMs = 4_819;
+    const timeoutControlMs = 5_505;
+    const requiredHolderMarginMs = 1_000;
+    const strictHolderEnvelopeMs = timeoutControlMs - requiredHolderMarginMs;
+    const green = await runPair(frozenLatencyMs, `ticket236-strict-${frozenLatencyMs}`, true);
     const persisted = await persistedEvidence();
-    assert.equal(persisted.readyCount, 2);
-    assert.equal(persisted.mutationCount, 2);
-    assert.equal(persisted.ratingCount, 0);
-    assert.ok(persisted.match?.readyWindowStartedAt && persisted.match.readyDeadlineAt && persisted.match.startedAt);
-    assert.equal(persisted.round?.startedAt?.toISOString(), persisted.match.startedAt.toISOString());
-    assert.ok(persisted.round?.deadlineAt);
+    console.log(JSON.stringify({
+      result: 'TICKET236_PRESSURE_EVIDENCE',
+      frozenLatencyMs,
+      strictRequestEnvelopeMs,
+      strictHolderEnvelopeMs,
+      callbackEntries: green.callbackEntries,
+      rawErrors: green.rawErrors,
+      elapsedMs: green.elapsedMs.map(Math.round),
+      lockHolderMs: green.lockHolderMs.map(Math.round),
+      commitReturnMs: green.commitReturnMs.map(Math.round),
+    }));
+    assert.equal(green.results.every((result) => result.status === 'fulfilled'), true, 'both pressure requests must commit');
+    assert.equal(green.lockWaitObserved, true);
+    const closureFailures: string[] = [];
+    if (green.callbackEntries !== 2) closureFailures.push(`commit_callback_entries=${green.callbackEntries} (expected 2)`);
+    if (green.rawErrors.length !== 0) closureFailures.push(`unexpected_transaction_errors=${JSON.stringify(green.rawErrors)}`);
+    const slowestRequestMs = Math.round(Math.max(...green.elapsedMs));
+    if (slowestRequestMs >= strictRequestEnvelopeMs) closureFailures.push(`slowest_request_ms=${slowestRequestMs} (must be below ${strictRequestEnvelopeMs})`);
+    if (green.lockHolderMs.length !== 2) closureFailures.push(`measured_lock_holders=${green.lockHolderMs.length} (expected 2)`);
+    if (green.commitReturnMs.length !== 2) closureFailures.push(`measured_commit_returns=${green.commitReturnMs.length} (expected 2)`);
+    if (green.lockHolderMs.length === 2) {
+      const slowestHolderMs = Math.round(Math.max(...green.lockHolderMs));
+      if (slowestHolderMs > strictHolderEnvelopeMs) closureFailures.push(`slowest_lock_holder_ms=${slowestHolderMs} (limit ${strictHolderEnvelopeMs})`);
+    }
+    const matchLockCount = green.lockSql.filter((sql) => /FROM "Match" WHERE .* FOR UPDATE/.test(sql)).length;
+    const joinedLockCount = green.lockSql.filter((sql) => /MatchRound.*JOIN "MatchParticipant".*ORDER BY.*participant\."id".*FOR UPDATE OF round_state, participant/.test(sql)).length;
+    if (matchLockCount !== 2) closureFailures.push(`match_lock_acquisitions=${matchLockCount} (expected 2)`);
+    if (joinedLockCount !== 2) closureFailures.push(`joined_lock_acquisitions=${joinedLockCount} (expected 2)`);
+    assert.deepEqual([persisted.readyCount, persisted.mutationCount, persisted.ratingCount], [2, 2, 0]);
+    assert.deepEqual(closureFailures, [], `Ticket 236 strict closure remains RED:\n${closureFailures.join('\n')}`);
 
+    const persistedMatch = persisted.match;
+    assert.ok(persistedMatch?.readyWindowStartedAt && persistedMatch.readyDeadlineAt && persistedMatch.startedAt);
     const originalWindow = [
-      persisted.match.readyWindowStartedAt.toISOString(),
-      persisted.match.readyDeadlineAt.toISOString(),
-      persisted.match.startedAt.toISOString(),
+      persistedMatch.readyWindowStartedAt.toISOString(),
+      persistedMatch.readyDeadlineAt.toISOString(),
+      persistedMatch.startedAt.toISOString(),
     ];
     await creator.markReady(green.matchId, localFixtureUsers.playerOne, 'ticket221-green-frozen-one');
     await creator.markReady(green.matchId, localFixtureUsers.playerOne, 'ticket221-green-different-logical-id');
@@ -532,6 +592,116 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
     assert.equal(dependencyPersistence.mutations.length, 0);
   });
 
+  it('reproduces the 5-6s failure class with a real PostgreSQL statement timeout and rollback', { timeout: 15_000 }, async () => {
+    await reset();
+    const started = performance.now();
+    let observed: StructuredError | null = null;
+    await assert.rejects(client.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '5500ms'`);
+      await tx.$executeRawUnsafe('INSERT INTO "SpeedTimingTestClock" ("id", "now") VALUES (236, clock_timestamp())');
+      await tx.$queryRawUnsafe('SELECT pg_sleep(6)');
+    }, { timeout: 8_000 }), (error) => {
+      observed = structuredError(error);
+      return observed.metaCode === '57014' || observed.code === '57014';
+    });
+    const elapsedMs = performance.now() - started;
+    assert.ok(elapsedMs >= 5_000 && elapsedMs < 6_000, `real timeout must occupy 5-6s, observed ${Math.round(elapsedMs)}ms`);
+    const rolledBack = await client.$queryRawUnsafe<Array<{ count: bigint }>>('SELECT count(*)::bigint AS count FROM "SpeedTimingTestClock" WHERE "id" = 236');
+    assert.equal(Number(rolledBack[0]?.count), 0);
+    console.log(JSON.stringify({ result: 'REAL_TIMEOUT_CONTROL', elapsedMs: Math.round(elapsedMs), error: observed }));
+  });
+
+  it('proves joined round-before-participant and participant-ID lock order with real PostgreSQL contention', { timeout: 30_000 }, async () => {
+    const match = await createMatch('ticket236-real-lock-order');
+    const round = await client.matchRound.findFirstOrThrow({ where: { matchId: match.matchId } });
+    const participants = await client.matchParticipant.findMany({ where: { matchId: match.matchId }, orderBy: { id: 'asc' } });
+    assert.equal(participants.length, 2);
+    const joinedLock = `SELECT round_state."id", participant."id" AS "participantId"
+      FROM "MatchRound" AS round_state
+      JOIN "MatchParticipant" AS participant ON participant."matchId" = round_state."matchId"
+      WHERE round_state."matchId" = $1
+      ORDER BY round_state."roundNumber", participant."id"
+      FOR UPDATE OF round_state, participant`;
+
+    async function waitUntilBlocked(pid: number): Promise<void> {
+      const deadline = performance.now() + 3_000;
+      while (performance.now() < deadline) {
+        const rows = await monitor.$queryRawUnsafe<Array<{ blocked: number[] }>>('SELECT pg_blocking_pids($1::int) AS blocked', pid);
+        if ((rows[0]?.blocked.length ?? 0) > 0) return;
+        await delay(20);
+      }
+      assert.fail(`backend ${pid} did not enter real lock contention`);
+    }
+
+    let releaseRound!: () => void;
+    const roundRelease = new Promise<void>((resolve) => { releaseRound = resolve; });
+    let roundHeld!: () => void;
+    const roundHeldSignal = new Promise<void>((resolve) => { roundHeld = resolve; });
+    const roundHolder = holder.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "MatchRound" WHERE "id" = $1 FOR UPDATE', round.id);
+      roundHeld();
+      await roundRelease;
+    }, { timeout: 10_000 });
+    await roundHeldSignal;
+    let candidatePid = 0;
+    const roundBlocked = client.$transaction(async (tx) => {
+      candidatePid = Number((await tx.$queryRawUnsafe<Array<{ pid: number }>>('SELECT pg_backend_pid() AS pid'))[0]!.pid);
+      return await tx.$queryRawUnsafe(joinedLock, match.matchId);
+    }, { timeout: 10_000 });
+    while (!candidatePid) await delay(1);
+    await waitUntilBlocked(candidatePid);
+    await monitor.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '100ms'`);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "MatchParticipant" WHERE "matchId" = $1 ORDER BY "id" FOR UPDATE', match.matchId);
+    });
+    releaseRound();
+    await Promise.all([roundHolder, roundBlocked]);
+
+    const high = participants[1]!;
+    const low = participants[0]!;
+    let releaseHigh!: () => void;
+    const highRelease = new Promise<void>((resolve) => { releaseHigh = resolve; });
+    let highHeld!: () => void;
+    const highHeldSignal = new Promise<void>((resolve) => { highHeld = resolve; });
+    const highHolder = holder.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "MatchParticipant" WHERE "id" = $1 FOR UPDATE', high.id);
+      highHeld();
+      await highRelease;
+    }, { timeout: 10_000 });
+    await highHeldSignal;
+    candidatePid = 0;
+    const participantBlocked = client.$transaction(async (tx) => {
+      candidatePid = Number((await tx.$queryRawUnsafe<Array<{ pid: number }>>('SELECT pg_backend_pid() AS pid'))[0]!.pid);
+      return await tx.$queryRawUnsafe(joinedLock, match.matchId);
+    }, { timeout: 10_000 });
+    while (!candidatePid) await delay(1);
+    await waitUntilBlocked(candidatePid);
+    await assert.rejects(monitor.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '100ms'`);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "MatchParticipant" WHERE "id" = $1 FOR UPDATE', low.id);
+    }), (error) => structuredError(error).metaCode === '55P03' || structuredError(error).code === '55P03');
+    releaseHigh();
+    await Promise.all([highHolder, participantBlocked]);
+  });
+
+  it('rejects malformed one- and three-participant ready cardinality without a receipt', { timeout: 30_000 }, async () => {
+    for (const cardinality of [1, 3] as const) {
+      const match = await createMatch(`ticket236-participant-${cardinality}`);
+      if (cardinality === 1) {
+        await client.matchParticipant.delete({ where: { matchId_userId: { matchId: match.matchId, userId: localFixtureUsers.guestPlayer } } });
+      } else {
+        const third = await client.userAccount.create({ data: { displayName: 'Ticket 236 third participant' } });
+        await client.matchParticipant.create({ data: { matchId: match.matchId, userId: third.id, seatNumber: 3 } });
+      }
+      await assert.rejects(
+        creator.markReady(match.matchId, localFixtureUsers.playerOne, `ticket236-participant-${cardinality}-ready`),
+        (error: any) => error?.response?.code === 'speed_ruleset_mismatch',
+      );
+      assert.equal(await client.matchMutationRequest.count({ where: { matchId: match.matchId } }), 0);
+      assert.equal(await client.matchParticipant.count({ where: { matchId: match.matchId, readyAt: { not: null } } }), 0);
+    }
+  });
+
   it('starts projection only after the commit backend released its locks and rejects malformed round cardinality', { timeout: 60_000 }, async () => {
     const barrierMatch = await createMatch('ticket225-projection-lock-barrier');
     let commitPid = 0;
@@ -539,7 +709,7 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
     const barrierService = new SpeedGameplayService({
       client: {
         $transaction: async (callback: (tx: any) => Promise<unknown>, options: any) => {
-          if (options?.isolationLevel === 'Serializable') {
+          if (options?.isolationLevel === 'ReadCommitted') {
             return await client.$transaction(async (tx) => {
               const rows = await tx.$queryRawUnsafe<Array<{ pid: number }>>('SELECT pg_backend_pid() AS pid');
               commitPid = rows[0]!.pid;
@@ -565,7 +735,7 @@ suite('Ticket 221 hosted-safe simultaneous-ready PostgreSQL diagnostic', () => {
       const malformedService = new SpeedGameplayService({
         client: {
           $transaction: async (callback: (tx: any) => Promise<unknown>, options: any) => {
-            if (options?.isolationLevel === 'Serializable') {
+            if (options?.isolationLevel === 'ReadCommitted') {
               const result = await client.$transaction(callback, options);
               commitReturned = true;
               const round = await client.matchRound.findFirstOrThrow({ where: { matchId: malformed.matchId } });
