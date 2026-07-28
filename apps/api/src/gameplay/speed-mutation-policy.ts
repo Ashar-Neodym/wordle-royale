@@ -4,12 +4,20 @@ export const SPEED_MUTATION_MAX_WAIT_MS = 8_000;
 export const SPEED_MUTATION_EXECUTION_MS = 12_000;
 export const SPEED_MUTATION_COMPLETION_RESERVE_MS = 1_000;
 export const SPEED_MUTATION_MIN_USEFUL_MS = 250;
+export const SPEED_MUTATION_PROJECTION_EXECUTION_MS = 8_000;
 
 export function speedMutationAttemptOptions(remainingMs: number) {
   const usable = Math.max(0, remainingMs - SPEED_MUTATION_COMPLETION_RESERVE_MS);
   const maxWait = Math.min(SPEED_MUTATION_MAX_WAIT_MS, Math.max(1, Math.floor(usable / 3)));
   const timeout = Math.min(SPEED_MUTATION_EXECUTION_MS, Math.max(1, usable - maxWait));
   return { isolationLevel: 'Serializable' as const, maxWait, timeout };
+}
+
+export function speedMutationProjectionOptions(remainingMs: number) {
+  const usable = Math.max(0, remainingMs - SPEED_MUTATION_COMPLETION_RESERVE_MS);
+  const maxWait = Math.min(SPEED_MUTATION_MAX_WAIT_MS, Math.max(1, Math.floor(usable / 3)));
+  const timeout = Math.min(SPEED_MUTATION_PROJECTION_EXECUTION_MS, Math.max(1, usable - maxWait));
+  return { isolationLevel: 'RepeatableRead' as const, maxWait, timeout };
 }
 
 export function speedMutationRetryDelayMs(attempt: number): number {

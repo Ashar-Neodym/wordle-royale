@@ -148,7 +148,9 @@ suite('Ticket 177 deterministic PostgreSQL Speed ready lifecycle and timing proo
     assert.equal(second.startsAt, at(40_000).toISOString());
 
     const originalReadyAt = (await client.matchParticipant.findFirst({ where: { matchId: game.matchId, userId: localFixtureUsers.playerOne } }))?.readyAt;
+    await setClock(at(40_000));
     const differentId = await speed.markReady(game.matchId, localFixtureUsers.playerOne, '17700000-0000-4000-8000-000000000003');
+    assert.equal(differentId.state, 'in_progress');
     assert.equal(differentId.readiness.viewerReadyOperationId, '17700000-0000-4000-8000-000000000001');
     assert.equal((await client.matchParticipant.findFirst({ where: { matchId: game.matchId, userId: localFixtureUsers.playerOne } }))?.readyAt?.toISOString(), originalReadyAt?.toISOString());
     assert.equal(await client.matchMutationRequest.count({ where: { matchId: game.matchId, participant: { userId: localFixtureUsers.playerOne }, kind: 'speed_ready' } }), 1);

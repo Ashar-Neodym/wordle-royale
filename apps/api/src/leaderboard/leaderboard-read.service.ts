@@ -232,7 +232,7 @@ export class LeaderboardReadService {
     const activeVersion = speedStatus && 'activeVersion' in speedStatus
       ? speedStatus.activeVersion ?? undefined
       : 'speed_ready_v2_first_ack_90s';
-    const unavailableReason = !speedQueueAvailable
+    const unavailableReason = speedConfigured && !speedQueueAvailable
       ? speedStatus?.reason === 'activation_draining' ? 'lifecycle_activation_draining' as const : 'speed_temporarily_unavailable' as const
       : undefined;
     const speedTimeControl: SpeedRankedModeTimeControl | undefined = activeVersion === 'speed_ready_v2_first_ack_90s'

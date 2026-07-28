@@ -3,6 +3,7 @@ import type { Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contract
 
 export type SpeedQueueUiState =
   | 'signed_out'
+  | 'authority_unavailable'
   | 'disabled'
   | 'reconnecting'
   | 'idle'
@@ -13,6 +14,23 @@ export type SpeedQueueUiState =
   | 'cancelled'
   | 'timed_out'
   | 'error';
+
+export function speedQueueCopy(state: SpeedQueueUiState): { eyebrow: string; title: string; message: string } {
+  switch (state) {
+    case 'authority_unavailable': return { eyebrow: 'Speed status unavailable', title: 'Live Speed availability could not be verified', message: 'Authoritative API evidence is incomplete or temporarily unavailable. Retry before attempting matchmaking.' };
+    case 'disabled': return { eyebrow: 'Speed unavailable', title: 'Speed queue is not enabled', message: 'The live mode catalog has not enabled this rated queue. No matchmaking request will be sent.' };
+    case 'signed_out': return { eyebrow: 'Session required', title: 'Start a demo session to queue', message: 'Speed matchmaking requires an explicit preview session.' };
+    case 'reconnecting': return { eyebrow: 'Speed reconnect', title: 'Checking your Speed search…', message: 'The server may restore a queued or matched Speed ticket after refresh.' };
+    case 'joining': return { eyebrow: 'Joining Speed', title: 'Creating one rated Speed ticket…', message: 'A single request identity is retained until the server state is known.' };
+    case 'searching': return { eyebrow: 'Speed search', title: 'Looking for a Speed opponent', message: 'This search is independent from Standard and stored by the server.' };
+    case 'cancelling': return { eyebrow: 'Cancelling', title: 'Checking cancellation with the server…', message: 'Pairing may win the race; the returned ticket remains authoritative.' };
+    case 'matched': return { eyebrow: 'Speed matched', title: 'Opponent found', message: 'Opening the 20-second ready gate and server-owned countdown.' };
+    case 'cancelled': return { eyebrow: 'Cancelled', title: 'Speed search cancelled', message: 'The server confirmed this ticket is no longer active.' };
+    case 'timed_out': return { eyebrow: 'Expired', title: 'Speed search expired', message: 'Create a new ticket to search again.' };
+    case 'error': return { eyebrow: 'Recoverable error', title: 'Speed status needs a fresh server check', message: 'A timeout does not prove whether a ticket exists. Check status before another mutation.' };
+    default: return { eyebrow: 'Speed / Blitz', title: 'Find a live rated Speed match', message: '75-second shared puzzle · six guesses · server solve-time tie-break.' };
+  }
+}
 
 export type ServerClockAnchor = Readonly<{
   serverEpochMs: number;

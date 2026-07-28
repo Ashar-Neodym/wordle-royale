@@ -205,8 +205,8 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 178 | Luna | Hosted-Latency Speed Mutation Budgets and Recovery UX | Complete; Ticket 179 found four recovery truthfulness blockers |
 | 179 | Jasmine | Wave U Ready Reliability Integration QA | Complete; FAIL with seven release blockers |
 | 180 | Yuna | Wave U Ready Reliability Checkpoint PR and CI | Complete; PR #11 merged as e81e211, main CI and Railway compatibility deploy PASS |
-| 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Blocked on approved 180 merge/main CI |
-| 182 | Jasmine | Final Hosted Wave U QA | Blocked on 181 PASS |
+| 181 | Yuna | Hosted Wave U Concurrent-Ready Smoke | Complete — FAIL; reproducible simultaneous-ready HTTP 500/201 split, fail-closed void/no-contest; backend and web release blockers routed to Wave W |
+| 182 | Jasmine | Final Hosted Wave U QA | Blocked on Wave W deploy and fresh Ticket 181 PASS |
 
 ## Wave U-Fix — Ticket 179 release blockers
 
@@ -241,8 +241,11 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 | 194 | Elisa | Railway Inventory-Proof and V2 Activation Runbook | Complete; operator-bound Railway proof and two-approval activation runbook delivered |
 | 195 | Freya | Operator-Bound Railway Inventory Verifier | Complete; local provider-bound verifier/operator tooling verified and independent review PASS; no hosted operation performed |
 | 196 | Jasmine | Trusted Activation Operator Independent QA | Complete; FAIL with four trusted-provider boundary blockers |
-| 197 | Yuna | Wave V Activation Tooling Checkpoint PR and CI | Blocked on Ticket 201 PASS |
-| 198 | Yuna | Hosted Lifecycle V2 Close/Drain/Open Activation | Blocked on approved 197 merge and explicit activation approval |
+| 197 | Yuna | Wave V Activation Tooling Checkpoint PR and CI | Complete; PR #12 merged as 6992ce1, main CI and Railway deploy PASS |
+| 198 | Yuna | Hosted Lifecycle V2 Activation Umbrella | Superseded by staged Tickets 202–204; do not send directly |
+| 202 | Yuna | Read-Only Hosted V2 Activation Preflight | Complete — PASS from clean committed tooling at deployed `e91d515c`; one replica/lease, zero non-target leases/drain rows/writes, all readiness gates true |
+| 203 | Yuna | Hosted V1 Close and Drain Proof | Complete — PASS; approved audited close applied, `closing_to_v2/2`, exact lease acknowledgement, zero v1 drain rows, Standard healthy |
+| 204 | Yuna | Hosted V2 Open and Authority Proof | Complete — PASS; approved audited open applied, `v2_open/3`, exact lease acknowledgement, v2 public catalog active, zero post-open null/v1 rows |
 
 ## Wave V-Fix — Ticket 196 provider-boundary blockers
 
@@ -250,22 +253,67 @@ Tickets 01–102 are complete through Wave N. PR #4 merged to `main` and GitHub 
 |---|---|---|---|
 | 199 | Freya | Exact Railway Fleet Proof, Safe Command Serialization, and Public-Origin Fencing | Complete; all four provider-boundary blockers closed, canonical gates green, independent review PASS; no hosted operation performed |
 | 200 | Jasmine | Focused Trusted-Provider Boundary Recheck | Complete; FAIL only on omitted RFC 8215 local-use NAT64 /48 |
-| 201 | Jasmine | Final RFC 8215 NAT64 Origin-Fencing Recheck | Ready; Athena surgical fix and permanent regression tests green |
+| 201 | Jasmine | Final RFC 8215 NAT64 Origin-Fencing Recheck | Complete; PASS, all local Wave V release blockers closed |
 
+## Wave V-Provider-Compatibility — Ticket 202 live-schema blocker
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 205 | Freya | Railway Live Status Schema Compatibility for Exact Fleet Proof | Complete; exact hosted-shape fixture and fail-closed implementation verified |
+| 206 | Jasmine | Railway Live-Schema Fleet-Proof Independent QA | Complete; PASS |
+| 207 | Yuna | Provider-Compatibility Checkpoint PR and CI | Complete; PR #13 merged as 0f67377, main CI and Railway deploy PASS; read-only preflight reached runtime blocker |
+
+## Wave V-Runtime-Readiness — Hosted reconciler blocker
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 208 | Elisa | Hosted Reconciler Budget and Dependency-Minimal Architecture | Complete; dependency-minimal 10s pass/8s transaction architecture and backlog contract delivered |
+| 209 | Jasmine | Reconciler Hosted-Latency Red Acceptance Matrix | Complete; exact Ticket 208 constants reconciled, 15-case permanent matrix has 10 intentional RED targets and 5 passing safety contracts |
+| 210 | Freya | Hosted-Safe Reconciler Runtime Implementation | Complete; dependency-minimal 10s runtime, 11/10 sentinel batching, caught-up readiness, compiled operator smoke, hostile PostgreSQL proof, and independent review PASS; response: `responses/ticket-210-freya-hosted-safe-reconciler-runtime-implementation-response.md` |
+| 211 | Jasmine | Hosted-Safe Reconciler Independent QA | Closed by Ticket 216 PASS; all runtime gates and final two-way ranked identity fencing independently verified |
+| 212 | Yuna | Runtime-Readiness Checkpoint PR and CI | Complete; PR #14 merged as `28d360bc`, main CI and exact Railway deployment PASS |
+| 213 | Freya | Close Ticket 211 Runtime Blockers | Complete; all architecture gates retained; Athena closed Ticket 214's sole direct-SQLSTATE classifier/test omission |
+| 214 | Elisa | Pre-QA Reconciler Architecture and Source Gate | Closed; historical FAIL's sole classifier omission resolved by Ticket 215 PASS |
+| 215 | Elisa | Final Direct SQLSTATE Reconciler Classifier Recheck | Complete — PASS; direct and nested SQLSTATEs, legacy mappings, sanitization, 43/43 focused gate, typecheck, and diff check verified |
+| 216 | Jasmine | Final Two-Way Ranked Identity Recheck | Complete — PASS; all converse mismatches reject before dependent reads/writes, valid Standard/Speed routes remain separate, and unsupported precedence is preserved |
+
+## Wave V-Operator-Closeout — Public readiness compatibility
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 217 | Jasmine | Operator Public-Readiness Compatibility Recheck | Closed by Ticket 219 PASS; public/legacy compatibility, DNS pinning, timeouts, and strict malformed-envelope fencing independently verified |
+| 218 | Yuna | Operator Compatibility Checkpoint PR and CI | Complete; PR #15 merged as `e91d515c`, exact main CI and Railway deployment PASS |
+| 219 | Jasmine | Final Strict Readiness Envelope Discriminator Recheck | Complete — PASS; exact one-own-branch discriminator and 27-case malformed matrix pass with sanitized failures |
+
+## Wave W — Hosted v2 concurrent-ready remediation
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 220 | Elisa | Concurrent-Ready Hosted-Latency Architecture Gate | Complete — PASS architecture; deterministic RED classification completed by Ticket 221 |
+| 221 | Freya | Hosted-Safe Simultaneous-Ready Backend Repair | Original hosted-latency `[500,201]` path repaired to `[201,201]`; Ticket 223 omitted backend recovery cases routed to Ticket 225 |
+| 222 | Luna | Web/API Speed Truthfulness Repair | Initial authority repair complete; Ticket 223 omitted unavailable/schema/redirect cases routed to Ticket 226 |
+| 223 | Jasmine | Wave W Independent Backend/Web QA | Complete — FAIL; two backend recovery and three web authority blockers independently reproduced; report preserved |
+| 224 | Yuna | Wave W Checkpoint PR, CI, and Deploy Gate | Blocked on Ticket 227 PASS |
+
+## Wave W-Fix — Ticket 223 omitted cases
+
+| Ticket | Agent | Title | Status |
+|---|---|---|---|
+| 225 | Freya | Ready Receipt/Recovery Omitted-Case Repair | Complete — PASS candidate; focused/hosted/timing/race/full API gates green |
+| 226 | Luna | Strict Web Authority Contract and Redirect Repair | Complete — PASS candidate; strict schemas, redirect/origin fencing, truthful presentation and builds green |
+| 227 | Jasmine | Final Wave W Omitted-Case Independent Recheck | Complete — PASS; backend/web independent lanes plus local production-browser proof green |
+| 224 | Yuna | Wave W Checkpoint PR, CI, and Deploy Gate | Ready for one batched checkpoint PR; merge/deploy remain separately gated |
 ## Recommended order
 
-Wave U compatibility code/schema is merged and deployed at `e81e211`. Hosted Speed creation remains correctly fail-closed. Ticket 200 closed three of four provider-boundary groups and found one omitted RFC 8215 NAT64 prefix; Athena applied the surgical fix and permanent red-to-green regression locally.
+Ticket 181 reproduced a release blocker at deployed `e91d515c`: simultaneous ready acknowledgements at 0.680ms dispatch skew returned HTTP 500/201 and only one ready persisted; the match safely voided/no-contest with no rating mutation. Public v2 remains open and healthy while remediation proceeds because the failure is fail-closed and a lifecycle disable/rollback is a separate mutation requiring approval. No further hosted gameplay is authorized.
 
-Wave V-Fix staged execution:
+1. **Now:** Ticket 224 creates one batched Wave W/W-Fix checkpoint PR from exact current `origin/main`.
+2. **After final-head CI and independent diff review:** request one explicit merge approval.
+3. **After approved merge/deployment:** verify exact deployed revision and public authority read-only.
+4. **Then:** request a fresh narrow hosted-gameplay approval for Ticket 181 rerun.
+5. **After Ticket 181 PASS:** send Ticket 182 for final independent hosted QA.
 
-1. **Send first:** 201 to Jasmine for the narrow independent NAT64 recheck. No implementation ticket is needed.
-2. **No parallel tickets:** only one focused QA gate remains.
-3. **Then checkpoint:** only after 201 PASS, send 197 to Yuna for PR/CI; no merge.
-4. **Approval gate:** return to Athena after 197. Ashar must approve merge; Athena verifies main CI/deployment.
-5. **Hosted activation:** Ticket 198 remains blocked until a separate explicit close approval and then a separate open approval after drain evidence.
-6. **Finally:** after 198 PASS, send 181 to Yuna; after 181 PASS, send 182 to Jasmine.
-
-Process correction for future waves: define Jasmine's adversarial matrix before implementation, retain failures as permanent tests, require red-to-green plus pre-handoff adversarial review, and use direct surgical remediation for genuinely narrow defects. Hosted Speed creation remains safely unavailable; Standard and persisted Speed reads/reconciliation remain available.
+Ticket 223's valid historical FAIL is closed only by Tickets 225–227. Ticket 182 remains blocked. No further hosted gameplay, lifecycle transition, provider change, dictionary change, merge, or deployment is authorized yet.
 
 ## Persistent constraints
 

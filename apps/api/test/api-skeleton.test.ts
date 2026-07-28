@@ -175,11 +175,13 @@ describe('api skeleton', () => {
     assert.equal(health.body.error, null);
     assert.equal(health.body.data.status, 'ok');
     assert.equal(health.body.data.service, 'wordle-royale-api');
+    assert.equal(health.body.data.revision, 'development');
     assert.equal(typeof health.body.requestId, 'string');
 
     const ready = await request(app.getHttpServer()).get('/readyz').expect(200);
     assert.equal(ready.body.error, null);
     assert.equal(ready.body.data.status, 'ok');
+    assert.equal(ready.body.data.revision, 'development');
     assert.equal(ready.body.data.dependencies.database.status, 'ok');
     assert.equal(ready.body.data.dependencies.applicationSchema.status, 'ok');
     assert.equal(ready.body.data.dependencies.standardDictionary.status, 'ok');

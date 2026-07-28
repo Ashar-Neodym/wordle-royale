@@ -15,7 +15,7 @@ export function TokenBadge({ label, bg, border, text, title }: BadgeProps): Reac
 
 export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
   const ready = lobbyStates.ready;
-  const isConnected = api.health.status === 'connected';
+  const isAuthoritative = api.authority.availability === 'authoritative';
   const readinessStatus = api.readiness.data?.status ?? api.readiness.status;
   const dependencies = api.readiness.data?.dependencies ?? {};
   const dependencySummary = Object.entries(dependencies)
@@ -27,13 +27,13 @@ export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
 
   return (
     <section className={styles.statusGrid} aria-label="Server and rating status">
-      <div className={styles.statusCard} role={isConnected ? undefined : 'alert'}>
+      <div className={styles.statusCard} role={isAuthoritative ? undefined : 'alert'}>
         <div>
-          <strong>{isConnected ? `Server online · ${readinessStatus}` : 'Server offline · fixture mode'}</strong>
+          <strong>{isAuthoritative ? `Authoritative API online · ${readinessStatus}` : 'Authoritative API truth unavailable'}</strong>
           <p>
-            {isConnected
-              ? dependencySummary || `${api.health.data?.service ?? 'API'} ready`
-              : `Showing local fixtures because ${api.health.apiUrl} is unavailable${api.health.error ? `: ${api.health.error}` : '.'}`}
+            {isAuthoritative
+              ? `${dependencySummary || `${api.health.data?.service ?? 'API'} ready`} · Origin ${api.authority.apiOrigin ?? 'unavailable'} · Revision ${api.authority.apiRevision.slice(0, 12)}`
+              : `${api.authority.reason ?? 'Authoritative API evidence is incomplete.'} Origin ${api.authority.apiOrigin ?? 'unconfigured'} · Web ${api.authority.webRevision.slice(0, 12)} · API ${api.authority.apiRevision.slice(0, 12)}`}
           </p>
         </div>
       </div>
