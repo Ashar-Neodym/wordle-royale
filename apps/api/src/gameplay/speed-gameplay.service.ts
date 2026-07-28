@@ -40,6 +40,7 @@ import {
   SPEED_MUTATION_MIN_USEFUL_MS,
   speedMutationAttemptOptions,
   speedMutationProjectionOptions,
+  speedReadyMutationAttemptOptions,
   speedMutationRetryDelayMs,
 } from './speed-mutation-policy.ts';
 
@@ -451,21 +452,62 @@ export class SpeedGameplayService {
     if (match.rankedMode !== 'speed_1v1' || match.rulesetVersion !== SPEED_1V1_RULESET_VERSION) {
       throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'This match is not compatible with the live Speed ruleset.' });
     }
-    const rounds = await tx.$queryRawUnsafe(`
-      SELECT "id", "matchId", "startedAt", "deadlineAt"
-      FROM "MatchRound" WHERE "matchId" = $1 ORDER BY "roundNumber" FOR UPDATE
-    `, matchId) as any[];
-    const participants = await tx.$queryRawUnsafe(`
-      SELECT "id", "userId", "outcome", "readyAt", "lastServerEventAt", "terminalAt",
-             "terminalReason", "guessesUsed", "solveElapsedMs", "solveTimeBucket", "result"
-      FROM "MatchParticipant" WHERE "matchId" = $1 ORDER BY "id" FOR UPDATE
-    `, matchId) as SpeedParticipant[];
-    if (rounds.length !== 1 || participants.length !== 2) {
+    // Keep Match as the first/global serialization point, then acquire and hydrate
+    // the round and ordered participants in one database round trip.  Explicit OF
+    // targets prevent the join from extending the lock set beyond these two tables.
+    const lockedRows = await tx.$queryRawUnsafe(`
+      SELECT round_state."id" AS "roundId", round_state."matchId" AS "roundMatchId",
+             round_state."startedAt" AS "roundStartedAt", round_state."deadlineAt" AS "roundDeadlineAt",
+             participant."id" AS "participantId", participant."userId" AS "participantUserId",
+             participant."outcome" AS "participantOutcome", participant."readyAt" AS "participantReadyAt",
+             participant."lastServerEventAt" AS "participantLastServerEventAt",
+             participant."terminalAt" AS "participantTerminalAt",
+             participant."terminalReason" AS "participantTerminalReason",
+             participant."guessesUsed" AS "participantGuessesUsed",
+             participant."solveElapsedMs" AS "participantSolveElapsedMs",
+             participant."solveTimeBucket" AS "participantSolveTimeBucket",
+             participant."result" AS "participantResult"
+      FROM "MatchRound" AS round_state
+      JOIN "MatchParticipant" AS participant ON participant."matchId" = round_state."matchId"
+      WHERE round_state."matchId" = $1
+      ORDER BY round_state."roundNumber", participant."id"
+      FOR UPDATE OF round_state, participant
+    `, matchId) as Array<{
+      roundId: string; roundMatchId: string; roundStartedAt: Date | null; roundDeadlineAt: Date | null;
+      participantId: string; participantUserId: string; participantOutcome: SpeedParticipant['outcome'];
+      participantReadyAt: Date | null; participantLastServerEventAt: Date | null;
+      participantTerminalAt: Date | null; participantTerminalReason: SpeedParticipant['terminalReason'];
+      participantGuessesUsed: number; participantSolveElapsedMs: number | null;
+      participantSolveTimeBucket: number | null; participantResult: SpeedParticipant['result'];
+    }>;
+    const roundIds = new Set(lockedRows.map((row) => row.roundId));
+    const participantIds = new Set(lockedRows.map((row) => row.participantId));
+    if (lockedRows.length !== 2 || roundIds.size !== 1 || participantIds.size !== 2) {
       throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed match state is incomplete.' });
     }
+    const first = lockedRows[0]!;
+    const round = {
+      id: first.roundId,
+      matchId: first.roundMatchId,
+      startedAt: first.roundStartedAt,
+      deadlineAt: first.roundDeadlineAt,
+    };
+    const participants = lockedRows.map((row): SpeedParticipant => ({
+      id: row.participantId,
+      userId: row.participantUserId,
+      outcome: row.participantOutcome,
+      readyAt: row.participantReadyAt,
+      lastServerEventAt: row.participantLastServerEventAt,
+      terminalAt: row.participantTerminalAt,
+      terminalReason: row.participantTerminalReason,
+      guessesUsed: row.participantGuessesUsed,
+      solveElapsedMs: row.participantSolveElapsedMs,
+      solveTimeBucket: row.participantSolveTimeBucket,
+      result: row.participantResult,
+    }));
     const viewer = participants.find((participant) => participant.userId === userId);
     if (!viewer) throw new ForbiddenException({ code: 'match_participant_required', message: 'Only Speed match participants may access this state.' });
-    return { match, round: rounds[0], participants, viewer };
+    return { match, round, participants, viewer };
   }
 
   private async lockState(tx: any, matchId: string, userId?: string): Promise<any> {
@@ -643,7 +685,7 @@ export class SpeedGameplayService {
           } finally {
             this.readyObservability.observeDuration('critical_section', performance.now() - callbackEnteredAt);
           }
-        }, speedMutationAttemptOptions(remaining));
+        }, speedReadyMutationAttemptOptions(remaining));
         this.readyObservability.observeEvent('transaction_returned');
         return result;
       } catch (error) {

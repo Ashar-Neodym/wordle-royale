@@ -15,6 +15,7 @@ import {
   SPEED_MUTATION_PROJECTION_EXECUTION_MS,
   speedMutationAttemptOptions,
   speedMutationProjectionOptions,
+  speedReadyMutationAttemptOptions,
   speedMutationRetryDelayMs,
 } from '../src/gameplay/speed-mutation-policy.ts';
 
@@ -37,6 +38,20 @@ describe('Ticket 177 finite Speed mutation policy', () => {
     assert.ok(constrained.maxWait > 0);
     assert.ok(constrained.timeout > 0);
     assert.ok(constrained.maxWait + constrained.timeout <= 3_000);
+  });
+
+  it('uses ReadCommitted only for the match-locked ready commit envelope', () => {
+    const remaining = SPEED_MUTATION_LIFECYCLE_MS;
+    const ready = speedReadyMutationAttemptOptions(remaining);
+    const general = speedMutationAttemptOptions(remaining);
+    const projection = speedMutationProjectionOptions(remaining);
+    assert.deepEqual(
+      { maxWait: ready.maxWait, timeout: ready.timeout },
+      { maxWait: general.maxWait, timeout: general.timeout },
+    );
+    assert.equal(ready.isolationLevel, 'ReadCommitted');
+    assert.equal(general.isolationLevel, 'Serializable');
+    assert.equal(projection.isolationLevel, 'RepeatableRead');
   });
 
   it('keeps retry jitter bounded between 50 and 250 milliseconds', () => {
@@ -66,6 +81,7 @@ describe('Ticket 177 finite Speed mutation policy', () => {
     );
     assert.equal(options.length, 3);
     assert.equal(options.every((value) => value.maxWait <= 8_000 && value.timeout <= 12_000), true);
+    assert.equal(options.every((value: any) => value.isolationLevel === 'ReadCommitted'), true);
   });
 
   it('maps interactive transaction expiry to the stable Speed-specific error', async () => {
