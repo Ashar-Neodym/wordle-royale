@@ -36,8 +36,13 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
   const matchResult = matchId ? await getRankedMatchResult(matchId) : null;
   const actionState = rankedActionState(params);
   const hasLiveMatch = Boolean(matchId);
-  const speedCatalog = api.rankedModes.data?.modes.find((mode) => mode.id === 'speed_1v1');
-  const speedQueueEnabled = api.rankedModes.status === 'connected' && speedCatalog?.enabled === true && speedCatalog.queueEnabled === true;
+  const speedQueueEnabled = api.authority.status === 'enabled';
+  const speedCatalogAvailable = api.authority.availability === 'authoritative';
+  const speedAvailabilityLabel = api.authority.status === 'enabled'
+    ? 'Live queue'
+    : api.authority.status === 'disabled'
+      ? 'Not live yet'
+      : 'Live status unavailable';
   const liveMatchStateLabel = matchState?.data ? matchState.data.state : matchState?.status === 'unavailable' ? 'state unavailable' : 'loading';
   const queueSessionState = api.currentUser.status === 'connected'
     ? 'active'
@@ -74,13 +79,13 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           <p>Standard and catalog-enabled Speed use separate live automatic queues. Classic and Multiplayer remain unavailable.</p>
         </div>
         <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} />
-        <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={api.rankedModes.status === 'connected'} />
+        <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={speedCatalogAvailable} />
         <div className={styles.modeChoiceGrid}>
           {rankedModeChoices.map((choice) => (
             <article className={styles.modeChoiceCard} key={choice.mode}>
               <div className={styles.cardTopline}>
                 <h3>{choice.label}</h3>
-                <span>{choice.mode === 'speed_1v1' ? (speedQueueEnabled ? 'Live queue' : 'Not live yet') : choice.availability}</span>
+                <span>{choice.mode === 'speed_1v1' ? speedAvailabilityLabel : choice.availability}</span>
               </div>
               <p className={styles.eyebrow}>{choice.mode}</p>
               <p className={styles.muted}>{choice.detail}</p>

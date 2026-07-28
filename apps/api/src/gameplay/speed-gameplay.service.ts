@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { acceptedGuessResultSchema, rejectedGuessResultSchema, speedMatchSnapshotSchema } from '@wordle-royale/contracts';
 import type { GuessResult, SpeedMatchSnapshot } from '@wordle-royale/contracts';
 import { isSolved, scoreGuess, validateGuess } from '@wordle-royale/game-engine';
@@ -12,6 +12,13 @@ import { SpeedExpiryAdjudicationService, type SpeedParticipant } from './speed-e
 import { SpeedExpiryReconciliationService, type SpeedReconcileDueInput, type SpeedReconcilePassResult } from './speed-expiry-reconciliation.service.ts';
 import { SPEED_RECONCILER_BATCH_SIZE, SPEED_RECONCILER_SELECTION_LIMIT } from './speed-reconciler-budget.ts';
 import { SpeedRatingSettlementService } from './speed-rating-settlement.service.ts';
+import { SpeedReadyObservability } from './speed-ready-observability.ts';
+import {
+  classifySpeedMutationError,
+  speedMutationErrorIsRetryable,
+  speedMutationPublicError,
+  speedSnapshotUnavailableError,
+} from './speed-mutation-errors.ts';
 import {
   SPEED_1V1_RULESET_VERSION,
   SPEED_COUNTDOWN_MS,
@@ -32,11 +39,16 @@ import {
   SPEED_MUTATION_MAX_ATTEMPTS,
   SPEED_MUTATION_MIN_USEFUL_MS,
   speedMutationAttemptOptions,
+  speedMutationProjectionOptions,
   speedMutationRetryDelayMs,
 } from './speed-mutation-policy.ts';
 
 const ANSWER_SALT_REF = 'fixture-local-v1';
 const SPEED_RATING_CONFIG_VERSION = 'speed_1v1_glicko_v1';
+
+type ReadyCommitReceipt =
+  | { outcome: 'committed' | 'replay' | 'already_ready' | 'terminal'; commitKnown: true }
+  | { outcome: 'late'; commitKnown: true; code: 'invitation_expired' | 'ready_deadline_passed' };
 
 type CreateSpeedMatchInput = {
   dictionaryReleaseId: string;
@@ -61,6 +73,8 @@ function addMs(value: Date, milliseconds: number): Date {
 
 @Injectable()
 export class SpeedGameplayService {
+  private readonly readyObservability = new SpeedReadyObservability();
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(GameplayPersistenceService) private readonly ratings: GameplayPersistenceService,
@@ -68,6 +82,10 @@ export class SpeedGameplayService {
     @Optional() @Inject(SpeedExpiryReconciliationService) private readonly expiryReconciliation?: SpeedExpiryReconciliationService,
     @Optional() @Inject(SpeedExpiryAdjudicationService) private readonly expiryAdjudication?: SpeedExpiryAdjudicationService,
   ) {}
+
+  readyMetrics() {
+    return this.readyObservability.snapshot();
+  }
 
   async isSpeedMatch(matchId: string): Promise<boolean> {
     try {
@@ -128,64 +146,127 @@ export class SpeedGameplayService {
 
   async markReady(matchId: string, userId: string, clientRequestId: string): Promise<SpeedMatchSnapshot> {
     const lifecycleStartedAt = performance.now();
-    await this.assertMutationAvailable(lifecycleStartedAt);
-    const result = await this.inTransaction(async (tx): Promise<{
-      snapshot: SpeedMatchSnapshot;
-      lateCode?: 'invitation_expired' | 'ready_deadline_passed';
-    }> => {
-      let state = await this.lockState(tx, matchId, userId);
-      const hash = requestHash('speed_ready', {});
-      // Operation lookup deliberately precedes clock acquisition/reconciliation:
-      // a response-loss replay remains confirmable after a later expiry.
-      const replay = await this.assertMutationReplay(tx, state.viewer.id, 'speed_ready', clientRequestId, hash);
-      const now = await this.databaseNow(tx);
-      if (replay) return { snapshot: await this.snapshotLocked(tx, state, now) };
+    try {
+      await this.assertMutationAvailable(lifecycleStartedAt);
+      this.readyObservability.observeEvent('dependency_check');
+      this.readyObservability.observeDuration('dependency_check', performance.now() - lifecycleStartedAt);
+    } catch (error) {
+      this.readyObservability.observeOutcome(error instanceof ConflictException ? 'domain_conflict' : 'failed');
+      const errorClass = classifySpeedMutationError(error);
+      this.readyObservability.observeError(errorClass);
+      this.readyObservability.observeDuration('total', performance.now() - lifecycleStartedAt);
+      if (error instanceof HttpException) throw error;
+      throw speedMutationPublicError(errorClass);
+    }
 
-      await this.adjudicationService().reconcileLocked(tx, state, now);
-      state = await this.loadLockedState(tx, matchId, userId);
-      if (state.match.status === 'voided') {
-        const snapshot = await this.snapshotLocked(tx, state, now);
-        if (state.match.completionReason === 'pre_start_cancelled' || state.match.completionReason === 'operator_void') {
-          return { snapshot };
-        }
-        const lateCode = state.match.completionReason === 'invitation_timeout'
-          ? 'invitation_expired'
-          : state.match.completionReason === 'ready_timeout'
-            ? 'ready_deadline_passed'
-            : undefined;
-        return lateCode ? { snapshot, lateCode } : { snapshot };
-      }
-      if (state.match.adjudicatedAt) return { snapshot: await this.snapshotLocked(tx, state, now) };
-      // A new logical id cannot replace the operation that originally marked
-      // this participant ready or restart either lifecycle window.
-      if (state.viewer.readyAt) return { snapshot: await this.snapshotLocked(tx, state, now) };
+    const commitStartedAt = performance.now();
+    let receipt: ReadyCommitReceipt;
+    try {
+      receipt = await this.commitReady(matchId, userId, clientRequestId, lifecycleStartedAt);
+      this.readyObservability.observeOutcome(receipt.outcome);
+      this.readyObservability.observeDuration('commit_return', performance.now() - commitStartedAt);
+    } catch (error) {
+      this.readyObservability.observeOutcome(error instanceof ConflictException ? 'domain_conflict' : 'failed');
+      this.readyObservability.observeDuration('commit_return', performance.now() - commitStartedAt);
+      this.readyObservability.observeDuration('total', performance.now() - lifecycleStartedAt);
+      throw error;
+    }
 
-      await tx.matchParticipant.update({
-        where: { id: state.viewer.id },
-        data: { readyAt: now, lastServerEventAt: this.adjudicationService().effectiveEventAt(now, state.round.startedAt, state.viewer.lastServerEventAt) },
-      });
-      if (this.adjudicationService().lifecycleOf(state.match) === SPEED_READY_LIFECYCLE_V2 && !state.match.readyWindowStartedAt) {
-        await tx.match.update({
-          where: { id: matchId },
-          data: { readyWindowStartedAt: now, readyDeadlineAt: addMs(now, SPEED_READY_WINDOW_MS) },
-        });
-      }
-      const participants = await tx.matchParticipant.findMany({ where: { matchId }, orderBy: { id: 'asc' } }) as SpeedParticipant[];
-      if (!state.match.startedAt && participants.length === 2 && participants.every((participant) => participant.readyAt)) {
-        const startsAt = addMs(now, SPEED_COUNTDOWN_MS);
-        await tx.match.updateMany({ where: { id: matchId, startedAt: null, status: 'pending' }, data: { startedAt: startsAt, status: 'active' } });
-        await tx.matchRound.updateMany({ where: { id: state.round.id, startedAt: null }, data: { startedAt: startsAt, deadlineAt: addMs(startsAt, SPEED_ROUND_TIME_MS) } });
-      }
-      await this.recordMutation(tx, matchId, state.viewer.id, 'speed_ready', clientRequestId, hash, null);
-      return { snapshot: await this.snapshotLocked(tx, await this.loadLockedState(tx, matchId, userId), await this.databaseNow(tx)) };
-    }, lifecycleStartedAt);
-    if (result.lateCode) {
+    const projectionStartedAt = performance.now();
+    this.readyObservability.observeEvent('projection_started');
+    let snapshot: SpeedMatchSnapshot;
+    try {
+      snapshot = await this.readCommittedSnapshot(matchId, userId, lifecycleStartedAt);
+      this.readyObservability.observeEvent('projection_completed');
+      this.readyObservability.observeDuration('projection', performance.now() - projectionStartedAt);
+    } catch {
+      this.readyObservability.observeOutcome('projection_failed');
+      this.readyObservability.observeDuration('projection', performance.now() - projectionStartedAt);
+      this.readyObservability.observeDuration('total', performance.now() - lifecycleStartedAt);
+      throw speedSnapshotUnavailableError(receipt.outcome);
+    }
+    this.readyObservability.observeDuration('total', performance.now() - lifecycleStartedAt);
+    if (receipt.outcome === 'late') {
       throw new ConflictException({
-        code: result.lateCode,
-        message: result.lateCode === 'invitation_expired' ? 'The Speed invitation has expired.' : 'The Speed ready window has passed.',
+        code: receipt.code,
+        message: receipt.code === 'invitation_expired' ? 'The Speed invitation has expired.' : 'The Speed ready window has passed.',
       });
     }
-    return result.snapshot;
+    return snapshot;
+  }
+
+  private async commitReady(matchId: string, userId: string, clientRequestId: string, lifecycleStartedAt: number): Promise<ReadyCommitReceipt> {
+    return await this.inReadyTransaction(async (tx): Promise<ReadyCommitReceipt> => {
+      const state = await this.lockReadyState(tx, matchId, userId);
+      const hash = requestHash('speed_ready', {});
+      const replay = await this.assertMutationReplay(tx, state.viewer.id, 'speed_ready', clientRequestId, hash);
+      if (replay) return { outcome: 'replay', commitKnown: true };
+
+      const now = await this.databaseNow(tx);
+      const lifecycle = this.adjudicationService().lifecycleOf(state.match);
+      const invitationLate = lifecycle === SPEED_READY_LIFECYCLE_V2
+        && !state.match.readyWindowStartedAt
+        && state.match.invitationExpiresAt
+        && now.getTime() > state.match.invitationExpiresAt.getTime();
+      const readyLate = Boolean(state.match.readyDeadlineAt)
+        && ((lifecycle === SPEED_READY_LIFECYCLE_V2 && state.match.readyWindowStartedAt) || lifecycle === SPEED_READY_LIFECYCLE_V1)
+        && now.getTime() > state.match.readyDeadlineAt.getTime();
+      await this.adjudicationService().reconcileLocked(tx, state, now);
+      // A durable acknowledgement is monotonic. Reconciliation may advance a
+      // pending match to terminal state, but an obsolete ready deadline cannot
+      // reinterpret this participant's different operation ID as a new late
+      // acknowledgement attempt.
+      if (state.viewer.readyAt) return { outcome: 'already_ready', commitKnown: true };
+      if (invitationLate) return { outcome: 'late', commitKnown: true, code: 'invitation_expired' };
+      if (readyLate) return { outcome: 'late', commitKnown: true, code: 'ready_deadline_passed' };
+      if (state.match.status === 'voided' || state.match.adjudicatedAt) return { outcome: 'terminal', commitKnown: true };
+
+      const eventAt = this.adjudicationService().effectiveEventAt(now, state.round.startedAt, state.viewer.lastServerEventAt);
+      await tx.matchParticipant.update({
+        where: { id: state.viewer.id },
+        data: { readyAt: now, lastServerEventAt: eventAt },
+      });
+      state.viewer.readyAt = now;
+      state.viewer.lastServerEventAt = eventAt;
+
+      if (lifecycle === SPEED_READY_LIFECYCLE_V2 && !state.match.readyWindowStartedAt) {
+        const readyDeadlineAt = addMs(now, SPEED_READY_WINDOW_MS);
+        const initialized = await tx.match.updateMany({
+          where: { id: matchId, readyWindowStartedAt: null, readyDeadlineAt: null },
+          data: { readyWindowStartedAt: now, readyDeadlineAt },
+        });
+        if (initialized.count !== 1) throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed ready window could not be initialized safely.' });
+        state.match.readyWindowStartedAt = now;
+        state.match.readyDeadlineAt = readyDeadlineAt;
+      }
+
+      if (!state.match.startedAt && state.participants.every((participant: SpeedParticipant) => participant.readyAt)) {
+        const startsAt = addMs(now, SPEED_COUNTDOWN_MS);
+        const matchStarted = await tx.match.updateMany({
+          where: { id: matchId, startedAt: null, status: 'pending' },
+          data: { startedAt: startsAt, status: 'active' },
+        });
+        if (matchStarted.count !== 1) throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed countdown could not be initialized safely.' });
+        const roundStarted = await tx.matchRound.updateMany({
+          where: { id: state.round.id, startedAt: null, deadlineAt: null },
+          data: { startedAt: startsAt, deadlineAt: addMs(startsAt, SPEED_ROUND_TIME_MS) },
+        });
+        if (roundStarted.count !== 1) throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed round deadline could not be initialized safely.' });
+      }
+
+      await this.recordMutation(tx, matchId, state.viewer.id, 'speed_ready', clientRequestId, hash, null);
+      this.readyObservability.observeEvent('mutation_staged');
+      return { outcome: 'committed', commitKnown: true };
+    }, lifecycleStartedAt);
+  }
+
+  private async readCommittedSnapshot(matchId: string, userId: string, lifecycleStartedAt: number): Promise<SpeedMatchSnapshot> {
+    const remaining = SPEED_MUTATION_LIFECYCLE_MS - (performance.now() - lifecycleStartedAt);
+    if (remaining < SPEED_MUTATION_COMPLETION_RESERVE_MS + SPEED_MUTATION_MIN_USEFUL_MS) throw new Error('projection budget unavailable');
+    return await (this.prisma.client as any).$transaction(async (tx: any) => {
+      const state = await this.loadLockedState(tx, matchId, userId);
+      return await this.snapshotLocked(tx, state, await this.databaseNow(tx));
+    }, speedMutationProjectionOptions(remaining));
   }
 
   async submitGuess(input: { matchId: string; roundId: string; userId: string; guess: string; clientRequestId: string; clientSubmittedAt?: string }): Promise<GuessResult> {
@@ -355,6 +436,38 @@ export class SpeedGameplayService {
   }
 
 
+  private async lockReadyState(tx: any, matchId: string, userId: string): Promise<any> {
+    const matchLockRequestedAt = performance.now();
+    const matches = await tx.$queryRawUnsafe(`
+      SELECT "id", "rankedMode", "rulesetVersion", "readyLifecycleVersion", "status",
+             "invitationExpiresAt", "readyWindowStartedAt", "readyDeadlineAt", "startedAt",
+             "adjudicatedAt", "completionReason"
+      FROM "Match" WHERE "id" = $1 FOR UPDATE
+    `, matchId) as any[];
+    this.readyObservability.observeEvent('match_lock_acquired');
+    this.readyObservability.observeDuration('row_lock_wait', performance.now() - matchLockRequestedAt);
+    const match = matches[0];
+    if (!match) throw new NotFoundException({ code: 'match_not_found', message: 'Match was not found.' });
+    if (match.rankedMode !== 'speed_1v1' || match.rulesetVersion !== SPEED_1V1_RULESET_VERSION) {
+      throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'This match is not compatible with the live Speed ruleset.' });
+    }
+    const rounds = await tx.$queryRawUnsafe(`
+      SELECT "id", "matchId", "startedAt", "deadlineAt"
+      FROM "MatchRound" WHERE "matchId" = $1 ORDER BY "roundNumber" FOR UPDATE
+    `, matchId) as any[];
+    const participants = await tx.$queryRawUnsafe(`
+      SELECT "id", "userId", "outcome", "readyAt", "lastServerEventAt", "terminalAt",
+             "terminalReason", "guessesUsed", "solveElapsedMs", "solveTimeBucket", "result"
+      FROM "MatchParticipant" WHERE "matchId" = $1 ORDER BY "id" FOR UPDATE
+    `, matchId) as SpeedParticipant[];
+    if (rounds.length !== 1 || participants.length !== 2) {
+      throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed match state is incomplete.' });
+    }
+    const viewer = participants.find((participant) => participant.userId === userId);
+    if (!viewer) throw new ForbiddenException({ code: 'match_participant_required', message: 'Only Speed match participants may access this state.' });
+    return { match, round: rounds[0], participants, viewer };
+  }
+
   private async lockState(tx: any, matchId: string, userId?: string): Promise<any> {
     await tx.$queryRawUnsafe('SELECT "id" FROM "Match" WHERE "id" = $1 FOR UPDATE', matchId);
     await tx.$queryRawUnsafe('SELECT "id" FROM "MatchRound" WHERE "matchId" = $1 ORDER BY "roundNumber" FOR UPDATE', matchId);
@@ -368,12 +481,12 @@ export class SpeedGameplayService {
     if (match.rankedMode !== 'speed_1v1' || match.rulesetVersion !== SPEED_1V1_RULESET_VERSION) {
       throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'This match is not compatible with the live Speed ruleset.' });
     }
-    const round = await tx.matchRound.findFirst({ where: { matchId }, orderBy: { roundNumber: 'asc' } });
+    const rounds = await tx.matchRound.findMany({ where: { matchId }, orderBy: { roundNumber: 'asc' } });
     const participants = await tx.matchParticipant.findMany({ where: { matchId }, orderBy: { id: 'asc' } }) as SpeedParticipant[];
-    if (!round || participants.length !== 2) throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed match state is incomplete.' });
+    if (rounds.length !== 1 || participants.length !== 2) throw new ConflictException({ code: 'speed_ruleset_mismatch', message: 'The Speed match state is incomplete.' });
     const viewer = userId ? participants.find((participant) => participant.userId === userId) : participants[0];
     if (!viewer) throw new ForbiddenException({ code: 'match_participant_required', message: 'Only Speed match participants may access this state.' });
-    return { match, round, participants, viewer };
+    return { match, round: rounds[0], participants, viewer };
   }
 
   private async snapshotLocked(tx: any, state: any, now: Date): Promise<SpeedMatchSnapshot> {
@@ -509,6 +622,54 @@ export class SpeedGameplayService {
     } finally {
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+
+  private async inReadyTransaction<T>(callback: (tx: any) => Promise<T>, started: number): Promise<T> {
+    for (let attempt = 1; attempt <= SPEED_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+      const remaining = SPEED_MUTATION_LIFECYCLE_MS - (performance.now() - started);
+      if (remaining < SPEED_MUTATION_COMPLETION_RESERVE_MS + SPEED_MUTATION_MIN_USEFUL_MS) {
+        throw speedMutationPublicError('lifecycle_timeout');
+      }
+      try {
+        const transactionRequestedAt = performance.now();
+        this.readyObservability.observeEvent('transaction_requested');
+        const result = await (this.prisma.client as any).$transaction(async (tx: any) => {
+          const callbackEnteredAt = performance.now();
+          this.readyObservability.observeEvent('callback_entered');
+          this.readyObservability.observeDuration('connection_acquisition', callbackEnteredAt - transactionRequestedAt);
+          try {
+            return await callback(tx);
+          } finally {
+            this.readyObservability.observeDuration('critical_section', performance.now() - callbackEnteredAt);
+          }
+        }, speedMutationAttemptOptions(remaining));
+        this.readyObservability.observeEvent('transaction_returned');
+        return result;
+      } catch (error) {
+        const errorClass = classifySpeedMutationError(error);
+        this.readyObservability.observeError(errorClass);
+        if (errorClass === 'domain') throw error;
+        if (errorClass === 'transaction_timeout' || errorClass === 'statement_timeout') {
+          const after = SPEED_MUTATION_LIFECYCLE_MS - (performance.now() - started);
+          throw speedMutationPublicError(after < SPEED_MUTATION_COMPLETION_RESERVE_MS + SPEED_MUTATION_MIN_USEFUL_MS
+            ? 'lifecycle_timeout'
+            : errorClass);
+        }
+        if (speedMutationErrorIsRetryable(errorClass) && attempt < SPEED_MUTATION_MAX_ATTEMPTS) {
+          const retryDelay = speedMutationRetryDelayMs(attempt);
+          if (SPEED_MUTATION_LIFECYCLE_MS - (performance.now() - started) <= retryDelay + SPEED_MUTATION_COMPLETION_RESERVE_MS + SPEED_MUTATION_MIN_USEFUL_MS) {
+            throw speedMutationPublicError('lifecycle_timeout');
+          }
+          this.readyObservability.observeRetry();
+          this.readyObservability.observeOutcome('retrying');
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          continue;
+        }
+        throw speedMutationPublicError(errorClass);
+      }
+    }
+    throw speedMutationPublicError('serialization');
   }
 
 

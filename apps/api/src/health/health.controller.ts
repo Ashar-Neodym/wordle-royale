@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, Req } from '@nestjs/common';
 import { ok } from '../shared/envelope.ts';
 import { ReadinessService } from './readiness.service.ts';
+import { publicDeploymentRevision } from '../shared/deployment-revision.ts';
 
 type HealthPayload = {
   status: 'ok';
@@ -8,6 +9,7 @@ type HealthPayload = {
   environment: string;
   timestamp: string;
   uptimeSeconds: number;
+  revision: string;
 };
 
 @Controller()
@@ -31,6 +33,7 @@ export class HealthController {
       environment: process.env.NODE_ENV ?? 'development',
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
+      revision: publicDeploymentRevision(),
     };
   }
 }

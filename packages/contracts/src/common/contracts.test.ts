@@ -14,6 +14,9 @@ import {
   rankedMatchStartResponseDataSchema,
   ratingEventContractSchema,
   readinessStatusSchema,
+  apiHealthPayloadSchema,
+  apiReadinessPayloadSchema,
+  rankedModesPayloadSchema,
   serverEventNames,
   shareCardSchema,
   startRankedMatchRequestSchema,
@@ -114,6 +117,7 @@ test('readiness status supports dependency placeholders and future live checks',
     status: 'ok',
     service: 'wordle-royale-api',
     environment: 'test',
+    revision: 'development',
     checkedAt: ts,
     dependencies: {
       database: { status: 'not_checked_stub', message: 'Skeleton readiness only.' },
@@ -370,4 +374,36 @@ test('match report is participant-only capable and includes score breakdown', ()
 test('share card schema requires spoilerSafe true', () => {
   assert.equal(shareCardSchema.safeParse({ matchId, shareText: 'I won Wordle Royale', imageUrl: null, spoilerSafe: false, reportVisibility: 'participants' }).success, false);
   assert.equal(shareCardSchema.parse({ matchId: userB, shareText: 'I won Wordle Royale', imageUrl: null, spoilerSafe: true, reportVisibility: 'participants' }).spoilerSafe, true);
+});
+
+test('strict web authority schemas reject noncanonical service, partial dependencies, duplicate modes, and envelope extras', () => {
+  const revision = '2262262262262262262262262262262262262262';
+  const health = { status: 'ok', service: 'wordle-royale-api', environment: 'test', timestamp: ts, uptimeSeconds: 1, revision };
+  assert.equal(apiHealthPayloadSchema.safeParse(health).success, true);
+  assert.equal(apiHealthPayloadSchema.safeParse({ ...health, service: 'healthy-stub' }).success, false);
+  assert.equal(apiHealthPayloadSchema.safeParse({ ...health, providerSecret: 'must-not-pass' }).success, false);
+
+  const dependency = { status: 'ok' as const };
+  const readiness = {
+    status: 'ok', service: 'wordle-royale-api', environment: 'test', revision, checkedAt: ts,
+    dependencies: { database: dependency, applicationSchema: dependency, standardDictionary: dependency, speedRuntime: dependency, speedLifecycleActivation: dependency, redis: dependency },
+  };
+  assert.equal(apiReadinessPayloadSchema.safeParse(readiness).success, true);
+  assert.equal(apiReadinessPayloadSchema.safeParse({ ...readiness, dependencies: { speedRuntime: dependency, speedLifecycleActivation: dependency } }).success, false);
+
+  const common = { rated: true as const, provisionalGames: 5, defaultRating: 1500, defaultRatingDeviation: 350, notes: 'fixture' };
+  const speed = {
+    ...common, id: 'speed_1v1' as const, label: 'Speed / Blitz' as const, players: '1v1' as const,
+    enabled: true, queueEnabled: true, rulesetVersion: 'speed_1v1_v1_75s' as const,
+    readyLifecycleVersion: 'speed_ready_v2_first_ack_90s' as const, ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1' as const,
+    timeControl: { roundTimeSeconds: 75, invitationWindowSeconds: 90, readyWindowSeconds: 20, readyWindowStartsOn: 'first_valid_ready_acknowledgement', countdownSeconds: 3, maxGuesses: 6, solveTimeBucketMs: 100, tieBreaker: 'server_solve_time_bucket' },
+  };
+  const catalog = { modes: [
+    { ...common, id: 'standard_1v1', label: 'Standard', players: '1v1', enabled: true }, speed,
+    { ...common, id: 'classic_1v1', label: 'Classic', players: '1v1', enabled: false },
+    { ...common, id: 'multiplayer_lobby', label: 'Multiplayer / Lobby', players: '2-4', enabled: false },
+  ] };
+  assert.equal(rankedModesPayloadSchema.safeParse(catalog).success, true);
+  assert.equal(rankedModesPayloadSchema.safeParse({ modes: [speed, speed, catalog.modes[0], catalog.modes[2]] }).success, false);
+  assert.equal(successEnvelopeSchema(z.unknown()).safeParse({ data: {}, error: null, requestId, extra: true }).success, false);
 });

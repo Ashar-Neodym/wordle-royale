@@ -10,8 +10,15 @@ import {
   startPreviewDemoSessionAction,
 } from '../app/actions';
 import { runMatchmakingOperationWithDeadline } from './standard-queue-state';
-import { speedMatchedHref, speedQueueResolution, speedQueueState, type SpeedQueueUiState } from './speed-live-state';
+import {
+  speedMatchedHref,
+  speedQueueCopy,
+  speedQueueResolution,
+  speedQueueState,
+  type SpeedQueueUiState,
+} from './speed-live-state';
 import styles from './web-shell.module.css';
+import { ServerReadRetryButton } from './ServerReadRetryButton';
 
 type Props = {
   sessionState: 'active' | 'signed_out' | 'unavailable';
@@ -19,24 +26,8 @@ type Props = {
   catalogAvailable: boolean;
 };
 
-function copy(state: SpeedQueueUiState): { eyebrow: string; title: string; message: string } {
-  switch (state) {
-    case 'disabled': return { eyebrow: 'Speed unavailable', title: 'Speed queue is not enabled', message: 'The live mode catalog has not enabled this rated queue. No matchmaking request will be sent.' };
-    case 'signed_out': return { eyebrow: 'Session required', title: 'Start a demo session to queue', message: 'Speed matchmaking requires an explicit preview session.' };
-    case 'reconnecting': return { eyebrow: 'Speed reconnect', title: 'Checking your Speed search…', message: 'The server may restore a queued or matched Speed ticket after refresh.' };
-    case 'joining': return { eyebrow: 'Joining Speed', title: 'Creating one rated Speed ticket…', message: 'A single request identity is retained until the server state is known.' };
-    case 'searching': return { eyebrow: 'Speed search', title: 'Looking for a Speed opponent', message: 'This search is independent from Standard and stored by the server.' };
-    case 'cancelling': return { eyebrow: 'Cancelling', title: 'Checking cancellation with the server…', message: 'Pairing may win the race; the returned ticket remains authoritative.' };
-    case 'matched': return { eyebrow: 'Speed matched', title: 'Opponent found', message: 'Opening the 20-second ready gate and server-owned countdown.' };
-    case 'cancelled': return { eyebrow: 'Cancelled', title: 'Speed search cancelled', message: 'The server confirmed this ticket is no longer active.' };
-    case 'timed_out': return { eyebrow: 'Expired', title: 'Speed search expired', message: 'Create a new ticket to search again.' };
-    case 'error': return { eyebrow: 'Recoverable error', title: 'Speed status needs a fresh server check', message: 'A timeout does not prove whether a ticket exists. Check status before another mutation.' };
-    default: return { eyebrow: 'Speed / Blitz', title: 'Find a live rated Speed match', message: '75-second shared puzzle · six guesses · server solve-time tie-break.' };
-  }
-}
-
 export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }: Props): ReactElement {
-  const initial: SpeedQueueUiState = !catalogAvailable || !queueEnabled ? 'disabled' : sessionState === 'active' ? 'reconnecting' : sessionState === 'unavailable' ? 'error' : sessionState;
+  const initial: SpeedQueueUiState = !catalogAvailable ? 'authority_unavailable' : !queueEnabled ? 'disabled' : sessionState === 'active' ? 'reconnecting' : sessionState === 'unavailable' ? 'error' : sessionState;
   const [state, setState] = useState<SpeedQueueUiState>(initial);
   const [ticket, setTicket] = useState<Speed1v1Ticket | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +113,7 @@ export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }
     return () => window.clearTimeout(timer);
   }, [state, matchedHref]);
 
-  const text = copy(state);
+  const text = speedQueueCopy(state);
   const busy = ['reconnecting', 'joining', 'cancelling'].includes(state);
   return (
     <article id="speed-queue" className={`${styles.queuePanel} ${styles.speedQueuePanel}`} aria-live="polite" aria-busy={busy}>
@@ -132,6 +123,7 @@ export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }
         {error ? <p className={styles.queueError}>{error}</p> : null}
       </div>
       <div className={styles.queueActions}>
+        {state === 'authority_unavailable' ? <ServerReadRetryButton label="Retry Speed availability" /> : null}
         {state === 'signed_out' ? <form action={startPreviewDemoSessionAction}><input type="hidden" name="redirectTo" value="/play#speed-queue" /><button className={styles.primaryButton}>Start preview demo</button></form> : null}
         {state === 'idle' || state === 'cancelled' || state === 'timed_out' ? <button className={styles.primaryButton} type="button" onClick={() => void join()}>{state === 'idle' ? 'Find Speed match' : 'Search Speed again'}</button> : null}
         {state === 'searching' ? <button className={styles.secondaryButton} type="button" onClick={() => void cancel()}>Cancel Speed search</button> : null}
@@ -139,7 +131,7 @@ export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }
         {state === 'matched' && matchedHref ? <a className={styles.primaryButton} href={matchedHref}>Open Speed match</a> : null}
         {busy ? <button className={styles.secondaryButton} disabled>{state === 'joining' ? 'Joining…' : state === 'cancelling' ? 'Cancelling…' : 'Checking…'}</button> : null}
       </div>
-      <p className={styles.queueFootnote}>Speed is advertised as live only when the authoritative mode catalog enables its queue. Classic and Multiplayer are not live yet.</p>
+      <p className={styles.queueFootnote}>Speed is advertised as live only when one API origin, matching web/API revisions, readiness, and the authoritative mode catalog agree. Classic and Multiplayer are not live yet.</p>
     </article>
   );
 }

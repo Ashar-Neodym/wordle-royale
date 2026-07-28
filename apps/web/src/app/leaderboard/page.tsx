@@ -14,8 +14,8 @@ export default async function LeaderboardPage({ searchParams }: Props): Promise<
   const requested = searchValue(params, 'mode');
   const mode: LeaderboardPayload['mode'] = requested === 'speed_1v1' ? 'speed_1v1' : 'standard_1v1';
   const [api, leaderboard] = await Promise.all([getWebApiSnapshot(), getLeaderboard(20, mode)]);
-  const speedMode = api.rankedModes.data?.modes.find((entry) => entry.id === 'speed_1v1');
-  const speedLive = api.rankedModes.status === 'connected' && speedMode?.enabled === true;
+  const speedLive = api.authority.status === 'enabled';
+  const speedUnavailable = api.authority.status === 'unavailable';
   return (
     <PageFrame>
       <PageHeader eyebrow="Ratings" title={`${mode === 'speed_1v1' ? 'Speed' : 'Standard'} leaderboard`}>
@@ -23,7 +23,7 @@ export default async function LeaderboardPage({ searchParams }: Props): Promise<
       </PageHeader>
       <nav className={styles.modeTabs} aria-label="Leaderboard mode">
         <a className={mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} aria-current={mode === 'standard_1v1' ? 'page' : undefined} href="/leaderboard?mode=standard_1v1">Standard</a>
-        {speedLive ? <a className={mode === 'speed_1v1' ? styles.primaryButton : styles.secondaryButton} aria-current={mode === 'speed_1v1' ? 'page' : undefined} href="/leaderboard?mode=speed_1v1">Speed</a> : <span className={styles.disabledMode} aria-disabled="true">Speed · Not live yet</span>}
+        {speedLive ? <a className={mode === 'speed_1v1' ? styles.primaryButton : styles.secondaryButton} aria-current={mode === 'speed_1v1' ? 'page' : undefined} href="/leaderboard?mode=speed_1v1">Speed</a> : <span className={styles.disabledMode} aria-disabled="true">Speed · {speedUnavailable ? 'status unavailable' : 'Not live yet'}</span>}
         <span className={styles.disabledMode} aria-disabled="true">Classic · Not live yet</span>
         <span className={styles.disabledMode} aria-disabled="true">Multiplayer · Not live yet</span>
       </nav>

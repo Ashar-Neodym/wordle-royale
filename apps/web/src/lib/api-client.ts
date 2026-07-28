@@ -1,40 +1,45 @@
-import type {
-  CreateLobbyRequest,
-  CurrentUserDto,
-  JoinLobbyByCodeRequest,
-  LobbyDto,
-  PublicProfileDto,
-  RankedMatchStartResponseData,
-  StartRankedMatchRequest,
-  CurrentRankedMatchStateResponseData,
-  SubmitGuessRequest,
-  GuessResult,
-  CompleteRankedMatchRequest,
-  RankedMatchResultSummary,
-  SuccessEnvelope,
-  CurrentProfileSummary,
-  PublicProfileSummary,
-  MatchHistoryList,
-  CreateSpeed1v1TicketRequest,
-  Speed1v1Ticket,
-  SpeedMatchSnapshot,
-  MarkSpeedMatchReadyRequest,
-  ForfeitSpeedMatchRequest,
+import {
+  apiHealthPayloadSchema,
+  apiReadinessPayloadSchema,
+  errorEnvelopeSchema,
+  rankedModesPayloadSchema,
+  unknownSuccessEnvelopeSchema,
+  type ApiHealthPayload,
+  type ApiReadinessPayload,
+  type RankedModesPayload,
+  type CreateLobbyRequest,
+  type CurrentUserDto,
+  type JoinLobbyByCodeRequest,
+  type LobbyDto,
+  type PublicProfileDto,
+  type RankedMatchStartResponseData,
+  type StartRankedMatchRequest,
+  type CurrentRankedMatchStateResponseData,
+  type SubmitGuessRequest,
+  type GuessResult,
+  type CompleteRankedMatchRequest,
+  type RankedMatchResultSummary,
+  type CurrentProfileSummary,
+  type PublicProfileSummary,
+  type MatchHistoryList,
+  type CreateSpeed1v1TicketRequest,
+  type Speed1v1Ticket,
+  type SpeedMatchSnapshot,
+  type MarkSpeedMatchReadyRequest,
+  type ForfeitSpeedMatchRequest,
 } from '@wordle-royale/contracts';
 import { cookies } from 'next/headers';
 import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy';
 import { SPEED_MUTATION_POLICY } from './speed-mutation-policy';
+import {
+  assessWebApiAuthority,
+  resolveApiOriginConfiguration,
+  webDeploymentRevision,
+  type WebApiAuthority,
+} from './api-authority';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
-
-export type ApiHealthPayload = {
-  status: 'ok';
-  service: string;
-  environment: string;
-  timestamp: string;
-  uptimeSeconds: number;
-  dependencies?: Record<string, unknown>;
-};
+export type { ApiHealthPayload, ApiReadinessPayload, RankedModesPayload };
 
 export type ApiClientStatus = 'connected' | 'unavailable';
 
@@ -124,9 +129,9 @@ export type CreateStandard1v1TicketRequest = {
   allowProvisionalOpponent?: boolean;
 };
 
-export type WebApiSnapshot = {
+export type WebApiCoreSnapshot = {
   health: ApiClientResult<ApiHealthPayload>;
-  readiness: ApiClientResult<ApiHealthPayload>;
+  readiness: ApiClientResult<ApiReadinessPayload>;
   currentUser: ApiClientResult<CurrentUserDto>;
   profile: ApiClientResult<PublicProfileDto>;
   lobbies: ApiClientResult<LobbyListPayload>;
@@ -134,34 +139,17 @@ export type WebApiSnapshot = {
   rankedModes: ApiClientResult<RankedModesPayload>;
 };
 
-export type RankedModeReadModel = {
-  id: LeaderboardPayload['mode'];
-  label: string;
-  players: '1v1' | '2-4';
-  rated: true;
-  enabled: boolean;
-  queueEnabled?: boolean;
-  rulesetVersion?: string;
-  ratingAlgorithmConfigVersion?: string | null;
-  timeControl?: {
-    roundTimeSeconds: 75;
-    readyWindowSeconds: 20;
-    countdownSeconds: 3;
-    maxGuesses: 6;
-    solveTimeBucketMs: 100;
-    tieBreaker: 'server_solve_time_bucket';
-  };
-  provisionalGames: number;
-  defaultRating: number;
-  defaultRatingDeviation: number;
-  notes: string;
+export type WebApiSnapshot = WebApiCoreSnapshot & { authority: WebApiAuthority };
+
+type RuntimeSchema<T> = {
+  safeParse(value: unknown): { success: true; data: T } | { success: false };
 };
 
-export type RankedModesPayload = { modes: RankedModeReadModel[] };
-
-type ApiEnvelope<T> = SuccessEnvelope<T> | { data: null; error: { code: string; message: string; details?: Record<string, unknown> }; requestId: string };
-
-type RequestOptions = RequestInit & { timeoutMs?: number };
+type RequestOptions = RequestInit & {
+  timeoutMs?: number;
+  responseSchema?: RuntimeSchema<unknown>;
+  authorityRead?: boolean;
+};
 
 type ReadPolicy = {
   timeoutMs: number;
@@ -193,7 +181,7 @@ async function forwardedCookieHeader(): Promise<string | undefined> {
 }
 
 export function getApiBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_API_URL?.trim() || defaultApiUrl).replace(/\/$/, '');
+  return resolveApiOriginConfiguration(process.env).origin ?? '';
 }
 
 function unavailable<T>(apiUrl: string, error: unknown): ApiClientResult<T> {
@@ -213,17 +201,29 @@ type RequestAttempt<T> = {
 };
 
 async function requestEnvelopeAttempt<T>(path: string, options: RequestOptions): Promise<RequestAttempt<T>> {
-  const apiUrl = getApiBaseUrl();
+  const configuration = resolveApiOriginConfiguration(process.env);
+  const configuredOrigin = configuration.origin ?? '';
+  if (configuration.status === 'unavailable') {
+    const failure = new ApiRequestFailure(
+      configuration.reason ?? 'The authoritative API origin is unavailable.',
+      false,
+      'api_origin_unavailable',
+    );
+    return { result: unavailable<T>('', failure), retryableRead: false };
+  }
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 1200;
+  const { timeoutMs: _timeoutMs, responseSchema, authorityRead = false, ...fetchOptions } = options;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let responseOrigin = '';
   const cookie = await forwardedCookieHeader();
 
   try {
     const response = await Promise.race([
-      fetch(`${apiUrl}${path}`, {
-        ...options,
+      fetch(`${configuredOrigin}${path}`, {
+        ...fetchOptions,
         cache: 'no-store',
+        redirect: 'manual',
         headers: {
           accept: 'application/json',
           ...(options.body ? { 'content-type': 'application/json' } : {}),
@@ -240,35 +240,58 @@ async function requestEnvelopeAttempt<T>(path: string, options: RequestOptions):
       }),
     ]);
 
+    if (response.status >= 300 && response.status < 400) {
+      throw new ApiRequestFailure('API redirects are not accepted for authoritative reads.', false, 'api_redirect_rejected');
+    }
+    if (response.url) {
+      try { responseOrigin = new URL(response.url).origin; } catch { responseOrigin = ''; }
+    }
+    if (authorityRead && (!responseOrigin || responseOrigin !== configuredOrigin)) {
+      throw new ApiRequestFailure('The authority response origin did not match the configured API origin.', false, 'api_response_origin_mismatch');
+    }
+
     if (response.status === 204) {
       return {
-        result: { status: 'connected', apiUrl, data: null, requestId: response.headers.get('x-request-id'), error: null },
+        result: { status: 'connected', apiUrl: responseOrigin, data: null, requestId: response.headers.get('x-request-id'), error: null },
         retryableRead: false,
       };
     }
 
-    let envelope: ApiEnvelope<T>;
+    let payload: unknown;
     try {
-      envelope = (await response.json()) as ApiEnvelope<T>;
+      payload = await response.json();
     } catch {
-      throw new ApiRequestFailure(`API returned an unreadable response with HTTP ${response.status}.`, true);
+      throw new ApiRequestFailure(`API returned an unreadable response with HTTP ${response.status}.`, true, 'api_response_malformed');
     }
-    if (!response.ok || envelope.error) {
-      const code = envelope.error?.code ? `${envelope.error.code}: ` : '';
+    if (!response.ok) {
+      const parsedError = errorEnvelopeSchema.safeParse(payload);
+      if (!parsedError.success) {
+        throw new ApiRequestFailure(`API request failed with HTTP ${response.status}.`, response.status === 408 || response.status === 429 || response.status >= 500, 'api_error_envelope_malformed');
+      }
       throw new ApiRequestFailure(
-        `${code}${envelope.error?.message ?? `API request failed with HTTP ${response.status}`}`,
+        `${parsedError.data.error.code}: ${parsedError.data.error.message}`,
         response.status === 408 || response.status === 429 || response.status >= 500,
-        envelope.error?.code ?? null,
+        parsedError.data.error.code,
       );
     }
 
+    const parsedEnvelope = unknownSuccessEnvelopeSchema.safeParse(payload);
+    if (!parsedEnvelope.success) {
+      throw new ApiRequestFailure('API returned a malformed success envelope.', true, 'api_success_envelope_malformed');
+    }
+    const parsedData = responseSchema?.safeParse(parsedEnvelope.data.data);
+    if (responseSchema && (!parsedData || !parsedData.success)) {
+      throw new ApiRequestFailure('API returned a noncanonical success payload.', true, 'api_success_payload_noncanonical');
+    }
+    const data = parsedData?.success ? parsedData.data as T : parsedEnvelope.data.data as T;
+
     return {
-      result: { status: 'connected', apiUrl, data: envelope.data, requestId: envelope.requestId, error: null },
+      result: { status: 'connected', apiUrl: responseOrigin, data, requestId: parsedEnvelope.data.requestId, error: null },
       retryableRead: false,
     };
   } catch (error) {
     return {
-      result: unavailable<T>(apiUrl, error),
+      result: unavailable<T>(responseOrigin, error),
       retryableRead: error instanceof ApiRequestFailure ? error.retryableRead : error instanceof TypeError || controller.signal.aborted,
     };
   } finally {
@@ -280,7 +303,7 @@ async function requestEnvelope<T>(path: string, options: RequestOptions = {}): P
   return (await requestEnvelopeAttempt<T>(path, options)).result;
 }
 
-async function requestReadEnvelope<T>(path: string, options: RequestInit = {}): Promise<ApiClientResult<T>> {
+async function requestReadEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiClientResult<T>> {
   for (let attempt = 1; attempt <= HOSTED_READ_POLICY.maxAttempts; attempt += 1) {
     const outcome = await requestEnvelopeAttempt<T>(path, {
       ...options,
@@ -308,11 +331,11 @@ async function requestSpeedRecoveryReadEnvelope<T>(path: string): Promise<ApiCli
 }
 
 export async function getHealth(): Promise<ApiClientResult<ApiHealthPayload>> {
-  return requestReadEnvelope<ApiHealthPayload>('/healthz');
+  return requestReadEnvelope<ApiHealthPayload>('/healthz', { responseSchema: apiHealthPayloadSchema, authorityRead: true });
 }
 
-export async function getReadiness(): Promise<ApiClientResult<ApiHealthPayload>> {
-  return requestReadEnvelope<ApiHealthPayload>('/readyz');
+export async function getReadiness(): Promise<ApiClientResult<ApiReadinessPayload>> {
+  return requestReadEnvelope<ApiReadinessPayload>('/readyz', { responseSchema: apiReadinessPayloadSchema, authorityRead: true });
 }
 
 export async function getCurrentUser(): Promise<ApiClientResult<CurrentUserDto>> {
@@ -438,7 +461,7 @@ export async function getLeaderboard(limit = 20, mode: LeaderboardPayload['mode'
 }
 
 export async function getRankedModes(): Promise<ApiClientResult<RankedModesPayload>> {
-  return requestReadEnvelope<RankedModesPayload>('/ranked/modes');
+  return requestReadEnvelope<RankedModesPayload>('/ranked/modes', { responseSchema: rankedModesPayloadSchema, authorityRead: true });
 }
 
 export async function getRatedProfile(handle: string): Promise<ApiClientResult<RatedProfilePayload>> {
@@ -470,5 +493,6 @@ export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
     getRankedModes(),
   ]);
 
-  return { health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes };
+  const core: WebApiCoreSnapshot = { health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes };
+  return { ...core, authority: assessWebApiAuthority(core, webDeploymentRevision()) };
 }

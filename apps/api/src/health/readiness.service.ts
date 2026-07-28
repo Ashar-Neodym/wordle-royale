@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { publicDeploymentRevision } from '../shared/deployment-revision.ts';
 import type { ReadinessStatus } from '@wordle-royale/contracts';
 import { StandardDictionaryService } from '../dictionary/standard-dictionary.service.ts';
 
@@ -66,6 +67,7 @@ export class ReadinessService {
       status,
       service: 'wordle-royale-api',
       environment: process.env.NODE_ENV ?? 'development',
+      revision: publicDeploymentRevision(),
       checkedAt: new Date().toISOString(),
       dependencies: { database, applicationSchema, standardDictionary, speedRuntime, speedLifecycleActivation, redis },
     };

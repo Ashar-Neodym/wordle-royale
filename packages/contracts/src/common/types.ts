@@ -18,6 +18,10 @@ import {
   timestampSchema,
   validationErrorDetailsSchema,
   validationErrorIssueSchema,
+  apiHealthPayloadSchema,
+  apiReadinessPayloadSchema,
+  rankedModesPayloadSchema,
+  speedRankedModeAuthoritySchema,
 } from './schemas.ts';
 
 export type Id = z.infer<typeof idSchema>;
@@ -38,3 +42,7 @@ export type ReadinessDependencyStatus = z.infer<typeof readinessDependencyStatus
 export type ReadinessDependency = z.infer<typeof readinessDependencySchema>;
 export type ReadinessDependencies = z.infer<typeof readinessDependenciesSchema>;
 export type ReadinessStatus = z.infer<typeof readinessStatusSchema>;
+export type ApiHealthPayload = z.infer<typeof apiHealthPayloadSchema>;
+export type ApiReadinessPayload = z.infer<typeof apiReadinessPayloadSchema>;
+export type RankedModesPayload = z.infer<typeof rankedModesPayloadSchema>;
+export type SpeedRankedModeAuthority = z.infer<typeof speedRankedModeAuthoritySchema>;
