@@ -24,7 +24,7 @@ export class LobbyController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.lobbies.createLobby(body, currentUser.userId), request as never);
   }
 
@@ -34,7 +34,7 @@ export class LobbyController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.lobbies.joinByCode(body, currentUser.userId), request as never);
   }
 
@@ -45,7 +45,7 @@ export class LobbyController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.lobbies.joinLobby(lobbyId, currentUser.userId), request as never);
   }
 }

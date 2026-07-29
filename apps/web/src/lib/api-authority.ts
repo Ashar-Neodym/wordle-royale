@@ -61,6 +61,14 @@ export function resolveApiOriginConfiguration(environment: ApiOriginEnvironment 
       reason: 'The configured API origin must be one credential-free HTTP(S) origin without a path, query, or fragment.',
     };
   }
+  if (environment.NODE_ENV === 'production'
+    && ((serverOrigin && !serverOrigin.startsWith('https://'))
+      || (publicOrigin && !publicOrigin.startsWith('https://')))) {
+    return {
+      status: 'unavailable', origin: null, source: 'unavailable',
+      reason: 'The production API authority must use HTTPS.',
+    };
+  }
   if (serverOrigin && publicOrigin && serverOrigin !== publicOrigin) {
     return {
       status: 'unavailable', origin: null, source: 'conflict',

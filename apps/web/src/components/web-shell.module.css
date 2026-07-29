@@ -159,7 +159,27 @@
 .shareDetails summary { cursor: pointer; color: var(--wr-human-link); font-weight: 700; }
 .shareDetails label { display: block; margin-top: 8px; color: var(--wr-human-muted); font-size: 12px; }
 .shareTextArea { width: 100%; min-height: 74px; margin-top: 7px; padding: 8px; border: 1px solid var(--wr-human-border); border-radius: 3px; background: #1f1d1a; color: var(--wr-human-text); font: 13px/1.4 var(--wr-typography-family-body); resize: vertical; overflow-wrap: anywhere; }
+.accountStatus { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 16px; border: 1px solid #6f654a; border-radius: 5px; background: #2d2a22; }
+.accountStatus[data-state='ready'] { border-color: #698a4e; background: #283426; }
+.accountStatus[data-state='signed-out'] { border-color: #65768d; background: #242d38; }
+.accountStatus h2, .accountCard h2, .accountUnavailable h2 { margin: 0 0 6px; }
+.accountStatus p, .accountUnavailable p { margin: 0; color: var(--wr-human-muted); line-height: 1.45; }
+.availabilityBadge { flex: 0 0 auto; padding: 5px 9px; border: 1px solid currentColor; border-radius: 999px; color: var(--wr-human-muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.accountGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; align-items: start; }
+.accountCard, .accountUnavailable { padding: 18px; border: 1px solid var(--wr-human-border); border-radius: 5px; background: var(--wr-human-surface); }
+.accountUnavailable { margin-top: 16px; }
+.accountForm { display: grid; gap: 7px; margin-top: 16px; }
+.accountForm label { margin-top: 5px; color: var(--wr-human-text); font-size: 13px; font-weight: 700; }
+.accountForm label span { color: var(--wr-human-muted); font-size: 11px; font-weight: 400; }
+.accountForm input { width: 100%; min-height: 42px; border: 1px solid var(--wr-human-border); border-radius: 3px; padding: 0 10px; background: #1f1d1a; color: var(--wr-human-text); font: inherit; }
+.accountForm input:focus-visible, .accountForm button:focus-visible { outline: 2px solid var(--wr-human-link); outline-offset: 2px; }
+.accountForm button { margin-top: 9px; }
+.accountDetails { display: grid; gap: 8px; margin: 14px 0 0; }
+.accountDetails div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--wr-human-border); }
+.accountDetails dt { color: var(--wr-human-muted); }
+.accountDetails dd { margin: 0; overflow-wrap: anywhere; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 980px) { .hero, .matchBanner, .playLayout, .gameShellCompact, .lobbyPageGrid, .profileHeroCard, .authPanel, .queuePanel { grid-template-columns: 1fr; } .queueActions { justify-content: flex-start; } .routeGrid, .modeGrid, .modeChoiceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profileStatsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .actionCardGrid { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .hero, .matchBanner, .playLayout, .gameShellCompact, .lobbyPageGrid, .profileHeroCard, .authPanel, .queuePanel, .accountGrid { grid-template-columns: 1fr; } .queueActions { justify-content: flex-start; } .routeGrid, .modeGrid, .modeChoiceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profileStatsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .actionCardGrid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .shell { width: min(100% - 18px, 1160px); padding-top: 10px; overflow-x: clip; } .nav { align-items: stretch; flex-direction: column; } .brand { min-width: 0; } .navLinks { display: none; } .mobileMenu { display: block; } .mobileMenuPanel { grid-template-columns: 1fr; } .rulesGrid, .routeGrid, .profileStatsGrid, .modeGrid, .modeChoiceGrid, .miniStats { grid-template-columns: 1fr; } .hero, .matchBanner, .panel, .panelWide, .statusCard, .boardPanel, .sidePanel, .leaderRow, .successPanel, .errorPanel, .authPanel, .resultActionsPanel, .practiceNote, .profileHeroCard, .matchRow, .modeCard, .modeChoiceCard, .queuePanel { padding: 12px; } .matchRow { grid-template-columns: 1fr; align-items: start; } .guessInputRow { grid-template-columns: 1fr; } .wordRow { grid-template-columns: repeat(5, var(--wr-size-tile-mobile)); } .tile { width: var(--wr-size-tile-mobile); height: var(--wr-size-tile-mobile); } }
 @media (max-width: 360px) { .shell { width: min(100% - 14px, 1160px); } .wordRow { grid-template-columns: repeat(5, 48px); gap: 5px; } .tile { width: 48px; height: 48px; } .hero h1, .matchBanner h1 { font-size: 1.45rem; } .pageHeader h1 { font-size: 1.35rem; } }
+@media (max-width: 620px) { .accountStatus { align-items: flex-start; flex-direction: column; } .accountCard, .accountUnavailable { padding: 14px; } }

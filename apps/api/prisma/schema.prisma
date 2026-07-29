@@ -150,9 +150,50 @@ model UserAccount {
   auditLogs                  AuditLog[]          @relation("AuditActor")
   matchmakingTickets         MatchmakingTicket[] @relation("MatchmakingTicketUser")
   matchmakingOpponentTickets MatchmakingTicket[] @relation("MatchmakingTicketOpponent")
+  passwordCredential         PasswordCredential?
+  accountSessions            AccountSession[]
 
   @@index([status])
   @@index([createdAt])
+}
+
+model PasswordCredential {
+  userId            String   @id
+  passwordHash      String   @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  passwordChangedAt DateTime @default(now())
+
+  user UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccountSession {
+  id               String   @id @default(uuid())
+  userId           String
+  tokenHash        String   @unique @db.Char(64)
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime
+  lastSeenAt       DateTime @default(now())
+  revokedAt        DateTime?
+  revocationReason String?  @db.VarChar(32)
+
+  user UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
+}
+
+model AuthRateLimitBucket {
+  action          String   @db.VarChar(32)
+  keyHash         String   @db.Char(64)
+  windowStartedAt DateTime
+  attemptCount    Int      @default(0)
+  blockedUntil    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@id([action, keyHash])
+  @@index([windowStartedAt])
+  @@index([blockedUntil])
 }
 
 model UserProfile {

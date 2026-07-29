@@ -21,7 +21,7 @@ export class MatchmakingController {
     @Req() request: unknown,
     @Res({ passthrough: true }) response: { status(code: number): unknown },
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     const result = await this.matchmaking.joinStandardQueueWithResult(currentUser.userId, body);
     response.status(result.created ? 201 : 200);
     return ok(result.ticket, request as never);
@@ -32,7 +32,7 @@ export class MatchmakingController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.getCurrentTicket(currentUser.userId), request as never);
   }
 
@@ -42,7 +42,7 @@ export class MatchmakingController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.getTicket(currentUser.userId, ticketId), request as never);
   }
 
@@ -52,7 +52,7 @@ export class MatchmakingController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.cancelTicket(currentUser.userId, ticketId), request as never);
   }
 }
@@ -72,7 +72,7 @@ export class SpeedMatchmakingController {
     @Req() request: unknown,
     @Res({ passthrough: true }) response: { status(code: number): unknown },
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     const result = await this.matchmaking.joinSpeedQueueWithResult(currentUser.userId, body);
     response.status(result.created ? 201 : 200);
     return ok(result.ticket, request as never);
@@ -80,7 +80,7 @@ export class SpeedMatchmakingController {
 
   @Get('current')
   async current(@Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined, @Req() request: unknown) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.getCurrentSpeedTicket(currentUser.userId), request as never);
   }
 
@@ -90,7 +90,7 @@ export class SpeedMatchmakingController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.getSpeedTicket(currentUser.userId, ticketId), request as never);
   }
 
@@ -100,7 +100,7 @@ export class SpeedMatchmakingController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.matchmaking.cancelSpeedTicket(currentUser.userId, ticketId), request as never);
   }
 }
