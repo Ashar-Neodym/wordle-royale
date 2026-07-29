@@ -1,9 +1,8 @@
 [
-  {"name":"stale-mixed-identities","operation":"set","path":"providers.railway.production.artifact.sourceGitSha","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","error":"MIXED_SOURCE_IDENTITY"},
-  {"name":"provider-omission","operation":"delete","path":"providers.vercel.preview.variables","error":"OMITTED_FIELD"},
-  {"name":"provider-null","operation":"set","path":"providers.vercel.preview.variables.1.value","value":null,"error":"NULL_PROVIDER_VALUE"},
-  {"name":"artifact-mismatch","operation":"set","path":"providers.railway.preview.artifact.manifest.subjectArtifactDigest","value":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","error":"ARTIFACT_MANIFEST_MISMATCH"},
-  {"name":"replica-disagreement","operation":"set","path":"providers.postgresql.production.observations.1.clusterId","value":"hostile-other-cluster","error":"REPLICA_DISAGREEMENT"},
-  {"name":"preview-overlap","operation":"copy","path":"providers.railway.preview.identity.serviceId","from":"providers.railway.production.identity.serviceId","error":"PREVIEW_PRODUCTION_OVERLAP"},
-  {"name":"manifest-ambiguity","operation":"set","path":"providers.vercel.production.artifact.manifest.mode","value":"unspecified","error":"MANIFEST_AMBIGUITY"}
+  {"blocker":1,"name":"strict-inventory-schema","rejects":["unknown-or-omitted-fields","wrong-collector","invalid-identity","artifact-or-manifest-corruption","replica-disagreement","forged-provenance"]},
+  {"blocker":2,"name":"authenticated-native-evidence","rejects":["unsigned-caller-assertions","wrong-native-adapter","tampered-native-signature","unbound-evidence-digest"]},
+  {"blocker":3,"name":"freshness-and-challenge","rejects":["stale-evidence","future-evidence","absent-or-wrong-expected-nonce","unexpected-identity"]},
+  {"blocker":4,"name":"deployment-artifact-linkage","rejects":["deployment-swap","manifest-subject-swap","cross-environment-artifact-reuse"]},
+  {"blocker":5,"name":"global-environment-isolation","rejects":["same-field-overlap","postgres-replica-overlap","cross-provider-resource-collision"]},
+  {"blocker":6,"name":"nonblank-derivation","rejects":["empty-derivation","whitespace-only-derivation"],"normalizes":"trim"}
 ]

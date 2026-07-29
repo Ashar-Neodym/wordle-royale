@@ -1,59 +1,45 @@
 # Provider provenance inventory and receipt
 
-Ticket 262 adds an **offline, read-only boundary** for provider evidence. The command does not import an SDK, make network calls, discover credentials, or mutate provider state. An operator must first export mocked/read-only responses into the strict `wordle-provider-snapshot/v1` shape. The strict adapters then derive inventory; callers cannot submit an inventory directly to `collect`.
+Ticket 262 provides an **offline, read-only verification boundary** for mocked native Vercel, Railway, and PostgreSQL evidence. It makes no network calls, reads no provider credentials, and mutates no provider state. Evidence must use `wordle-provider-native-evidence/v1`: each provider/environment response is an adapter-specific Ed25519-signed envelope. The collector pins each mocked adapter's public key and derives the sanitized inventory from the authenticated payload; an inventory supplied by a caller is never accepted as evidence.
 
 ## Security and transport
 
 ```sh
 pnpm provider-provenance collect \
-  --snapshot /secure/provider-snapshot.json \
+  --snapshot /secure/native-evidence.json \
+  --expected-identities /secure/expected-identities.json \
+  --expected-nonce challenge-from-verifier \
   --inventory /transport-a/inventory.json \
   --receipt /transport-b/receipt.json \
   --key-file /secure/receipt-hmac-key \
   --key-id operator-key-v1
 
 pnpm provider-provenance verify \
+  --snapshot /secure/native-evidence.json \
+  --expected-identities /secure/expected-identities.json \
+  --expected-nonce challenge-from-verifier \
   --inventory /transport-a/inventory.json \
   --receipt /transport-b/receipt.json \
   --key-file /secure/receipt-hmac-key
 ```
 
-The key file must contain at least 32 bytes. It is read only and is never emitted. Inventory and receipt paths must differ; use independent transport/channels in operation. Output files are canonical JSON with mode `0600`. `collect` produces no stdout. `verify` emits only `VALID` and also rejects required variables whose values are absent, explicitly empty, or masked/unknown.
+The expected identity file is an out-of-band exact map of `preview` and `production`, then `vercel`, `railway`, and `postgresql`, containing each adapter's expected identity fields. The nonce is also supplied out of band. Native evidence defaults to a five-minute maximum age and 30-second future-clock tolerance. `--now ISO` exists only for deterministic offline replay/tests.
 
-The receipt HMAC binds:
+The HMAC key file must contain at least 32 bytes and is never emitted. Snapshot, inventory, and receipt paths must be distinct; inventory and receipt should use independent transport channels. Output files are canonical JSON with mode `0600`. `collect` produces no stdout. `verify` emits only `VALID`.
 
-- the canonical sanitized inventory digest;
-- the canonical source-evidence digest (not the source content);
-- collector and schema identity; and
-- key identity.
+The v2 receipt binds the canonical strict inventory digest and the complete authenticated native-evidence digest, plus collector/schema/key identities. Verification requires the native snapshot, re-authenticates every adapter envelope, checks freshness/nonce/expected identities, independently re-derives the inventory, and compares both digests.
 
-Provider values never appear in inventory or receipt. Only variable name, policy (`required`), and one of `absent`, `explicitly-empty`, `non-empty`, or `masked-unknown` are retained. A provider `null`, omission inside an observed entry, ambiguous masked/value pair, unknown field, or duplicate entry fails closed.
+## Strict inventory guarantees
 
-## Snapshot contract
+`validateInventory` and receipt verification fail closed on unknown/omitted fields and validate all collector, identity, variable, artifact, manifest, observation, and provenance fields. Provider values never enter inventory or receipt. Only variable name, required policy, and `absent`, `explicitly-empty`, `non-empty`, or `masked-unknown` state are retained. Required variables must be `non-empty`.
 
-The top level is exactly:
+Vercel and Railway artifacts carry deployment ID, independent artifact digest and trimmed nonblank derivation. Their manifest/attestation binds both artifact digest and deployment ID. Preview and production cannot reuse an artifact. Vercel and Railway source Git SHAs agree within each environment without being used as artifact identities.
 
-- `schemaVersion`: `wordle-provider-snapshot/v1`
-- `collectedAt`: ISO timestamp supplied by the evidence export
-- `trackedVariables`: exact maps for `vercel`, `railway`, and `postgresql`
-- `requiredVariables`: subsets of tracked names
-- `providers`: exact provider maps, each containing `preview` and `production`
+Isolation is global rather than same-field-only: no identity/resource ID in preview may occur anywhere in production, even under another provider or field. PostgreSQL cluster, database, and every replica ID participate in that check. At least two PostgreSQL observations must independently agree on cluster, database, and schema digest.
 
-Adapters bind these observed identities:
+## Permanent hostile checks
 
-| Adapter | Required identity/evidence |
-| --- | --- |
-| Vercel web | project, environment, deployment; source Git SHA; independent deployment artifact digest; build/runtime manifest digest or attestation; variable observations |
-| Railway API | project, environment, service, deployment; source Git SHA; independent image/artifact digest; build/start/runtime manifest digest or provider-managed attestation; variable observations |
-| PostgreSQL | project, environment, service, deployment; at least two replica observations agreeing on cluster, database and schema digest; variable observations |
-
-Every preview identity must differ from its production counterpart. PostgreSQL cluster and database IDs must also differ. Vercel and Railway source Git SHAs must agree within each environment, while each provider's artifact digest remains independent and carries an explicit derivation. Every manifest/attestation includes `subjectArtifactDigest`, so a manifest cannot be substituted across deployments.
-
-A digest is lowercase `sha256:<64 hex>`. A source revision is a separate 40-character lowercase Git SHA and is never accepted as an artifact identity.
-
-## Mock fixtures and checks
-
-`provider-provenance-fixture.mjs` creates harmless mocked provider evidence. `fixtures/provider-provenance-hostile.json` contains declarative hostile mutations for stale/mixed source identity, provider omission/null, artifact/manifest mismatch, replica disagreement, preview overlap, and manifest ambiguity. Tests also exercise empty versus absent state, masked required values, receipt tampering, separate output, and non-disclosure.
+`scripts/provider-provenance.test.mjs` permanently exercises all six independent-QA blocker classes recorded in `scripts/fixtures/provider-provenance-hostile.json`: strict inventory shape, authenticated native origin, bounded freshness and challenge binding, deployment/artifact/manifest linkage, global isolation (including replica and cross-provider collisions), and trimmed nonblank derivations. It also covers variable-state preservation, required-variable failure, canonical separate outputs, evidence tampering, and non-disclosure.
 
 ```sh
 pnpm test:provider-provenance
