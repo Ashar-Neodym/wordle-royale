@@ -36,9 +36,10 @@ async function writeProtected(path: string, value: string): Promise<void> {
     try { await handle.writeFile(value); await handle.sync(); } finally { await handle.close(); }
   } finally { await directory?.close(); }
 }
-function testTransportTarget(rawUrl: string): string {
+const TEST_OBSERVED_URL_HEADER = 'x-wordle-auth-preflight-observed-url';
+function testTransportTarget(rawUrl: string): { targetUrl: string; useMockObservedUrl: boolean } {
   const rawMap = process.env.AUTH_PREFLIGHT_TEST_ORIGIN_MAP;
-  if (!rawMap) return rawUrl;
+  if (!rawMap) return { targetUrl: rawUrl, useMockObservedUrl: false };
   if (process.env.NODE_ENV !== 'test' || process.env.RUN_AUTH_PREFLIGHT_CLI_E2E !== '1') throw new Error('test_transport_forbidden');
   let mapping: unknown; try { mapping = JSON.parse(rawMap); } catch { throw new Error('test_transport_invalid'); }
   if (mapping === null || typeof mapping !== 'object' || Array.isArray(mapping)) throw new Error('test_transport_invalid');
@@ -46,7 +47,7 @@ function testTransportTarget(rawUrl: string): string {
   if (typeof mapped !== 'string') throw new Error('test_transport_authority_unmapped');
   const target = new URL(mapped);
   if (target.protocol !== 'http:' || !['127.0.0.1','::1','localhost'].includes(target.hostname) || target.username || target.password || target.pathname !== '/' || target.search || target.hash) throw new Error('test_transport_invalid');
-  return `${target.origin}${requested.pathname}${requested.search}`;
+  return { targetUrl: `${target.origin}${requested.pathname}${requested.search}`, useMockObservedUrl: true };
 }
 function directDatabaseHostFingerprint(raw: string | undefined): string {
   if (!raw) throw new Error('database_url_required');
@@ -83,7 +84,7 @@ async function main() {
     },{isolationLevel:'Serializable',timeout:30_000});
   };
   const databaseAdapter={withReadOnlyTransaction:inReadOnlyTransaction,withReadOnlyObservation:inReadOnlyTransaction};
-  const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const response=await fetch(testTransportTarget(url),{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
+  const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const transport=testTransportTarget(url);const response=await fetch(transport.targetUrl,{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url:transport.useMockObservedUrl?response.headers.get(TEST_OBSERVED_URL_HEADER):response.url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
   try { const result=await runActivationPreflight({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});const output=`${canonicalJson(result)}\n`;if(outputPath)await writeProtected(outputPath,output);else process.stdout.write(output); } finally { await prisma.$disconnect(); }
 }
 main().catch((error:unknown)=>{const prerequisite=error instanceof Error&&error.message==='pg_control_system_execute_required'?'pg_control_system_execute_required':undefined;process.stderr.write(`${canonicalJson({result:'FAIL',failureCode:prerequisite??'preflight_failed'})}\n`);process.exitCode=1;});
