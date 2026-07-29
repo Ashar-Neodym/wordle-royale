@@ -18,9 +18,10 @@ export function resolveBuildPresentationEnvironment(environment) {
   const account = environment[presentationKeys.account];
   const registration = environment[presentationKeys.registration];
   const gate = environment[durableGateKey];
+  const providerPreview = environment.VERCEL_ENV === 'preview';
   const aliasesAbsent = web === undefined && account === undefined && registration === undefined;
 
-  if (aliasesAbsent && gate === 'false') {
+  if (aliasesAbsent && (gate === 'false' || (providerPreview && gate === undefined))) {
     return {
       [presentationKeys.web]: 'preview',
       [presentationKeys.account]: 'preview_demo',
@@ -31,12 +32,12 @@ export function resolveBuildPresentationEnvironment(environment) {
   }
 
   const preview = web === 'preview' && account === 'preview_demo'
-    && registration === undefined && gate === 'false';
+    && registration === undefined && (gate === 'false' || (providerPreview && gate === undefined));
   const dormant = web === 'production' && account === 'disabled'
     && registration === undefined && gate === 'false';
   const durable = web === 'production' && account === 'durable'
     && ['closed', 'canary', 'open'].includes(registration ?? '') && gate === 'true';
-  if (!preview && !dormant && !durable) {
+  if ((providerPreview && !preview) || (!preview && !dormant && !durable)) {
     throw new Error('Contradictory Wordle account presentation and durable server gate configuration.');
   }
 

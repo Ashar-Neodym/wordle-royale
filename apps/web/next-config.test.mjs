@@ -5,10 +5,11 @@ import { describe, it } from 'node:test';
 const configUrl = new URL('./next.config.mjs', import.meta.url).href;
 const gateKey = ['DURABLE', 'AUTH', 'ENABLED'].join('_');
 const presentationKeys = ['WORDLE_WEB_ENV', 'WORDLE_ACCOUNT_MODE', 'WORDLE_REGISTRATION_MODE'];
+const providerKeys = ['VERCEL_ENV'];
 
 function loadConfig(overrides = {}) {
   const env = { ...process.env };
-  for (const key of [...presentationKeys, gateKey]) delete env[key];
+  for (const key of [...presentationKeys, ...providerKeys, gateKey]) delete env[key];
   Object.assign(env, overrides);
   const script = `import(${JSON.stringify(`${configUrl}?case=${Math.random()}`)}).then(m => console.log(JSON.stringify(m.default.env)))`;
   return spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
@@ -27,9 +28,22 @@ describe('Next build presentation boundary', () => {
     });
   });
 
-  it('rejects absent, invalid, partial, and contradictory modes at config load', () => {
+  it('derives neutral preview aliases from an unconfigured Vercel preview only', () => {
+    const result = loadConfig({ VERCEL_ENV: 'preview' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      WORDLE_WEB_ENV: 'preview',
+      WORDLE_ACCOUNT_MODE: 'preview_demo',
+    });
+  });
+
+  it('rejects absent, invalid, partial, contradictory, and non-preview Vercel modes at config load', () => {
     const cases = [
       {},
+      { VERCEL_ENV: 'production' },
+      { VERCEL_ENV: 'development' },
+      { VERCEL_ENV: 'preview', [gateKey]: 'true' },
+      { VERCEL_ENV: 'preview', [gateKey]: 'true', WORDLE_WEB_ENV: 'production', WORDLE_ACCOUNT_MODE: 'durable', WORDLE_REGISTRATION_MODE: 'closed' },
       { [gateKey]: 'FALSE' },
       { [gateKey]: 'true' },
       { [gateKey]: 'false', WORDLE_WEB_ENV: 'production' },
