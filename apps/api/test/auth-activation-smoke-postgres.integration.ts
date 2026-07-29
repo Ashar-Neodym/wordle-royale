@@ -161,7 +161,7 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
   const provider = { projectId: 'local-project', environmentId: 'local-production', apiServiceId: 'local-api', webServiceId: 'mock-web', databaseId: 'disposable-postgres', previewEnvironmentId: 'mock-preview', previewDatabaseId: 'mock-preview-db' };
   const deployments = { apiDeploymentId: 'local-api-deployment', apiRevision: revision, webDeploymentId: 'mock-web-deployment', webRevision: 'b'.repeat(40) };
   const inventory = {
-    schemaVersion: 2, runId: `preflight-${runId}`, sourceSha: revision, artifactSha: revision, provider, deployments,
+    schemaVersion: 3, activationPhase: 'canary', runId, sourceSha: revision, artifactSha: revision, provider, deployments,
     origins: { api: apiOrigin, web: webOrigin, previewApi: previewApiOrigin, previewWeb: previewWebOrigin },
     replicas: { expected: 1, observed: 1, observedReplicaId: 'local-replica-1' },
     config: { authMode: 'session_required', durableAuth: true, registrationMode: 'canary', appEnvironment: 'production', nodeEnvironment: 'production', secureCookie: true, hostOnlyCookie: true, proxyHops: 1, requiredKeysPresent: ['AUTH_RATE_LIMIT_KEY', 'DATABASE_URL'], keyFingerprint, configFingerprint },
@@ -169,8 +169,7 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
     source: { kind: 'provider-read-only', observedAt }, expiresAt,
   };
   let preflightSnapshots = 0;
-  const preflightDatabase = {
-    async withReadOnlyTransaction(work: (query: (sql: string) => Promise<unknown>) => Promise<void>) {
+  const preflightReadOnlyTransaction = async (work: (query: (sql: string) => Promise<unknown>) => Promise<void>) => {
       await db.$transaction(async (tx) => work(async (sql) => {
         if (sql.startsWith('SET TRANSACTION')) { await tx.$executeRawUnsafe(sql); return true; }
         if (sql === 'SHOW transaction_read_only') { const rows = await tx.$queryRawUnsafe<Array<{ transaction_read_only: string }>>(sql); return { transactionReadOnly: rows[0]?.transaction_read_only }; }
@@ -186,7 +185,10 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
         }
         throw new Error('preflight SQL is not allowlisted');
       }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    },
+  };
+  const preflightDatabase = {
+    withReadOnlyTransaction: preflightReadOnlyTransaction,
+    withReadOnlyObservation: preflightReadOnlyTransaction,
   };
   const mockPublic = {
     async get(url: string) {

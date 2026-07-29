@@ -26,7 +26,8 @@ export function validateApproval(v, preflight, secrets, now = Date.now()) {
   exact(v.origins, ['api','web'], 'approval_origin_schema_invalid');
   canonicalOrigin(v.origins.api, 'api'); canonicalOrigin(v.origins.web, 'web');
   fail(v.preflightReceipt === preflight.receipt && v.artifactSha === preflight.evidence.artifactSha && canonicalJson(v.provider) === canonicalJson(preflight.evidence.provider) && canonicalJson(v.deployments) === canonicalJson(preflight.evidence.deployments) && v.origins.api === preflight.evidence.origins.api && v.origins.web === preflight.evidence.origins.web, 'approval_preflight_binding_mismatch');
-  fail(preflight.evidence.result === 'PASS' && preflight.evidence.config.registrationMode === 'canary', 'preflight_not_canary_ready');
+  fail(v.runId === preflight.evidence.runId, 'approval_run_id_mismatch');
+  fail(preflight.evidence.result === 'PASS' && preflight.evidence.activationPhase === 'canary' && preflight.evidence.config.registrationMode === 'canary', 'preflight_not_canary_ready');
   const approved = Date.parse(v.approvedAt), expires = Date.parse(v.expiresAt);
   fail(Number.isFinite(approved) && Number.isFinite(expires) && expires > approved && expires - approved <= 30 * 60_000 && now >= approved - 30_000 && now < expires, 'approval_stale');
   validateSecrets(secrets);

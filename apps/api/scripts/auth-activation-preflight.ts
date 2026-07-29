@@ -30,7 +30,9 @@ async function main() {
   const { inventoryPath, inventoryReceiptPath }=parsePreflightArgs(process.argv.slice(2));
   const [inventory,inventoryReceipt]=await Promise.all([readFile(inventoryPath,'utf8').then(JSON.parse),readFile(inventoryReceiptPath,'utf8').then(x=>x.trim())]);
   const directHostFingerprint=directDatabaseHostFingerprint(process.env.DATABASE_URL); const prisma=new PrismaClient();
-  const databaseAdapter={async withReadOnlyTransaction(work:(query:(sql:string)=>Promise<unknown>)=>Promise<void>){
+  // Every invocation opens a new transaction. The observation invocation therefore cannot
+  // reuse the repeatable-read snapshot held while public GET probes execute.
+  const inReadOnlyTransaction=async(work:(query:(sql:string)=>Promise<unknown>)=>Promise<void>)=>{
     await prisma.$transaction(async(tx)=>{let isolated=false; const query=async(sql:string)=>{
       if(sql===PREFLIGHT_SQL.isolation){await tx.$executeRawUnsafe(PREFLIGHT_SQL.isolation);isolated=true;return true;} if(!isolated)throw new Error('read_only_transaction_required');
       if(sql===PREFLIGHT_SQL.readOnlyStatus){const row=(await tx.$queryRawUnsafe<Array<{transaction_read_only:string}>>(PREFLIGHT_SQL.readOnlyStatus))[0];return{transactionReadOnly:row?.transaction_read_only};}
@@ -39,7 +41,8 @@ async function main() {
       if(sql===PREFLIGHT_SQL.identity){const row=(await tx.$queryRawUnsafe<Array<Record<string,string|number>>>(IDENTITY_SQL))[0];if(!row?.system_identifier)throw new Error('pg_control_system_execute_required');return{identityFingerprint:sha256(`wordle-auth-db-v2\0${row.database_name}\0${row.server_address}\0${row.server_port}\0${row.server_version}\0${row.system_identifier}`),databaseHostFingerprint:directHostFingerprint};}
       if(sql===PREFLIGHT_SQL.schema){const [schema,conflict]=await Promise.all([new PrismaService().checkDurableAuthSchema(tx as never),tx.$queryRawUnsafe<Array<{conflicts:bigint}>>(REMEDIATION_SQL)]);return{status:schema.status,remediationConflictCount:Number(conflict[0]?.conflicts??-1)};} throw new Error('sql_not_allowlisted');}; await work(query);
     },{isolationLevel:'Serializable',timeout:30_000});
-  }};
+  };
+  const databaseAdapter={withReadOnlyTransaction:inReadOnlyTransaction,withReadOnlyObservation:inReadOnlyTransaction};
   const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const response=await fetch(url,{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url:response.url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
   try { const result=await runActivationPreflight({inventory,inventoryReceipt,publicAdapter,databaseAdapter});process.stdout.write(`${canonicalJson(result)}\n`); } finally { await prisma.$disconnect(); }
 }

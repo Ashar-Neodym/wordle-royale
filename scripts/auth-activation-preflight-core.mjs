@@ -18,7 +18,8 @@ export const MIGRATIONS = Object.freeze([
   '20260728000000_durable_auth_foundations',
   '20260728010000_auth_rate_limit_bucket',
 ]);
-const INVENTORY_KEYS = ['schemaVersion','runId','sourceSha','artifactSha','provider','deployments','origins','replicas','config','migrations','database','source','expiresAt'];
+const PHASES = Object.freeze(['dormant','closed','canary']);
+const INVENTORY_KEYS = ['schemaVersion','activationPhase','runId','sourceSha','artifactSha','provider','deployments','origins','replicas','config','migrations','database','source','expiresAt'];
 const PROVIDER = ['projectId','environmentId','apiServiceId','webServiceId','databaseId','previewEnvironmentId','previewDatabaseId'];
 const DEPLOY = ['apiDeploymentId','apiRevision','webDeploymentId','webRevision'];
 const ORIGINS = ['api','web','previewApi','previewWeb'];
@@ -27,7 +28,7 @@ const SOURCE = ['kind','observedAt'];
 const CONFIG = ['authMode','durableAuth','registrationMode','appEnvironment','nodeEnvironment','secureCookie','hostOnlyCookie','proxyHops','requiredKeysPresent','keyFingerprint','configFingerprint'];
 const DATABASE = ['identityFingerprint','databaseHostFingerprint','schemaStatus','remediationConflictCount'];
 const PROOF = ['health','readiness','rankedModes','webIdentity','previewIsolation','databaseReadOnly','zeroWrite','providerDerived'];
-const EVIDENCE_KEYS = ['schemaVersion','result','runId','sourceSha','artifactSha','providerInventoryReceipt','provider','deployments','origins','replicas','config','migrations','database','proof','source','expiresAt'];
+const EVIDENCE_KEYS = ['schemaVersion','result','activationPhase','runId','sourceSha','artifactSha','providerInventoryReceipt','provider','deployments','origins','replicas','config','migrations','database','proof','source','expiresAt'];
 const EVIDENCE_FORBIDDEN = /(password|secret|token|cookieValue|connection|databaseUrl|email|address|canaryDigest|answer|authorization|rawHost|originHeader)/iu;
 export const PREFLIGHT_SQL = Object.freeze({
   isolation: 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY',
@@ -81,7 +82,7 @@ function validateMigrationSet(v) {
 }
 export function validateInventory(v, now = Date.now()) {
   exact(v, INVENTORY_KEYS, 'inventory_schema_invalid');
-  fail(v.schemaVersion === 2 && ID.test(v.runId) && SHA.test(v.sourceSha) && SHA.test(v.artifactSha), 'inventory_identity_invalid');
+  fail(v.schemaVersion === 3 && PHASES.includes(v.activationPhase) && ID.test(v.runId) && SHA.test(v.sourceSha) && SHA.test(v.artifactSha), 'inventory_identity_invalid');
   exact(v.provider, PROVIDER, 'provider_schema_invalid'); exact(v.deployments, DEPLOY, 'deployment_schema_invalid'); exact(v.origins, ORIGINS, 'origin_schema_invalid');
   exact(v.replicas, REPLICAS, 'replica_schema_invalid'); exact(v.source, SOURCE, 'inventory_source_schema_invalid'); exact(v.config, CONFIG, 'config_schema_invalid'); exact(v.database, DATABASE, 'database_schema_invalid');
   fail(v.source.kind === 'provider-read-only', 'inventory_source_untrusted');
@@ -91,7 +92,11 @@ export function validateInventory(v, now = Date.now()) {
   fail(new Set(Object.values(v.origins)).size === 4 && v.provider.environmentId !== v.provider.previewEnvironmentId && v.provider.databaseId !== v.provider.previewDatabaseId, 'preview_topology_not_distinct');
   fail(v.replicas.expected === 1 && v.replicas.observed === 1 && typeof v.replicas.observedReplicaId === 'string' && ID.test(v.replicas.observedReplicaId), 'replica_count_not_one');
   const c = v.config;
-  fail(c.authMode === 'session_required' && c.durableAuth === true && ['closed','canary'].includes(c.registrationMode) && c.appEnvironment === 'production' && c.nodeEnvironment === 'production', 'runtime_state_invalid');
+  fail(c.authMode === 'session_required' && c.appEnvironment === 'production' && c.nodeEnvironment === 'production', 'runtime_state_invalid');
+  const expectedRuntime = v.activationPhase === 'dormant'
+    ? { durableAuth: false, registrationMode: 'closed' }
+    : { durableAuth: true, registrationMode: v.activationPhase };
+  fail(c.durableAuth === expectedRuntime.durableAuth && c.registrationMode === expectedRuntime.registrationMode, 'activation_phase_runtime_mismatch');
   fail(c.secureCookie === true && c.hostOnlyCookie === true && Number.isInteger(c.proxyHops) && c.proxyHops >= 1 && c.proxyHops <= 3, 'cookie_proxy_config_invalid');
   fail(Array.isArray(c.requiredKeysPresent) && c.requiredKeysPresent.length === 2 && new Set(c.requiredKeysPresent).size === 2 && ['AUTH_RATE_LIMIT_KEY','DATABASE_URL'].every((x) => c.requiredKeysPresent.includes(x)), 'required_key_presence_invalid');
   fail(FP.test(c.keyFingerprint) && FP.test(c.configFingerprint), 'config_fingerprint_invalid');
@@ -110,11 +115,11 @@ export function verifyInventoryReceipt(raw, suppliedReceipt, now = Date.now()) {
 const dependencyKeys = ['status','checkedAt','message'];
 function validateDependency(v, code, extra = []) { const keys=Object.keys(v ?? {}); const expected=[...dependencyKeys,...extra]; fail(keys.every(k=>expected.includes(k)||k==='latencyMs')&&expected.every(k=>keys.includes(k)),code); fail(['ok','degraded','unavailable','not_checked_stub'].includes(v.status)&&Number.isFinite(Date.parse(v.checkedAt))&&typeof v.message==='string'&&(v.latencyMs===undefined||(typeof v.latencyMs==='number'&&v.latencyMs>=0)),code); }
 function validateHealth(v) { exact(v,['status','service','environment','timestamp','uptimeSeconds','revision'],'health_schema_invalid'); fail(v.status==='ok'&&v.service==='wordle-royale-api'&&v.environment==='production'&&Number.isFinite(Date.parse(v.timestamp))&&typeof v.uptimeSeconds==='number'&&v.uptimeSeconds>=0&&SHA.test(v.revision),'health_schema_invalid'); }
-function validateReady(v, preview = false) {
+function validateReady(v, preview = false, dormant = false) {
   exact(v,['status','service','environment','revision','checkedAt','dependencies'],'ready_schema_invalid');
   exact(v.dependencies,['database','applicationSchema','durableAuth','standardDictionary','speedRuntime','speedLifecycleActivation','redis'],'ready_dependencies_schema_invalid');
   for (const key of ['database','applicationSchema','standardDictionary','speedRuntime','speedLifecycleActivation','redis']) validateDependency(v.dependencies[key], 'ready_dependency_schema_invalid');
-  validateDependency(v.dependencies.durableAuth,'ready_auth_schema_invalid', preview ? ['registrationMode'] : ['registrationMode','keyFingerprint','configFingerprint','expectedReplicaCount']);
+  validateDependency(v.dependencies.durableAuth,'ready_auth_schema_invalid', preview || dormant ? ['registrationMode'] : ['registrationMode','keyFingerprint','configFingerprint','expectedReplicaCount']);
   fail(v.status==='ok'&&v.service==='wordle-royale-api'&&v.environment==='production'&&SHA.test(v.revision)&&Number.isFinite(Date.parse(v.checkedAt)),'ready_schema_invalid');
 }
 const commonMode = ['id','label','players','rated','enabled','provisionalGames','defaultRating','defaultRatingDeviation','notes'];
@@ -124,7 +129,7 @@ function validateModes(v) {
   for (const mode of v.modes) { const speed=mode?.id==='speed_1v1'; const allowed=speed?[...commonMode,'queueEnabled','rulesetVersion','readyLifecycleVersion','ratingAlgorithmConfigVersion','timeControl']:commonMode; exact(mode,allowed,'ranked_mode_schema_invalid'); fail(typeof mode.id==='string'&&!ids.has(mode.id)&&typeof mode.enabled==='boolean'&&typeof mode.rated==='boolean','ranked_mode_schema_invalid'); ids.add(mode.id); if(speed) exact(mode.timeControl,['roundTimeSeconds','invitationWindowSeconds','readyWindowSeconds','readyWindowStartsOn','countdownSeconds','maxGuesses','solveTimeBucketMs','tieBreaker'],'ranked_time_control_schema_invalid'); }
   fail(['standard_1v1','speed_1v1','classic_1v1','multiplayer_lobby'].every(x=>ids.has(x)),'ranked_modes_invalid');
 }
-function validateWeb(v) { exact(v,['revision','appEnvironment','mode','registrationMode'],'web_identity_schema_invalid'); fail(SHA.test(v.revision)&&v.appEnvironment==='production'&&v.mode==='durable'&&['closed','canary','open'].includes(v.registrationMode),'web_identity_invalid'); }
+function validateWeb(v) { exact(v,['revision','appEnvironment','mode','registrationMode'],'web_identity_schema_invalid'); fail(SHA.test(v.revision)&&v.appEnvironment==='production'&&['disabled','durable'].includes(v.mode)&&(v.registrationMode===null||['closed','canary','open'].includes(v.registrationMode)),'web_identity_invalid'); }
 function assertResponse(response, expectedOrigin, path, schema) {
   fail(response?.method === 'GET', 'public_non_get'); fail(response.redirected === false, 'public_redirect');
   fail(response.url === `${expectedOrigin}${path}`, 'public_authority_mismatch'); fail(response.status === 200, 'public_status_invalid');
@@ -140,36 +145,57 @@ function assertWebResponse(response, originValue) {
 function equalSnapshot(a,b){return canonicalJson(a)===canonicalJson(b);}
 export async function runActivationPreflight({ inventory: raw, inventoryReceipt, publicAdapter, databaseAdapter, now = () => Date.now() }) {
   const startedAt=now(); const inventory=verifyInventoryReceipt(raw,inventoryReceipt,startedAt);
-  fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function','adapter_missing');
-  let proof;
+  fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function'&&typeof databaseAdapter.withReadOnlyObservation==='function','adapter_missing');
+  let proof, before;
   await databaseAdapter.withReadOnlyTransaction(async(query)=>{
     const allowed=new Set(Object.values(PREFLIGHT_SQL)); let statements=0;
     const q=async(sql)=>{fail(allowed.has(sql),'sql_not_allowlisted'); statements++; return query(sql);};
     await q(PREFLIGHT_SQL.isolation); const readOnly=await q(PREFLIGHT_SQL.readOnlyStatus); fail(readOnly?.transactionReadOnly==='on','transaction_read_only_off');
-    const before=await q(PREFLIGHT_SQL.snapshot);
+    before=await q(PREFLIGHT_SQL.snapshot);
     const [healthR,readyR,modesR,previewR,webR]=await Promise.all([
       publicAdapter.get(`${inventory.origins.api}/healthz`),publicAdapter.get(`${inventory.origins.api}/readyz`),publicAdapter.get(`${inventory.origins.api}/ranked/modes`),publicAdapter.get(`${inventory.origins.previewApi}/readyz`),publicAdapter.get(`${inventory.origins.web}/.well-known/wordle-identity`),
     ]);
-    const health=assertResponse(healthR,inventory.origins.api,'/healthz',validateHealth),ready=assertResponse(readyR,inventory.origins.api,'/readyz',(x)=>validateReady(x,false)),modes=assertResponse(modesR,inventory.origins.api,'/ranked/modes',validateModes),preview=assertResponse(previewR,inventory.origins.previewApi,'/readyz',(x)=>validateReady(x,true)),web=assertWebResponse(webR,inventory.origins.web);
+    const health=assertResponse(healthR,inventory.origins.api,'/healthz',validateHealth),ready=assertResponse(readyR,inventory.origins.api,'/readyz',(x)=>validateReady(x,false,inventory.activationPhase==='dormant')),modes=assertResponse(modesR,inventory.origins.api,'/ranked/modes',validateModes),preview=assertResponse(previewR,inventory.origins.previewApi,'/readyz',(x)=>validateReady(x,true)),web=assertWebResponse(webR,inventory.origins.web);
     fail(health.revision===inventory.deployments.apiRevision,'health_revision_mismatch'); const auth=ready.dependencies.durableAuth;
-    fail(ready.revision===inventory.deployments.apiRevision&&auth.status==='ok'&&auth.registrationMode===inventory.config.registrationMode&&auth.keyFingerprint===inventory.config.keyFingerprint&&auth.configFingerprint===inventory.config.configFingerprint&&auth.expectedReplicaCount===1,'auth_readiness_mismatch');
+    const authMatchesPhase = inventory.activationPhase === 'dormant'
+      ? auth.status==='not_checked_stub'&&auth.registrationMode==='closed'&&!('keyFingerprint' in auth)&&!('configFingerprint' in auth)&&!('expectedReplicaCount' in auth)
+      : auth.status==='ok'&&auth.registrationMode===inventory.config.registrationMode&&auth.keyFingerprint===inventory.config.keyFingerprint&&auth.configFingerprint===inventory.config.configFingerprint&&auth.expectedReplicaCount===1;
+    fail(ready.revision===inventory.deployments.apiRevision&&authMatchesPhase,'auth_readiness_phase_mismatch');
     fail(modes.modes.find(x=>x.id==='standard_1v1')?.enabled===true&&modes.modes.find(x=>x.id==='speed_1v1')?.enabled===true,'ranked_modes_invalid');
     fail(preview.revision!==inventory.deployments.apiRevision&&preview.dependencies.durableAuth.status==='not_checked_stub','preview_readiness_invalid');
-    fail(web.revision===inventory.deployments.webRevision&&web.registrationMode===inventory.config.registrationMode,'web_revision_mismatch');
-    const migrations=await q(PREFLIGHT_SQL.migrations),identity=await q(PREFLIGHT_SQL.identity),schema=await q(PREFLIGHT_SQL.schema),after=await q(PREFLIGHT_SQL.snapshot);
-    fail(statements===7,'transaction_statement_accounting_invalid'); fail(equalSnapshot(before,after),'zero_write_snapshot_mismatch'); validateMigrationSet(migrations); fail(canonicalJson(migrations)===canonicalJson(inventory.migrations),'database_migration_mismatch');
+    const webMatchesPhase = inventory.activationPhase === 'dormant'
+      ? web.mode==='disabled'&&web.registrationMode===null
+      : web.mode==='durable'&&web.registrationMode===inventory.config.registrationMode;
+    fail(web.revision===inventory.deployments.webRevision,'web_revision_mismatch'); fail(webMatchesPhase,'web_identity_phase_mismatch');
+    const migrations=await q(PREFLIGHT_SQL.migrations),identity=await q(PREFLIGHT_SQL.identity),schema=await q(PREFLIGHT_SQL.schema);
+    fail(statements===6,'transaction_statement_accounting_invalid'); validateMigrationSet(migrations); fail(canonicalJson(migrations)===canonicalJson(inventory.migrations),'database_migration_mismatch');
     fail(identity?.identityFingerprint===inventory.database.identityFingerprint,'database_identity_mismatch'); fail(identity?.databaseHostFingerprint===inventory.database.databaseHostFingerprint,'database_host_mismatch');
     fail(schema?.status===inventory.database.schemaStatus&&schema?.remediationConflictCount===0,'database_schema_mismatch');
-    proof={health:'ok',readiness:'ok',rankedModes:['speed_1v1','standard_1v1'],webIdentity:'ok',previewIsolation:'ok',databaseReadOnly:true,zeroWrite:true,providerDerived:true};
   });
-  const evidence={schemaVersion:2,result:'PASS',runId:inventory.runId,sourceSha:inventory.sourceSha,artifactSha:inventory.artifactSha,providerInventoryReceipt:inventoryReceipt,provider:inventory.provider,deployments:inventory.deployments,origins:inventory.origins,replicas:inventory.replicas,config:inventory.config,migrations:inventory.migrations,database:inventory.database,proof,source:inventory.source,expiresAt:inventory.expiresAt};
+  let after;
+  await databaseAdapter.withReadOnlyObservation(async(query)=>{
+    let statements=0;
+    await query(PREFLIGHT_SQL.isolation); statements++;
+    const readOnly=await query(PREFLIGHT_SQL.readOnlyStatus); statements++; fail(readOnly?.transactionReadOnly==='on','observation_transaction_read_only_off');
+    after=await query(PREFLIGHT_SQL.snapshot); statements++;
+    fail(statements===3,'observation_statement_accounting_invalid');
+  });
+  fail(equalSnapshot(before,after),'zero_write_observation_mismatch');
+  proof={health:'ok',readiness:'ok',rankedModes:['speed_1v1','standard_1v1'],webIdentity:'ok',previewIsolation:'ok',databaseReadOnly:true,zeroWrite:true,providerDerived:true};
+  const evidence={schemaVersion:3,result:'PASS',activationPhase:inventory.activationPhase,runId:inventory.runId,sourceSha:inventory.sourceSha,artifactSha:inventory.artifactSha,providerInventoryReceipt:inventoryReceipt,provider:inventory.provider,deployments:inventory.deployments,origins:inventory.origins,replicas:inventory.replicas,config:inventory.config,migrations:inventory.migrations,database:inventory.database,proof,source:inventory.source,expiresAt:inventory.expiresAt};
   scalarSafe(evidence); fail(Buffer.byteLength(canonicalJson(evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); return {evidence,receipt:receiptFor(evidence)};
 }
 export function verifyPreflightReceipt(preflight, now=Date.now()) {
   exact(preflight,['evidence','receipt'],'preflight_artifact_schema_invalid'); exact(preflight.evidence,EVIDENCE_KEYS,'preflight_evidence_schema_invalid');
-  fail(preflight.evidence.schemaVersion===2&&preflight.evidence.result==='PASS'&&RECEIPT.test(preflight.evidence.providerInventoryReceipt),'preflight_not_pass');
+  fail(preflight.evidence.schemaVersion===3&&preflight.evidence.result==='PASS'&&PHASES.includes(preflight.evidence.activationPhase)&&RECEIPT.test(preflight.evidence.providerInventoryReceipt),'preflight_not_pass');
   exact(preflight.evidence.proof,PROOF,'preflight_proof_schema_invalid'); fail(Object.values(preflight.evidence.proof).every(v=>v===true||v==='ok'||Array.isArray(v)),'preflight_proof_invalid');
-  validateInventory({schemaVersion:2,runId:preflight.evidence.runId,sourceSha:preflight.evidence.sourceSha,artifactSha:preflight.evidence.artifactSha,provider:preflight.evidence.provider,deployments:preflight.evidence.deployments,origins:preflight.evidence.origins,replicas:preflight.evidence.replicas,config:preflight.evidence.config,migrations:preflight.evidence.migrations,database:preflight.evidence.database,source:preflight.evidence.source,expiresAt:preflight.evidence.expiresAt},now);
+  validateInventory({schemaVersion:3,activationPhase:preflight.evidence.activationPhase,runId:preflight.evidence.runId,sourceSha:preflight.evidence.sourceSha,artifactSha:preflight.evidence.artifactSha,provider:preflight.evidence.provider,deployments:preflight.evidence.deployments,origins:preflight.evidence.origins,replicas:preflight.evidence.replicas,config:preflight.evidence.config,migrations:preflight.evidence.migrations,database:preflight.evidence.database,source:preflight.evidence.source,expiresAt:preflight.evidence.expiresAt},now);
   fail(Buffer.byteLength(canonicalJson(preflight.evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); fail(equalReceipt(receiptFor(preflight.evidence),preflight.receipt),'preflight_receipt_mismatch'); return structuredClone(preflight);
 }
 export function parsePreflightArgs(args) { fail(!args.includes('--apply'),'apply_forbidden'); fail(args.length===4&&args[0]==='--inventory'&&args[2]==='--inventory-receipt'&&typeof args[1]==='string'&&typeof args[3]==='string'&&!args[1].startsWith('-')&&!args[3].startsWith('-'),'arguments_invalid'); return {inventoryPath:args[1],inventoryReceiptPath:args[3]}; }
+
+export const ROLLBACK_ORDER = Object.freeze(['web-writes-off','registration-closed','sessions-revoked','zero-active-sessions-proven','api-durable-off','code-rollback']);
+export function validateRollbackOrder(steps) {
+  fail(Array.isArray(steps)&&steps.length===ROLLBACK_ORDER.length&&steps.every((step,index)=>step===ROLLBACK_ORDER[index]),'rollback_order_invalid');
+  return [...steps];
+}
