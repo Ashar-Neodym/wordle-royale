@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { canonicalJson, collectInventory, createReceipt, validateInventory, verifyReceipt } from './provider-provenance-core.mjs';
+import { canonicalJson, COLLECTOR_ID, collectInventory, createReceipt, RECEIPT_VERSION, sha256, validateInventory, verifyReceipt } from './provider-provenance-core.mjs';
 import { collectionConstraints, expectedIdentities, resignNativeEvidence, validProviderSnapshot } from './provider-provenance-fixture.mjs';
 
 const key = Buffer.from('mock-receipt-signing-material-32-bytes-minimum');
 const clone = structuredClone;
 function collect(snapshot, overrides = {}) { return collectInventory(snapshot, collectionConstraints(snapshot, overrides)); }
 function receipt(snapshot, inventory = collect(snapshot), overrides = {}) { return createReceipt(inventory, snapshot, key, 'mock-key-v1', collectionConstraints(snapshot, overrides)); }
+function signedReceipt(snapshot, inventory) {
+  const unsigned = { schemaVersion: RECEIPT_VERSION, collector: COLLECTOR_ID, keyId: 'mock-key-v1', inventoryDigest: sha256(canonicalJson(inventory)), evidenceDigest: sha256(canonicalJson(snapshot)) };
+  return { ...unsigned, signature: `hmac-sha256:${createHmac('sha256', key).update(canonicalJson(unsigned)).digest('hex')}` };
+}
 
 // Blocker 1: verifier and validator must reject malformed caller inventories, even if re-signed.
 test('strict inventory schema rejects unknown, omitted, collector, identity, artifact, manifest, observation and provenance corruption', () => {
@@ -117,6 +122,16 @@ test('preserves absent, explicitly empty, non-empty and masked-unknown without v
 for (const [suffix, expectedState] of [['ABSENT', 'absent'], ['EMPTY', 'explicitly-empty'], ['MASKED', 'masked-unknown']]) test(`validator fails closed for required ${expectedState}`, () => {
   const snapshot = validProviderSnapshot(); snapshot.requiredVariables.vercel.push(`VERCEL_${suffix}`); const result = validateInventory(collect(snapshot));
   assert.equal(result.valid, false); assert.ok(result.issues.some((issue) => issue.name === `VERCEL_${suffix}`));
+});
+
+test('receipt creation and verification fail closed for every unproven required-variable state', () => {
+  for (const suffix of ['ABSENT', 'EMPTY', 'MASKED']) {
+    const snapshot = validProviderSnapshot(); snapshot.requiredVariables.vercel.push(`VERCEL_${suffix}`); const inventory = collect(snapshot);
+    assert.equal(validateInventory(inventory).valid, false);
+    assert.throws(() => receipt(snapshot, inventory), (error) => error.code === 'REQUIRED_VARIABLE_UNPROVEN');
+    // This correctly bound receipt reproduces the signature that the former fail-open path accepted.
+    assert.equal(verifyReceipt(inventory, signedReceipt(snapshot, inventory), key, snapshot, collectionConstraints(snapshot)), false);
+  }
 });
 
 test('CLI emits separate canonical files, verifies native evidence, and never emits provider values', () => {

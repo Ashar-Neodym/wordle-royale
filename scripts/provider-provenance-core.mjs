@@ -244,7 +244,7 @@ export function validateInventory(inventory) {
   } catch (error) { return { valid: false, issues: [{ code: error instanceof ProvenanceError ? error.code : 'INVALID_INVENTORY', message: error instanceof Error ? error.message : 'invalid inventory' }] }; }
 }
 
-function assertValidInventory(inventory) { const result = validateInventory(inventory); if (!result.valid && result.issues[0]?.code !== 'REQUIRED_VARIABLE_UNPROVEN') fail(result.issues[0]?.code ?? 'INVALID_INVENTORY', result.issues[0]?.message ?? 'invalid inventory'); }
+function assertValidInventory(inventory) { const result = validateInventory(inventory); if (!result.valid) fail(result.issues[0]?.code ?? 'INVALID_INVENTORY', result.issues[0]?.message ?? 'invalid inventory'); }
 export function createReceipt(inventory, snapshot, signingKey, keyId, constraints = {}) {
   if (!(signingKey instanceof Uint8Array) || signingKey.byteLength < 32) fail('WEAK_RECEIPT_KEY', 'at least 32 bytes required'); id(keyId, 'keyId'); assertValidInventory(inventory);
   const derived = collectInventory(snapshot, constraints);
