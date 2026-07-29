@@ -35,6 +35,7 @@
     "provider-provenance": "node scripts/provider-provenance.mjs",
     "test:postgres:auth-activation-smoke": "pnpm --filter @wordle-royale/api test:postgres:auth-activation-smoke",
     "test:postgres:preflight-fingerprint": "pnpm --filter @wordle-royale/api test:postgres:preflight-fingerprint",
+    "test:postgres:auth-preflight-cli-e2e": "pnpm --filter @wordle-royale/api test:postgres:auth-preflight-cli-e2e",
     "secret-scan": "node scripts/secret-scan.mjs",
     "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
     "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"

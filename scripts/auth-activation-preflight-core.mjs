@@ -258,11 +258,12 @@ export function verifyPreflightReceipt(preflight, now=Date.now()) {
 export function parsePreflightArgs(args) {
   fail(!args.includes('--apply'),'apply_forbidden');
   const names=['operational-inventory','provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
-  fail(args.length===names.length*2,'arguments_invalid');
+  const optionalNames=['output'];
+  fail(args.length===names.length*2||args.length===(names.length+optionalNames.length)*2,'arguments_invalid');
   const parsed={};
-  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&names.includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
+  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&[...names,...optionalNames].includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
   fail(names.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
-  return {operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key']};
+  return {operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key'],outputPath:parsed.output};
 }
 
 export const ROLLBACK_ORDER = Object.freeze(['web-writes-off','registration-closed','sessions-revoked','zero-active-sessions-proven','api-durable-off','code-rollback']);

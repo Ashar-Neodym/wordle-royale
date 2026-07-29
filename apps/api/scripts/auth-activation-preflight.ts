@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 // @ts-expect-error no declaration file is emitted for the repository script core
 import { parsePreflightArgs, PREFLIGHT_SQL, runActivationPreflight, verifyAuthenticatedProviderEvidence, canonicalJson, MAX_PUBLIC_BODY_BYTES, normalizeJsonContentType } from '../../../scripts/auth-activation-preflight-core.mjs';
 // @ts-expect-error no declaration file is emitted for the repository script core
@@ -12,6 +14,40 @@ const MIGRATIONS_SQL = `SELECT coalesce(jsonb_agg(jsonb_build_object('id',migrat
 const IDENTITY_SQL = `SELECT current_database() AS database_name, coalesce(inet_server_addr()::text,'local') AS server_address, inet_server_port() AS server_port, version() AS server_version, (pg_control_system()).system_identifier::text AS system_identifier`;
 const REMEDIATION_SQL = `SELECT count(*) AS conflicts FROM "UserAccount" WHERE "email" IS NOT NULL AND ("email" <> lower(btrim("email")) OR "email" !~ '^[ -~]+$')`;
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+const MAX_PROTECTED_INPUT_BYTES = 64 * 1024;
+async function readProtected(path: string): Promise<Buffer> {
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile() || (info.mode & 0o777) !== 0o600 || info.size > MAX_PROTECTED_INPUT_BYTES || (typeof process.getuid === 'function' && info.uid !== process.getuid())) throw new Error('protected_input_invalid');
+    return await handle.readFile();
+  } finally { await handle?.close(); }
+}
+async function writeProtected(path: string, value: string): Promise<void> {
+  if (!isAbsolute(path) || resolve(path) !== path || basename(path) === '.' || basename(path) === '..') throw new Error('output_path_invalid');
+  const parent = await realpath(dirname(path));
+  let directory;
+  try {
+    directory = await open(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const info = await directory.stat();
+    if ((info.mode & 0o777) !== 0o700 || (typeof process.getuid === 'function' && info.uid !== process.getuid())) throw new Error('output_directory_permissions_invalid');
+    const handle = await open(join(parent, basename(path)), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try { await handle.writeFile(value); await handle.sync(); } finally { await handle.close(); }
+  } finally { await directory?.close(); }
+}
+function testTransportTarget(rawUrl: string): string {
+  const rawMap = process.env.AUTH_PREFLIGHT_TEST_ORIGIN_MAP;
+  if (!rawMap) return rawUrl;
+  if (process.env.NODE_ENV !== 'test' || process.env.RUN_AUTH_PREFLIGHT_CLI_E2E !== '1') throw new Error('test_transport_forbidden');
+  let mapping: unknown; try { mapping = JSON.parse(rawMap); } catch { throw new Error('test_transport_invalid'); }
+  if (mapping === null || typeof mapping !== 'object' || Array.isArray(mapping)) throw new Error('test_transport_invalid');
+  const requested = new URL(rawUrl); const mapped = (mapping as Record<string, unknown>)[requested.origin];
+  if (typeof mapped !== 'string') throw new Error('test_transport_authority_unmapped');
+  const target = new URL(mapped);
+  if (target.protocol !== 'http:' || !['127.0.0.1','::1','localhost'].includes(target.hostname) || target.username || target.password || target.pathname !== '/' || target.search || target.hash) throw new Error('test_transport_invalid');
+  return `${target.origin}${requested.pathname}${requested.search}`;
+}
 function directDatabaseHostFingerprint(raw: string | undefined): string {
   if (!raw) throw new Error('database_url_required');
   let url: URL; try { url = new URL(raw); } catch { throw new Error('database_url_invalid'); }
@@ -26,9 +62,9 @@ async function boundedJson(response: Response): Promise<{body: unknown; bodyByte
   return {body,bodyBytes:size};
 }
 async function main() {
-  const { operationalInventoryPath, providerInventoryPath, providerReceiptPath, nativeEvidencePath, expectedIdentitiesPath, expectedNonce, providerReceiptKeyPath }=parsePreflightArgs(process.argv.slice(2));
+  const { operationalInventoryPath, providerInventoryPath, providerReceiptPath, nativeEvidencePath, expectedIdentitiesPath, expectedNonce, providerReceiptKeyPath, outputPath }=parsePreflightArgs(process.argv.slice(2));
   const [operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedIdentities,providerReceiptKey]=await Promise.all([
-    readFile(operationalInventoryPath,'utf8').then(JSON.parse),readFile(providerInventoryPath,'utf8').then(JSON.parse),readFile(providerReceiptPath,'utf8').then(JSON.parse),readFile(nativeEvidencePath,'utf8').then(JSON.parse),readFile(expectedIdentitiesPath,'utf8').then(JSON.parse),readFile(providerReceiptKeyPath),
+    readProtected(operationalInventoryPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerInventoryPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerReceiptPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(nativeEvidencePath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(expectedIdentitiesPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerReceiptKeyPath),
   ]);
   // Authenticate all provider evidence before loading database code, opening a client, or issuing public probes.
   verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey});
@@ -47,7 +83,7 @@ async function main() {
     },{isolationLevel:'Serializable',timeout:30_000});
   };
   const databaseAdapter={withReadOnlyTransaction:inReadOnlyTransaction,withReadOnlyObservation:inReadOnlyTransaction};
-  const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const response=await fetch(url,{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url:response.url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
-  try { const result=await runActivationPreflight({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});process.stdout.write(`${canonicalJson(result)}\n`); } finally { await prisma.$disconnect(); }
+  const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const response=await fetch(testTransportTarget(url),{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
+  try { const result=await runActivationPreflight({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});const output=`${canonicalJson(result)}\n`;if(outputPath)await writeProtected(outputPath,output);else process.stdout.write(output); } finally { await prisma.$disconnect(); }
 }
 main().catch((error:unknown)=>{const prerequisite=error instanceof Error&&error.message==='pg_control_system_execute_required'?'pg_control_system_execute_required':undefined;process.stderr.write(`${canonicalJson({result:'FAIL',failureCode:prerequisite??'preflight_failed'})}\n`);process.exitCode=1;});
