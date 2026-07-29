@@ -27,8 +27,8 @@ try {
   assert.equal(migrations,'9','all nine migrations must be applied');
   const output = run(process.execPath,['--import','tsx','--test','--test-concurrency=1','test/preflight-complete-fingerprint-postgres.integration.ts'],{DATABASE_URL:database.toString(),RUN_PREFLIGHT_FINGERPRINT_POSTGRES:'1'});
   process.stdout.write(output);
-  assert.match(output,/tests 3/u); assert.match(output,/pass 3/u); assert.match(output,/fail 0/u); assert.equal(output.includes('# SKIP'),false);
-  console.log('[Ticket267] PASS complete 25-model count+content fingerprint; update matrix=25, insert/delete/schema/type negatives, 9 migrations, no skips');
+  assert.match(output,/tests 6/u); assert.match(output,/pass 6/u); assert.match(output,/fail 0/u); assert.equal(output.includes('# SKIP'),false);
+  console.log('[Ticket267] PASS exact PostgreSQL type/typmod/enum manifest; bounded 4096-row chunks; fixed 10000000-row/table ceiling; 25-model update matrix; scale/cardinality negatives; 9 migrations; no skips');
 } finally {
   if (created) run('psql',[admin.toString(),'-X','-v','ON_ERROR_STOP=1','-c',`DROP SCHEMA IF EXISTS "${schema}" CASCADE`]);
   const remaining = run('psql',[admin.toString(),'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',`SELECT count(*) FROM pg_namespace WHERE nspname='${schema}'`]).trim();

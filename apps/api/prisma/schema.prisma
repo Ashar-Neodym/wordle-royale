@@ -121,9 +121,9 @@ enum SpeedCompletionReason {
   deadline
   forfeit
   ready_timeout
+  operator_void
   invitation_timeout
   pre_start_cancelled
-  operator_void
 }
 
 enum MatchMutationKind {

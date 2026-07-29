@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { Prisma, PrismaClient } from '@prisma/client';
 // @ts-expect-error Repository executable core is intentionally plain ESM.
-import { APPLICATION_MODEL_TABLES, completeDatabaseFingerprint } from '../../../scripts/complete-database-fingerprint.mjs';
+import { APPLICATION_MODEL_TABLES, FINGERPRINT_CHUNK_ROWS, completeDatabaseFingerprint } from '../../../scripts/complete-database-fingerprint.mjs';
 
 if (process.env.RUN_PREFLIGHT_FINGERPRINT_POSTGRES !== '1') throw new Error('disposable PostgreSQL wrapper required');
 
@@ -14,12 +14,12 @@ const ids = {
   guess:id(), score:id(), report:id(), ratingProfile:id(), ratingEvent:id(), leaderboard:id(), ticket:id(), analytics:id(), audit:id(), activationAudit:id(),
 };
 
-async function snapshot() {
+async function snapshot(options?: { maxTableRows?: number }, datamodel: typeof Prisma.dmmf.datamodel = Prisma.dmmf.datamodel) {
   return db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
     const status = await tx.$queryRawUnsafe<Array<{ transaction_read_only: string }>>('SHOW transaction_read_only');
     assert.equal(status[0]?.transaction_read_only, 'on');
-    return completeDatabaseFingerprint(tx, Prisma.dmmf.datamodel.models);
+    return completeDatabaseFingerprint(tx, datamodel, options);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 
@@ -100,6 +100,70 @@ test('Ticket 267 real PostgreSQL detects inserts/deletes and fails closed on tab
   await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u);
   await db.$executeRawUnsafe('ALTER TABLE "AuditLog" DROP COLUMN "ticket267Drift"');
   await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ADD COLUMN "ticket267Unsupported" integer[]');
-  await assert.rejects(snapshot(), /complete_fingerprint_unsupported_type/u);
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u);
   await db.$executeRawUnsafe('ALTER TABLE "AuditLog" DROP COLUMN "ticket267Unsupported"');
+
+  await db.$executeRawUnsafe('ALTER TABLE "AccountSession" ALTER COLUMN "revocationReason" TYPE varchar(33)');
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'varchar native length drift must fail');
+  await db.$executeRawUnsafe('ALTER TABLE "AccountSession" ALTER COLUMN "revocationReason" TYPE varchar(32)');
+
+  await db.$executeRawUnsafe('ALTER TABLE "SpeedLifecycleActivationAudit" ALTER COLUMN "providerObservedBeforeAt" TYPE timestamptz(5)');
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'timestamp precision drift must fail');
+  // The migration uses PostgreSQL's omitted/default precision, which is
+  // semantically precision 6 but has exact typmod -1.
+  await db.$executeRawUnsafe('ALTER TABLE "SpeedLifecycleActivationAudit" ALTER COLUMN "providerObservedBeforeAt" TYPE timestamptz');
+
+  await db.$executeRawUnsafe('ALTER TABLE "UserProfile" ALTER COLUMN "bio" SET NOT NULL');
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'nullability drift must fail');
+  await db.$executeRawUnsafe('ALTER TABLE "UserProfile" ALTER COLUMN "bio" DROP NOT NULL');
+
+  await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ALTER COLUMN "reason" TYPE varchar(80)');
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'scalar type drift must fail');
+  await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ALTER COLUMN "reason" TYPE text');
+
+  const numericDatamodel = structuredClone(Prisma.dmmf.datamodel) as typeof Prisma.dmmf.datamodel;
+  const numericField = numericDatamodel.models.find((model) => model.name === 'AuditLog')?.fields.find((field) => field.name === 'metadata');
+  assert(numericField);
+  Object.assign(numericField, { type: 'Decimal', nativeType: ['Decimal', ['12', '4']] });
+  await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ALTER COLUMN "metadata" TYPE numeric(12,5) USING NULL');
+  await assert.rejects(snapshot(undefined, numericDatamodel), /complete_fingerprint_schema_drift/u, 'numeric scale drift must fail');
+  await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ALTER COLUMN "metadata" TYPE numeric(13,4)');
+  await assert.rejects(snapshot(undefined, numericDatamodel), /complete_fingerprint_schema_drift/u, 'numeric precision drift must fail');
+  await db.$executeRawUnsafe('ALTER TABLE "AuditLog" ALTER COLUMN "metadata" TYPE jsonb USING NULL');
+
+  const malformedNativeArgs = structuredClone(Prisma.dmmf.datamodel) as typeof Prisma.dmmf.datamodel;
+  const varcharField = malformedNativeArgs.models.find((model) => model.name === 'AccountSession')?.fields.find((field) => field.name === 'revocationReason');
+  assert(varcharField);
+  Object.assign(varcharField, { nativeType: ['VarChar', ['32', 'unexpected']] });
+  await assert.rejects(snapshot(undefined, malformedNativeArgs), /complete_fingerprint_prisma_manifest_invalid/u, 'native type arguments must have exact arity');
+
+  await db.$executeRawUnsafe(`ALTER TYPE "ConsentScope" RENAME VALUE 'training_insights_opt_in' TO 'ticket267_label_drift'`);
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'enum label drift must fail');
+  await db.$executeRawUnsafe(`ALTER TYPE "ConsentScope" RENAME VALUE 'ticket267_label_drift' TO 'training_insights_opt_in'`);
+});
+
+test('Ticket 267 chunked aggregation is deterministic and update-sensitive at representative scale within a frozen bound', async () => {
+  const scaleRows = FINGERPRINT_CHUNK_ROWS + 257;
+  await db.$executeRawUnsafe(`INSERT INTO "AuditLog" (id, action, "entityType") SELECT 'ticket267-scale-' || lpad(g::text, 8, '0'), 'scale', 'fixture' FROM generate_series(1, ${scaleRows}) g`);
+  const started = performance.now();
+  const first = await snapshot();
+  const second = await snapshot();
+  assert.deepEqual(second, first);
+  await db.$executeRawUnsafe(`UPDATE "AuditLog" SET reason='changed' WHERE id='ticket267-scale-${String(scaleRows).padStart(8, '0')}'`);
+  const changed = await snapshot();
+  const auditIndex = APPLICATION_MODEL_TABLES.findIndex((entry: readonly [string,string]) => entry[1] === 'AuditLog');
+  assert.equal(changed.models[auditIndex].count, first.models[auditIndex].count);
+  assert.notEqual(changed.models[auditIndex].digest, first.models[auditIndex].digest);
+  const elapsedMs = performance.now() - started;
+  assert(elapsedMs < 20_000, `representative chunked fingerprint exceeded 20000ms bound: ${elapsedMs}`);
+});
+
+test('Ticket 267 cardinality ceiling fails closed and rejects unsafe limit configuration', async () => {
+  await assert.rejects(snapshot({ maxTableRows: 100 }), /complete_fingerprint_table_cardinality_exceeded/u);
+  await assert.rejects(snapshot({ maxTableRows: Number.MAX_SAFE_INTEGER }), /complete_fingerprint_limit_invalid/u);
+});
+
+test('Ticket 267 exact enum ordering fails closed', async () => {
+  await db.$executeRawUnsafe(`ALTER TYPE "ConsentScope" ADD VALUE 'ticket267_order_drift' BEFORE 'analytics_events'`);
+  await assert.rejects(snapshot(), /complete_fingerprint_schema_drift/u, 'enum label insertion/order drift must fail');
 });
