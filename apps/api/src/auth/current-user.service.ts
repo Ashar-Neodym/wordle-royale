@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PreviewDemoSessionService } from './preview-demo-session.service.ts';
+import { DurableAuthPersistenceService } from './durable-auth-persistence.service.ts';
+import { readDurableSessionToken } from './durable-session-cookie.ts';
+import { durableAuthActive } from './durable-unsafe-request.middleware.ts';
 
 export type AppEnv = 'local' | 'test' | 'preview' | 'production';
 export type AuthMode = 'dev_stub' | 'session_required' | 'preview_demo_session';
@@ -8,7 +11,7 @@ type RequestLike = { headers?: Record<string, string | string[] | undefined> } |
 
 export type CurrentUserContext = {
   userId: string;
-  source: 'dev_stub' | 'preview_demo_session';
+  source: 'dev_stub' | 'preview_demo_session' | 'durable_session';
 };
 
 export const localFixtureUsers = {
@@ -26,7 +29,10 @@ function envFlagEnabled(value: string | undefined, defaultValue: boolean): boole
 
 @Injectable()
 export class CurrentUserService {
-  constructor(@Inject(PreviewDemoSessionService) private readonly previewSessions: PreviewDemoSessionService) {}
+  constructor(
+    @Inject(PreviewDemoSessionService) private readonly previewSessions: PreviewDemoSessionService,
+    @Inject(DurableAuthPersistenceService) private readonly durableAuth: DurableAuthPersistenceService,
+  ) {}
 
   appEnv(): AppEnv {
     const appEnv = process.env.APP_ENV;
@@ -56,11 +62,19 @@ export class CurrentUserService {
       && envFlagEnabled(process.env.ENABLE_DEV_ROUTES, true);
   }
 
-  resolveCurrentUser(headerValue: string | string[] | undefined, request?: RequestLike): CurrentUserContext {
+  async resolveCurrentUser(headerValue: string | string[] | undefined, request?: RequestLike): Promise<CurrentUserContext> {
     if (this.authMode() === 'preview_demo_session') {
       const userId = this.previewSessions.resolveUserId(request);
       if (!userId) throw this.notAuthenticated();
       return { userId, source: 'preview_demo_session' };
+    }
+
+    if (this.authMode() === 'session_required') {
+      if (!durableAuthActive()) throw this.notAuthenticated();
+      const token = readDurableSessionToken(request);
+      const session = token ? await this.durableAuth.resolveSession(token) : null;
+      if (!session) throw this.notAuthenticated();
+      return { userId: session.userId, source: 'durable_session' };
     }
 
     if (!this.devAuthAllowed()) {

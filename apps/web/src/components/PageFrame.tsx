@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { SiteNav } from './SiteNav';
 import styles from './web-shell.module.css';
+import { resolveDurableAuthConfiguration } from '../lib/durable-auth-bff';
 
 export function PageFrame({ children }: { children: ReactNode }): ReactElement {
   return (
@@ -13,10 +14,13 @@ export function PageFrame({ children }: { children: ReactNode }): ReactElement {
 }
 
 function PreviewNotice(): ReactElement {
+  const durableAccountsAvailable = resolveDurableAuthConfiguration().status === 'available';
   return (
     <aside className={styles.previewNotice} aria-label="Public preview limitations">
       <strong>Public preview</strong>
-      <span>Demo sessions only — no durable accounts yet. Sessions, ratings, lobbies, match history, and demo profiles may reset. Mobile remains experimental until physical Expo Go smoke is complete.</span>
+      <span>{durableAccountsAvailable
+        ? 'Durable account access is configured for this deployment. Preview game features may still change, and mobile remains experimental until physical Expo Go smoke is complete.'
+        : 'Demo sessions only — no durable accounts in this deployment. Sessions, ratings, lobbies, match history, and demo profiles may reset. Mobile remains experimental until physical Expo Go smoke is complete.'}</span>
     </aside>
   );
 }

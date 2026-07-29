@@ -332,6 +332,17 @@ describe('api skeleton', () => {
     }
   });
 
+  it('preserves the exact disabled dev-stub registration request and token response', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ email: 'legacy-dev@example.com', password: 'password123', displayName: 'Legacy Dev' })
+      .expect(201);
+    assert.deepEqual(Object.keys(response.body.data).sort(), ['accessToken', 'refreshToken', 'user']);
+    assert.equal(response.body.data.user.email, 'legacy-dev@example.com');
+    assert.equal(response.body.data.accessToken, 'stub-access-token-not-for-production');
+    assert.equal(response.body.data.refreshToken, 'stub-refresh-token-not-for-production');
+  });
+
   it('uses Prisma-backed profile service behavior while auth remains stubbed', async () => {
     const me = await request(app.getHttpServer()).get('/auth/me').expect(200);
     assert.equal(me.body.error, null);

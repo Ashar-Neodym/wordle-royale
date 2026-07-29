@@ -38,7 +38,7 @@ export class GameplayController {
       });
     }
 
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     const startInput = {
       lobbyId: body.lobbyId!,
       clientRequestId: body.clientRequestId,
@@ -58,7 +58,7 @@ export class GameplayController {
     @Req() request: unknown,
   ) {
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     const historyInput: { userId: string; limit?: number; cursor?: string } = { userId: currentUser.userId };
     if (parsedLimit) historyInput.limit = parsedLimit;
     if (cursor) historyInput.cursor = cursor;
@@ -71,7 +71,7 @@ export class GameplayController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     if (await this.speedGameplay.isSpeedMatch(matchId)) {
       return ok(await this.speedGameplay.getSnapshot(matchId, currentUser.userId), request as never);
     }
@@ -85,7 +85,7 @@ export class GameplayController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.speedGameplay.markReady(matchId, currentUser.userId, body.clientRequestId), request as never);
   }
 
@@ -96,7 +96,7 @@ export class GameplayController {
     @Headers('x-wordle-dev-user-id') devUserId: string | string[] | undefined,
     @Req() request: unknown,
   ) {
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.speedGameplay.forfeit(matchId, currentUser.userId, body.clientRequestId), request as never);
   }
 
@@ -118,7 +118,7 @@ export class GameplayController {
     if (await this.speedGameplay.isSpeedMatch(matchId)) {
       throw new BadRequestException({ code: 'speed_server_authoritative_completion', message: 'Speed matches complete only through server-authoritative gameplay transitions.' });
     }
-    this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     return ok(await this.gameplay.completeRankedMatch({ matchId, ...(body.reason ? { reason: body.reason } : {}) }), request as never);
   }
 
@@ -143,7 +143,7 @@ export class GameplayController {
       });
     }
 
-    const currentUser = this.currentUsers.resolveCurrentUser(devUserId, request as never);
+    const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     if (await this.speedGameplay.isSpeedMatch(matchId)) {
       return ok(await this.speedGameplay.submitGuess({
         matchId,

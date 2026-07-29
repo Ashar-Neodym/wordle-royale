@@ -73,22 +73,43 @@ export const currentUserSchema = userSchema.extend({
   profile: publicProfileSchema.pick({ handle: true, displayName: true, avatarUrl: true, profileVisibility: true }).nullable(),
 });
 
-export const registerRequestSchema = z.object({
+export const registerRequestSchema = z.strictObject({
+  email: z.string().min(3).max(254),
+  password: z.string().min(12).max(128),
+  handle: z.string().regex(/^[a-z0-9_]{3,20}$/),
+  displayName: z.string().min(1).max(40),
+});
+
+/** Legacy local dev-stub request. Durable registration uses registerRequestSchema. */
+export const devStubRegisterRequestSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
   displayName: z.string().min(1).max(40),
 });
 
-export const loginRequestSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+export const loginRequestSchema = z.strictObject({
+  email: z.string().min(3).max(254),
+  password: z.string().min(1).max(128),
 });
 
+export const authSessionResponseSchema = z.strictObject({
+  user: currentUserSchema,
+  session: z.strictObject({
+    id: idSchema,
+    provider: z.literal('password'),
+    createdAt: timestampSchema,
+    expiresAt: timestampSchema,
+  }),
+});
+
+/** Legacy local dev-stub response. Never use for durable or production sessions. */
 export const authTokenResponseSchema = z.object({
   user: userSchema,
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1),
 });
+
+export const logoutRequestSchema = z.strictObject({});
 
 export const handleAvailabilityResponseSchema = z.object({
   handle: z.string().min(1),

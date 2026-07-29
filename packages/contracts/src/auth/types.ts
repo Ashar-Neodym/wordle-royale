@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { analyticsConsentEventSchema, authTokenResponseSchema, consentScopeSchema, consentStateSchema, currentProfileSummarySchema, currentUserSchema, handleAvailabilityResponseSchema, loginRequestSchema, profileRatingSummarySchema, profileSummarySchema, publicProfileSchema, publicProfileSummarySchema, registerRequestSchema, sessionSchema, updateConsentRequestSchema, updateProfileRequestSchema, userSchema } from './schemas.ts';
+import { analyticsConsentEventSchema, authSessionResponseSchema, authTokenResponseSchema, consentScopeSchema, consentStateSchema, currentProfileSummarySchema, currentUserSchema, handleAvailabilityResponseSchema, loginRequestSchema, logoutRequestSchema, profileRatingSummarySchema, profileSummarySchema, publicProfileSchema, publicProfileSummarySchema, registerRequestSchema, sessionSchema, updateConsentRequestSchema, updateProfileRequestSchema, userSchema } from './schemas.ts';
 
 export type ConsentScope = z.infer<typeof consentScopeSchema>;
 export type UserDto = z.infer<typeof userSchema>;
@@ -12,7 +12,10 @@ export type PublicProfileSummary = z.infer<typeof publicProfileSummarySchema>;
 export type CurrentUserDto = z.infer<typeof currentUserSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
+export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
+/** Legacy local dev-stub response. */
 export type AuthTokenResponse = z.infer<typeof authTokenResponseSchema>;
+export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
 export type HandleAvailabilityResponse = z.infer<typeof handleAvailabilityResponseSchema>;
 export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 export type ConsentStateDto = z.infer<typeof consentStateSchema>;
