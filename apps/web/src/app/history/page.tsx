@@ -4,6 +4,7 @@ import { AuthRequiredPanel, HistoryStatusPanel, isAuthLimited, MatchHistoryRows 
 import { startPreviewDemoSessionAction } from '../actions';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,12 +12,13 @@ export default async function HistoryPage(): Promise<ReactElement> {
   const history = await getMatchHistory(20);
   const matches = history.status === 'connected' ? history.data?.items ?? [] : [];
   const authLimited = isAuthLimited(history.error);
+  const presentation = requireAuthPresentationConfiguration();
   return (
     <PageFrame>
       <PageHeader eyebrow="History" title="Match history">
-        <p>{authLimited ? 'Your history requires a real session in preview. Public match detail links remain spoiler-safe when shared.' : 'Recent ranked matches for the local player. Active answers, hashes, salts, and hidden guesses stay out of this route.'}</p>
+        <p>{authLimited ? presentation.mode === 'preview_demo' ? 'Your history requires a real session in preview. Public match detail links remain spoiler-safe when shared.' : presentation.mode === 'durable' ? 'Your history requires a durable account session. Public match detail links remain spoiler-safe when shared.' : 'Current-player history is unavailable because accounts are disabled. Public match detail links remain spoiler-safe when shared.' : 'Recent ranked matches for the local player. Active answers, hashes, salts, and hidden guesses stay out of this route.'}</p>
       </PageHeader>
-      {authLimited ? <AuthRequiredPanel title="History requires a session" message="Preview mode does not show fixture-user history as if it were your account. Start an explicit preview demo session to make current-player history available, or keep browsing public match links." previewDemoSessionAction={startPreviewDemoSessionAction} redirectTo="/history" /> : null}
+      {authLimited ? <AuthRequiredPanel surface="History" authPresentationMode={presentation.mode} previewMessage="Preview mode does not show fixture-user history as if it were your account. Start an explicit preview demo session to make current-player history available, or keep browsing public match links." previewDemoSessionAction={startPreviewDemoSessionAction} redirectTo="/history" /> : null}
       <section className={styles.section} aria-labelledby="history-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>{history.status === 'connected' ? 'Live read model' : 'Offline'}</p>

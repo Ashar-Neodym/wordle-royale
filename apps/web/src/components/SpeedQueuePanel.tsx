@@ -19,14 +19,16 @@ import {
 } from './speed-live-state';
 import styles from './web-shell.module.css';
 import { ServerReadRetryButton } from './ServerReadRetryButton';
+import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation';
 
 type Props = {
   sessionState: 'active' | 'signed_out' | 'unavailable';
   queueEnabled: boolean;
   catalogAvailable: boolean;
+  authPresentationMode: AuthPresentationMode;
 };
 
-export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }: Props): ReactElement {
+export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable, authPresentationMode }: Props): ReactElement {
   const initial: SpeedQueueUiState = !catalogAvailable ? 'authority_unavailable' : !queueEnabled ? 'disabled' : sessionState === 'active' ? 'reconnecting' : sessionState === 'unavailable' ? 'error' : sessionState;
   const [state, setState] = useState<SpeedQueueUiState>(initial);
   const [ticket, setTicket] = useState<Speed1v1Ticket | null>(null);
@@ -113,7 +115,8 @@ export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }
     return () => window.clearTimeout(timer);
   }, [state, matchedHref]);
 
-  const text = speedQueueCopy(state);
+  const text = speedQueueCopy(state, authPresentationMode);
+  const authCopy = authLimitedPresentation(authPresentationMode, 'Speed queue');
   const busy = ['reconnecting', 'joining', 'cancelling'].includes(state);
   return (
     <article id="speed-queue" className={`${styles.queuePanel} ${styles.speedQueuePanel}`} aria-live="polite" aria-busy={busy}>
@@ -124,7 +127,7 @@ export function SpeedQueuePanel({ sessionState, queueEnabled, catalogAvailable }
       </div>
       <div className={styles.queueActions}>
         {state === 'authority_unavailable' ? <ServerReadRetryButton label="Retry Speed availability" /> : null}
-        {state === 'signed_out' ? <form action={startPreviewDemoSessionAction}><input type="hidden" name="redirectTo" value="/play#speed-queue" /><button className={styles.primaryButton}>Start preview demo</button></form> : null}
+        {state === 'signed_out' && authCopy.action === 'preview_demo' ? <form action={startPreviewDemoSessionAction}><input type="hidden" name="redirectTo" value="/play#speed-queue" /><button className={styles.primaryButton}>Start preview demo</button></form> : state === 'signed_out' && authCopy.action === 'sign_in' ? <a className={styles.primaryButton} href="/account">Sign in</a> : null}
         {state === 'idle' || state === 'cancelled' || state === 'timed_out' ? <button className={styles.primaryButton} type="button" onClick={() => void join()}>{state === 'idle' ? 'Find Speed match' : 'Search Speed again'}</button> : null}
         {state === 'searching' ? <button className={styles.secondaryButton} type="button" onClick={() => void cancel()}>Cancel Speed search</button> : null}
         {state === 'error' ? <button className={styles.primaryButton} type="button" onClick={() => void reconnect()}>Check Speed status</button> : null}

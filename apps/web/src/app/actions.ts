@@ -8,6 +8,7 @@ import { cancelSpeed1v1Ticket, cancelStandard1v1Ticket, completeRankedMatch, cre
 import type { ApiClientResult, CreateStandard1v1TicketRequest, LiveMatchState, Standard1v1Ticket } from '../lib/api-client';
 import type { CreateLobbyRequest, GuessResult, Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contracts';
 import { raceSpeedOperation, SPEED_MUTATION_POLICY } from '../lib/speed-mutation-policy';
+import { requireAuthPresentationConfiguration } from '../lib/auth-presentation';
 
 const rankedLobbyDefaults: CreateLobbyRequest = {
   clientRequestId: '00000000-0000-4000-8000-000000000000',
@@ -70,6 +71,12 @@ function formValue(formData: FormData, key: string): string {
 
 export async function startPreviewDemoSessionAction(formData: FormData): Promise<void> {
   const redirectTo = formValue(formData, 'redirectTo') || '/profile';
+  const presentation = requireAuthPresentationConfiguration();
+  if (presentation.mode !== 'preview_demo') {
+    redirectWithParams(redirectTo, {
+      action: 'preview_demo', status: 'error', message: 'Preview demo sessions are unavailable in this deployment.',
+    });
+  }
   const apiUrl = getApiBaseUrl();
   let status: 'success' | 'error' = 'success';
   let message = 'Preview demo session started.';

@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import type { AuthPresentationPublic } from '../lib/auth-presentation';
 import styles from './web-shell.module.css';
 
 type NavLink = {
@@ -19,12 +20,17 @@ const learnLinks: NavLink[] = [
   { href: '/learn/rules#fair-play', label: 'Fair play', note: 'spoiler safe' },
 ];
 
-const profileLinks: NavLink[] = [
-  { href: '/account', label: 'Account', note: 'sign in and session' },
-  { href: '/profile', label: 'My profile', note: 'mode ratings' },
-  { href: '/history', label: 'Match history', note: 'rated games' },
-  { href: '/settings', label: 'Settings', note: 'preview account' },
-];
+function profileLinks(presentation: AuthPresentationPublic): NavLink[] {
+  const accountNote = presentation.mode === 'preview_demo'
+    ? 'temporary demo session'
+    : presentation.mode === 'disabled' ? 'currently unavailable' : 'sign in and session';
+  return [
+    { href: '/account', label: 'Account', note: accountNote },
+    { href: '/profile', label: 'My profile', note: 'mode ratings' },
+    { href: '/history', label: 'Match history', note: 'rated games' },
+    { href: '/settings', label: 'Settings', note: presentation.mode === 'preview_demo' ? 'preview account' : 'preferences' },
+  ];
+}
 
 function MenuLink({ href, label, note }: NavLink): ReactElement {
   return (
@@ -46,7 +52,7 @@ function NavMenu({ label, links }: { label: string; links: NavLink[] }): ReactEl
   );
 }
 
-export function SiteNav(): ReactElement {
+export function SiteNav({ presentation }: { presentation: AuthPresentationPublic }): ReactElement {
   return (
     <nav className={styles.nav} aria-label="Primary">
       <a className={styles.brand} href="/">
@@ -58,8 +64,8 @@ export function SiteNav(): ReactElement {
         <a href="/lobbies">Lobbies</a>
         <a href="/leaderboard">Leaderboard</a>
         <NavMenu label="Learn" links={learnLinks} />
-        <NavMenu label="Profile" links={profileLinks} />
-        <a className={styles.profileButton} href="/account" aria-label="Open account and session"><span aria-hidden="true">♟</span> Account</a>
+        <NavMenu label="Profile" links={profileLinks(presentation)} />
+        <a className={styles.profileButton} href="/account" aria-label="Open account and session"><span aria-hidden="true">♟</span> {presentation.mode === 'preview_demo' ? 'Demo session' : 'Account'}</a>
         <a href="/server">Server</a>
       </div>
       <details className={styles.mobileMenu}>

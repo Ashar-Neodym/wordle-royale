@@ -131,6 +131,127 @@ export class PrismaService implements OnModuleDestroy {
     }
   }
 
+  async checkDurableAuthSchema(queryClient: PrismaQueryClient = this.client): Promise<ReadinessDependency> {
+    const checkedAt = new Date().toISOString();
+    const startedAt = Date.now();
+    try {
+      if (!queryClient.$queryRawUnsafe) return { status: 'not_checked_stub', checkedAt, message: 'Durable authentication schema check is unavailable.' };
+      const rows = await queryClient.$queryRawUnsafe<Array<{ schema_ok: boolean }>>(
+        `WITH expected_columns(table_name,column_name,ordinal_position,data_type,is_nullable,character_maximum_length,datetime_precision,column_default) AS (VALUES
+          ('PasswordCredential','userId',1,'text','NO',NULL::integer,NULL::integer,NULL::text),
+          ('PasswordCredential','passwordHash',2,'text','NO',NULL,NULL,NULL),
+          ('PasswordCredential','createdAt',3,'timestamp without time zone','NO',NULL,3,'CURRENT_TIMESTAMP'),
+          ('PasswordCredential','updatedAt',4,'timestamp without time zone','NO',NULL,3,NULL),
+          ('PasswordCredential','passwordChangedAt',5,'timestamp without time zone','NO',NULL,3,'CURRENT_TIMESTAMP'),
+          ('AccountSession','id',1,'text','NO',NULL,NULL,NULL),
+          ('AccountSession','userId',2,'text','NO',NULL,NULL,NULL),
+          ('AccountSession','tokenHash',3,'character','NO',64,NULL,NULL),
+          ('AccountSession','createdAt',4,'timestamp without time zone','NO',NULL,3,'CURRENT_TIMESTAMP'),
+          ('AccountSession','expiresAt',5,'timestamp without time zone','NO',NULL,3,NULL),
+          ('AccountSession','lastSeenAt',6,'timestamp without time zone','NO',NULL,3,'CURRENT_TIMESTAMP'),
+          ('AccountSession','revokedAt',7,'timestamp without time zone','YES',NULL,3,NULL),
+          ('AccountSession','revocationReason',8,'character varying','YES',32,NULL,NULL),
+          ('AuthRateLimitBucket','action',1,'character varying','NO',32,NULL,NULL),
+          ('AuthRateLimitBucket','keyHash',2,'character','NO',64,NULL,NULL),
+          ('AuthRateLimitBucket','windowStartedAt',3,'timestamp without time zone','NO',NULL,3,NULL),
+          ('AuthRateLimitBucket','attemptCount',4,'integer','NO',NULL,NULL,'0'),
+          ('AuthRateLimitBucket','blockedUntil',5,'timestamp without time zone','YES',NULL,3,NULL),
+          ('AuthRateLimitBucket','updatedAt',6,'timestamp without time zone','NO',NULL,3,NULL)
+        ), expected_indexes(name,table_name,is_unique,is_primary,key_columns) AS (VALUES
+          ('PasswordCredential_pkey','PasswordCredential',true,true,ARRAY['userId']::text[]),
+          ('AccountSession_pkey','AccountSession',true,true,ARRAY['id']::text[]),
+          ('AccountSession_tokenHash_key','AccountSession',true,false,ARRAY['tokenHash']::text[]),
+          ('AccountSession_userId_revokedAt_expiresAt_idx','AccountSession',false,false,ARRAY['userId','revokedAt','expiresAt']::text[]),
+          ('AccountSession_expiresAt_idx','AccountSession',false,false,ARRAY['expiresAt']::text[]),
+          ('AuthRateLimitBucket_pkey','AuthRateLimitBucket',true,true,ARRAY['action','keyHash']::text[]),
+          ('AuthRateLimitBucket_windowStartedAt_idx','AuthRateLimitBucket',false,false,ARRAY['windowStartedAt']::text[]),
+          ('AuthRateLimitBucket_blockedUntil_idx','AuthRateLimitBucket',false,false,ARRAY['blockedUntil']::text[])
+        ), actual_indexes AS (
+          SELECT ic.relname AS name,tc.relname AS table_name,i.indisunique AS is_unique,i.indisprimary AS is_primary,
+            i.indisvalid,i.indisready,am.amname,i.indnkeyatts,i.indnatts,i.indexprs IS NULL AS no_expressions,
+            i.indpred IS NULL AS not_partial,
+            ARRAY(SELECT a.attname::text FROM unnest(i.indkey::smallint[]) WITH ORDINALITY k(attnum,ord)
+              JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum ORDER BY k.ord) AS key_columns,
+            ARRAY(SELECT option FROM unnest(i.indoption::smallint[]) WITH ORDINALITY o(option,ord) ORDER BY o.ord) AS key_options,
+            NOT EXISTS (
+              SELECT 1 FROM generate_subscripts(i.indkey,1) s
+              JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[s]
+              JOIN pg_opclass oc ON oc.oid=i.indclass[s]
+              WHERE NOT oc.opcdefault OR oc.opcmethod<>ic.relam OR i.indcollation[s]<>a.attcollation
+            ) AS default_opclasses_and_collations
+          FROM pg_index i JOIN pg_class tc ON tc.oid=i.indrelid JOIN pg_namespace tn ON tn.oid=tc.relnamespace
+          JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_namespace inode ON inode.oid=ic.relnamespace JOIN pg_am am ON am.oid=ic.relam
+          WHERE tn.nspname=current_schema() AND inode.nspname=current_schema()
+        ), expected_fks(name,table_name,key_columns,referenced_table,referenced_columns) AS (VALUES
+          ('PasswordCredential_userId_fkey','PasswordCredential',ARRAY['userId']::text[],'UserAccount',ARRAY['id']::text[]),
+          ('AccountSession_userId_fkey','AccountSession',ARRAY['userId']::text[],'UserAccount',ARRAY['id']::text[])
+        ), actual_fks AS (
+          SELECT x.conname AS name,own.relname AS table_name,ref.relname AS referenced_table,
+            ARRAY(SELECT a.attname::text FROM unnest(x.conkey) WITH ORDINALITY k(attnum,ord)
+              JOIN pg_attribute a ON a.attrelid=x.conrelid AND a.attnum=k.attnum ORDER BY k.ord) AS key_columns,
+            ARRAY(SELECT a.attname::text FROM unnest(x.confkey) WITH ORDINALITY k(attnum,ord)
+              JOIN pg_attribute a ON a.attrelid=x.confrelid AND a.attnum=k.attnum ORDER BY k.ord) AS referenced_columns,
+            x.confupdtype,x.confdeltype,x.confmatchtype,x.convalidated,x.condeferrable,x.condeferred
+          FROM pg_constraint x JOIN pg_namespace n ON n.oid=x.connamespace
+          JOIN pg_class own ON own.oid=x.conrelid JOIN pg_class ref ON ref.oid=x.confrelid
+          WHERE n.nspname=current_schema() AND x.contype='f'
+        ), expected_triggers(table_name,name,function_name,tgtype,update_column) AS (VALUES
+          ('PasswordCredential','PasswordCredential_requires_email','durable_auth_credential_requires_email',21::smallint,'userId'),
+          ('UserAccount','UserAccount_credential_requires_email','durable_auth_email_required_by_credential',17::smallint,'email')
+        ), actual_triggers AS (
+          SELECT c.relname AS table_name,t.tgname AS name,p.proname AS function_name,t.tgtype,
+            ARRAY(SELECT a.attname::text FROM unnest(t.tgattr::smallint[]) WITH ORDINALITY k(attnum,ord)
+              JOIN pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=k.attnum ORDER BY k.ord) AS update_columns,
+            t.tgenabled,t.tgisinternal,t.tgdeferrable,t.tginitdeferred,t.tgnargs,t.tgqual,
+            pn.nspname AS function_schema,x.contype AS constraint_type
+          FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+          JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
+          LEFT JOIN pg_constraint x ON x.oid=t.tgconstraint
+          WHERE n.nspname=current_schema()
+        ) SELECT
+          (SELECT count(*)=3 FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'
+            AND table_name IN ('PasswordCredential','AccountSession','AuthRateLimitBucket'))
+          AND NOT EXISTS (SELECT 1 FROM expected_columns e LEFT JOIN information_schema.columns c
+            ON c.table_schema=current_schema() AND c.table_name=e.table_name AND c.column_name=e.column_name
+            WHERE c.column_name IS NULL OR c.ordinal_position<>e.ordinal_position OR c.data_type<>e.data_type
+              OR c.is_nullable<>e.is_nullable OR c.character_maximum_length IS DISTINCT FROM e.character_maximum_length
+              OR c.datetime_precision IS DISTINCT FROM e.datetime_precision OR c.column_default IS DISTINCT FROM e.column_default)
+          AND (SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema()
+            AND table_name IN ('PasswordCredential','AccountSession','AuthRateLimitBucket'))=(SELECT count(*) FROM expected_columns)
+          AND NOT EXISTS (SELECT 1 FROM expected_indexes e LEFT JOIN actual_indexes a USING(name,table_name,is_unique,is_primary,key_columns)
+            WHERE a.name IS NULL OR NOT a.indisvalid OR NOT a.indisready OR a.amname<>'btree'
+              OR a.indnkeyatts<>cardinality(e.key_columns) OR a.indnatts<>cardinality(e.key_columns)
+              OR NOT a.no_expressions OR NOT a.not_partial OR NOT a.default_opclasses_and_collations
+              OR a.key_options<>array_fill(0::smallint,ARRAY[cardinality(e.key_columns)]))
+          AND (SELECT count(*)=1 FROM pg_index i JOIN pg_class tc ON tc.oid=i.indrelid JOIN pg_namespace n ON n.oid=tc.relnamespace
+            JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_am am ON am.oid=ic.relam
+            WHERE n.nspname=current_schema() AND tc.relname='UserAccount' AND ic.relname='UserAccount_email_normalized_key'
+              AND i.indisunique AND NOT i.indisprimary AND i.indisvalid AND i.indisready AND am.amname='btree'
+              AND i.indnkeyatts=1 AND i.indnatts=1 AND i.indkey[0]=0 AND i.indoption[0]=0
+              AND (SELECT oc.opcdefault AND oc.opcmethod=ic.relam FROM pg_opclass oc WHERE oc.oid=i.indclass[0])
+              AND i.indcollation[0]=(SELECT a.attcollation FROM pg_attribute a WHERE a.attrelid=tc.oid AND a.attname='email')
+              AND pg_get_expr(i.indexprs,i.indrelid,false)='lower(btrim(email))'
+              AND pg_get_expr(i.indpred,i.indrelid,false)='(email IS NOT NULL)')
+          AND NOT EXISTS (SELECT 1 FROM expected_fks e LEFT JOIN actual_fks a USING(name,table_name,key_columns,referenced_table,referenced_columns)
+            WHERE a.name IS NULL OR a.confupdtype<>'c' OR a.confdeltype<>'c' OR a.confmatchtype<>'s'
+              OR NOT a.convalidated OR a.condeferrable OR a.condeferred)
+          AND NOT EXISTS (SELECT 1 FROM expected_triggers e LEFT JOIN actual_triggers a
+            ON a.table_name=e.table_name AND a.name=e.name AND a.function_name=e.function_name AND a.tgtype=e.tgtype
+              AND a.update_columns=ARRAY[e.update_column]
+            WHERE a.name IS NULL OR a.tgenabled<>'O' OR a.tgisinternal OR NOT a.tgdeferrable OR a.tginitdeferred
+              OR a.tgnargs<>0 OR a.tgqual IS NOT NULL OR a.function_schema<>current_schema() OR a.constraint_type<>'t')
+          AND (SELECT count(*)=1 FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=current_schema() AND c.relname='AuthRateLimitBucket' AND x.conname='AuthRateLimitBucket_attemptCount_check'
+              AND x.contype='c' AND x.convalidated AND NOT x.condeferrable AND NOT x.condeferred
+              AND pg_get_expr(x.conbin,x.conrelid,false)='("attemptCount" >= 0)') AS schema_ok`,
+      );
+      if (!rows[0]?.schema_ok) return { status: 'unavailable', checkedAt, latencyMs: Date.now() - startedAt, message: 'Durable authentication schema dependency is unavailable.' };
+      return { status: 'ok', checkedAt, latencyMs: Date.now() - startedAt, message: 'Durable authentication tables, indexes, foreign keys, and triggers are ready.' };
+    } catch {
+      return { status: 'unavailable', checkedAt, latencyMs: Date.now() - startedAt, message: 'Durable authentication schema dependency is unavailable.' };
+    }
+  }
+
   async checkSpeedReadyLifecycleSchema(includeActivation = true, queryClient: PrismaQueryClient = this.client): Promise<ReadinessDependency> {
     const checkedAt = new Date().toISOString();
     const startedAt = Date.now();

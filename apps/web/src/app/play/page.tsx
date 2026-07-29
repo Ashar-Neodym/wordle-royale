@@ -11,6 +11,7 @@ import { PageFrame } from '../../components/PageFrame';
 import { completeRankedMatchAction, createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction, submitRankedGuessAction } from '../actions';
 import { rankedActionState, resolveSearchParams, searchValue, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 
 export const dynamic = 'force-dynamic';
 // Next route-segment config requires a statically analyzable literal. The policy test
@@ -31,6 +32,7 @@ type PlayPageProps = {
 export default async function PlayPage({ searchParams }: PlayPageProps): Promise<ReactElement> {
   const params = await resolveSearchParams(searchParams);
   const api = await getWebApiSnapshot();
+  const presentation = requireAuthPresentationConfiguration();
   const matchId = searchValue(params, 'matchId');
   const matchState = matchId ? await getRankedMatchState(matchId) : null;
   const matchResult = matchId ? await getRankedMatchResult(matchId) : null;
@@ -44,11 +46,13 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
       ? 'Not live yet'
       : 'Live status unavailable';
   const liveMatchStateLabel = matchState?.data ? matchState.data.state : matchState?.status === 'unavailable' ? 'state unavailable' : 'loading';
-  const queueSessionState = api.currentUser.status === 'connected'
-    ? 'active'
-    : isAuthLimited(api.currentUser.error)
-      ? 'signed_out'
-      : 'unavailable';
+  const queueSessionState = presentation.mode === 'disabled'
+    ? 'signed_out'
+    : api.currentUser.status === 'connected'
+      ? 'active'
+      : isAuthLimited(api.currentUser.error)
+        ? 'signed_out'
+        : 'unavailable';
 
   return (
     <PageFrame>
@@ -78,8 +82,8 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           <h2 id="ranked-mode-heading">Choose a rated format</h2>
           <p>Standard and catalog-enabled Speed use separate live automatic queues. Classic and Multiplayer remain unavailable.</p>
         </div>
-        <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} />
-        <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={speedCatalogAvailable} />
+        <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} authPresentationMode={presentation.mode} />
+        <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={speedCatalogAvailable} authPresentationMode={presentation.mode} />
         <div className={styles.modeChoiceGrid}>
           {rankedModeChoices.map((choice) => (
             <article className={styles.modeChoiceCard} key={choice.mode}>
@@ -108,6 +112,7 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
             apiLobbies={api.lobbies}
             actionState={actionState}
             previewSessionActive={api.currentUser.status === 'connected'}
+            authPresentationMode={presentation.mode}
             startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}

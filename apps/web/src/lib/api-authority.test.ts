@@ -38,7 +38,7 @@ function readiness(revision = REVISION, runtimeStatus: 'ok' | 'degraded' | 'unav
     status: 'ok', service: 'wordle-royale-api', environment: 'test', revision,
     checkedAt: '2026-07-28T12:00:00.000Z',
     dependencies: {
-      database: { status: 'ok' }, applicationSchema: { status: 'ok' }, standardDictionary: { status: 'ok' },
+      database: { status: 'ok' }, applicationSchema: { status: 'ok' }, durableAuth: { status: 'not_checked_stub' }, standardDictionary: { status: 'ok' },
       speedRuntime: { status: runtimeStatus }, speedLifecycleActivation: { status: 'ok' }, redis: { status: 'ok' },
     },
   };

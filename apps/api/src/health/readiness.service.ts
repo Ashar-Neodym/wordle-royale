@@ -7,6 +7,7 @@ import { speedQueueEnabled, standardQueueEnabled } from '../matchmaking/matchmak
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { RedisReadinessService } from './redis-readiness.service.ts';
 import { SpeedOperationalReadinessService } from './speed-operational-readiness.service.ts';
+import { AuthReadinessService } from './auth-readiness.service.ts';
 
 @Injectable()
 export class ReadinessService {
@@ -15,16 +16,19 @@ export class ReadinessService {
     @Inject(StandardDictionaryService) private readonly dictionary: StandardDictionaryService,
     @Inject(RedisReadinessService) private readonly redis: RedisReadinessService,
     @Optional() @Inject(SpeedOperationalReadinessService) private readonly speedOperational?: SpeedOperationalReadinessService,
+    @Optional() @Inject(AuthReadinessService) private readonly auth?: AuthReadinessService,
   ) {}
 
   async getReadiness(): Promise<ReadinessStatus> {
-    const [database, applicationSchema, redis, speedLifecycleSchema] = await Promise.all([
+    const authReadiness = this.auth;
+    const [database, applicationSchema, redis, speedLifecycleSchema, durableAuth] = await Promise.all([
       this.prisma.checkDatabase(),
       this.prisma.checkApplicationSchema(),
       this.redis.checkRedis(),
       speedQueueEnabled()
         ? this.prisma.checkSpeedReadyLifecycleSchema(false)
         : Promise.resolve({ status: 'not_checked_stub' as const, checkedAt: new Date().toISOString() }),
+      authReadiness ? authReadiness.check() : Promise.resolve({ status: 'not_checked_stub' as const, checkedAt: new Date().toISOString(), registrationMode: 'closed' as const, message: 'Durable authentication readiness is not required.' }),
     ]);
     const checkedAt = new Date().toISOString();
     const standardDictionary = !standardQueueEnabled() && !speedQueueEnabled()
@@ -52,7 +56,7 @@ export class ReadinessService {
         ? { status: 'unavailable' as const, checkedAt, message: 'Speed lifecycle creation is safely closed.' }
         : { status: 'not_checked_stub' as const, checkedAt, message: 'Speed lifecycle activation was not evaluated independently.' };
 
-    const coreBlockingStatuses = [database.status, applicationSchema.status, standardDictionary.status, redis.status]
+    const coreBlockingStatuses = [database.status, applicationSchema.status, standardDictionary.status, redis.status, durableAuth.status]
       .filter((value) => value !== 'not_checked_stub');
     const coreStatus = coreBlockingStatuses.every((value) => value === 'ok')
       ? 'ok'
@@ -69,7 +73,7 @@ export class ReadinessService {
       environment: process.env.NODE_ENV ?? 'development',
       revision: publicDeploymentRevision(),
       checkedAt: new Date().toISOString(),
-      dependencies: { database, applicationSchema, standardDictionary, speedRuntime, speedLifecycleActivation, redis },
+      dependencies: { database, applicationSchema, durableAuth, standardDictionary, speedRuntime, speedLifecycleActivation, redis },
     };
   }
 }

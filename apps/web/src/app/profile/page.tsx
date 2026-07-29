@@ -6,6 +6,7 @@ import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
 import { currentProfilePageTitle } from '../../lib/profile-read-presentation';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,13 +15,14 @@ export default async function ProfilePage(): Promise<ReactElement> {
   const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
   const authLimited = isAuthLimited(profileSummary.error);
   const title = currentProfilePageTitle(profile, authLimited);
+  const presentation = requireAuthPresentationConfiguration();
 
   return (
     <PageFrame>
       <PageHeader eyebrow="Profile" title={title}>
-        <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : authLimited ? 'Current-player profile requires a real session in preview; fixture sign-in is not silently assumed.' : 'Live profile summary appears here when the API read model is available.'}</p>
+        <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : authLimited ? presentation.mode === 'preview_demo' ? 'Current-player profile requires a real session in preview; fixture sign-in is not silently assumed.' : presentation.mode === 'durable' ? 'Current-player profile requires a durable account session.' : 'Current-player profile is unavailable because accounts are disabled.' : 'Live profile summary appears here when the API read model is available.'}</p>
       </PageHeader>
-      {authLimited ? <AuthRequiredPanel title="Profile requires a session" message="Preview mode does not impersonate the local stub user. Start an explicit preview demo session to create scoped demo profile data. Demo sessions are not durable accounts and may reset with preview data; public ratings and lobbies remain browseable without signing in." previewDemoSessionAction={startPreviewDemoSessionAction} redirectTo="/profile" /> : null}
+      {authLimited ? <AuthRequiredPanel surface="Profile" authPresentationMode={presentation.mode} previewMessage="Preview mode does not impersonate the local stub user. Start an explicit preview demo session to create scoped demo profile data. Demo sessions are not durable accounts and may reset with preview data; public ratings and lobbies remain browseable without signing in." previewDemoSessionAction={startPreviewDemoSessionAction} redirectTo="/profile" /> : null}
       <section className={styles.section} aria-labelledby="profile-summary-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Rated identity</p>
@@ -40,7 +42,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
           <h2 id="mode-ratings-heading">Separate ladders by format</h2>
           <p>Ratings are shown per mode like chess time controls. Only Standard uses today's live read model; Speed, Classic, and Multiplayer are clearly labeled UI-ready placeholders until backend mode data lands.</p>
         </div>
-        <ModeRatingCards profile={profile} />
+        <ModeRatingCards profile={profile} authPresentationMode={presentation.mode} />
       </section>
       <section className={styles.section} aria-labelledby="recent-matches-heading">
         <div className={styles.sectionHeader}>

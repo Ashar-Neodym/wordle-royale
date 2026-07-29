@@ -68,6 +68,10 @@ export const readinessDependencySchema = z.object({
   checkedAt: timestampSchema.optional(),
   latencyMs: z.number().nonnegative().optional(),
   message: z.string().min(1).optional(),
+  registrationMode: z.enum(['closed', 'canary', 'open']).optional(),
+  keyFingerprint: z.string().regex(/^[a-f0-9]{16}$/).optional(),
+  configFingerprint: z.string().regex(/^[a-f0-9]{16}$/).optional(),
+  expectedReplicaCount: z.number().int().positive().optional(),
 });
 
 export const readinessDependenciesSchema = z.record(z.string(), readinessDependencySchema);
@@ -102,6 +106,7 @@ export const apiReadinessPayloadSchema = z.object({
   dependencies: z.object({
     database: readinessDependencySchema,
     applicationSchema: readinessDependencySchema,
+    durableAuth: readinessDependencySchema,
     standardDictionary: readinessDependencySchema,
     speedRuntime: readinessDependencySchema,
     speedLifecycleActivation: readinessDependencySchema,

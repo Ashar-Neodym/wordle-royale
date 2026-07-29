@@ -1,5 +1,6 @@
 import type { ApiClientResult } from '../lib/api-client';
 import type { Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contracts';
+import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation';
 
 export type SpeedQueueUiState =
   | 'signed_out'
@@ -15,11 +16,11 @@ export type SpeedQueueUiState =
   | 'timed_out'
   | 'error';
 
-export function speedQueueCopy(state: SpeedQueueUiState): { eyebrow: string; title: string; message: string } {
+export function speedQueueCopy(state: SpeedQueueUiState, authPresentationMode: AuthPresentationMode): { eyebrow: string; title: string; message: string } {
   switch (state) {
     case 'authority_unavailable': return { eyebrow: 'Speed status unavailable', title: 'Live Speed availability could not be verified', message: 'Authoritative API evidence is incomplete or temporarily unavailable. Retry before attempting matchmaking.' };
     case 'disabled': return { eyebrow: 'Speed unavailable', title: 'Speed queue is not enabled', message: 'The live mode catalog has not enabled this rated queue. No matchmaking request will be sent.' };
-    case 'signed_out': return { eyebrow: 'Session required', title: 'Start a demo session to queue', message: 'Speed matchmaking requires an explicit preview session.' };
+    case 'signed_out': return authLimitedPresentation(authPresentationMode, 'Speed queue');
     case 'reconnecting': return { eyebrow: 'Speed reconnect', title: 'Checking your Speed search…', message: 'The server may restore a queued or matched Speed ticket after refresh.' };
     case 'joining': return { eyebrow: 'Joining Speed', title: 'Creating one rated Speed ticket…', message: 'A single request identity is retained until the server state is known.' };
     case 'searching': return { eyebrow: 'Speed search', title: 'Looking for a Speed opponent', message: 'This search is independent from Standard and stored by the server.' };

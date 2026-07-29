@@ -29,6 +29,8 @@
     "smoke:api:prod-start": "node scripts/api-prod-start-smoke.mjs",
     "smoke:speed:hosted": "node scripts/hosted-speed-smoke.mjs",
     "test:smoke:speed:hosted": "node --test scripts/hosted-speed-smoke.test.mjs",
+    "test:auth:activation-tooling": "node --test scripts/auth-activation-tooling.test.mjs",
+    "test:postgres:auth-activation-smoke": "pnpm --filter @wordle-royale/api test:postgres:auth-activation-smoke",
     "secret-scan": "node scripts/secret-scan.mjs",
     "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
     "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"

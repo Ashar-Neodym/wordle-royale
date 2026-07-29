@@ -1,4 +1,5 @@
 export type RuntimeConfig = Record<string, string | undefined>;
+export type AuthRegistrationMode = 'closed' | 'canary' | 'open';
 
 const localDatabaseUrl = 'postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public';
 const localRedisUrl = 'redis://localhost:6379';
@@ -50,6 +51,26 @@ export function decodeAuthRateLimitKey(value: string): Buffer {
   return decoded;
 }
 
+export function decodeAuthRegistrationCanaryDigest(value: string): Buffer {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(value)) fail('AUTH_REGISTRATION_CANARY_DIGEST must be one canonical base64url-encoded 32-byte digest.');
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.length !== 32 || decoded.toString('base64url') !== value) {
+    fail('AUTH_REGISTRATION_CANARY_DIGEST must be one canonical base64url-encoded 32-byte digest.');
+  }
+  return decoded;
+}
+
+export function authRegistrationMode(value = process.env.AUTH_REGISTRATION_MODE): AuthRegistrationMode {
+  return (value || 'closed') as AuthRegistrationMode;
+}
+
+export function trustedProxyHops(value = process.env.TRUSTED_PROXY_HOPS): number {
+  if (value == null || !/^(?:0|[1-9][0-9]?)$/u.test(value)) fail('TRUSTED_PROXY_HOPS must be an explicit integer from 0 through 32.');
+  const parsed = Number(value);
+  if (parsed > 32) fail('TRUSTED_PROXY_HOPS must be an explicit integer from 0 through 32.');
+  return parsed;
+}
+
 export function validateRuntimeConfig(config: RuntimeConfig): Record<string, string> {
   const resolved: Record<string, string> = {
     NODE_ENV: config.NODE_ENV ?? 'development',
@@ -57,6 +78,10 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
     AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
     DURABLE_AUTH_ENABLED: config.DURABLE_AUTH_ENABLED ?? 'false',
     AUTH_RATE_LIMIT_KEY: config.AUTH_RATE_LIMIT_KEY ?? '',
+    AUTH_REGISTRATION_MODE: config.AUTH_REGISTRATION_MODE ?? 'closed',
+    AUTH_REGISTRATION_CANARY_DIGEST: config.AUTH_REGISTRATION_CANARY_DIGEST ?? '',
+    TRUSTED_PROXY_HOPS: config.TRUSTED_PROXY_HOPS ?? '',
+    EXPECTED_API_REPLICA_COUNT: config.EXPECTED_API_REPLICA_COUNT ?? '',
     ACCOUNT_SESSION_TTL_SECONDS: config.ACCOUNT_SESSION_TTL_SECONDS ?? '2592000',
     ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS: config.ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS ?? '900',
     PREVIEW_DEMO_SESSION_TTL_SECONDS: config.PREVIEW_DEMO_SESSION_TTL_SECONDS ?? '7200',
@@ -78,7 +103,14 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
   if (durableAuthEnabled) {
     if (resolved.AUTH_MODE !== 'session_required') fail('DURABLE_AUTH_ENABLED requires AUTH_MODE=session_required.');
     if (!config.AUTH_RATE_LIMIT_KEY) fail('AUTH_RATE_LIMIT_KEY is required when durable auth is enabled.');
-    decodeAuthRateLimitKey(config.AUTH_RATE_LIMIT_KEY);
+    decodeAuthRateLimitKey(resolved.AUTH_RATE_LIMIT_KEY!);
+    if (!['closed', 'canary', 'open'].includes(resolved.AUTH_REGISTRATION_MODE!)) fail('AUTH_REGISTRATION_MODE must be exactly closed, canary, or open.');
+    if (resolved.AUTH_REGISTRATION_MODE === 'canary') {
+      if (!config.AUTH_REGISTRATION_CANARY_DIGEST) fail('AUTH_REGISTRATION_CANARY_DIGEST is required in canary registration mode.');
+      decodeAuthRegistrationCanaryDigest(config.AUTH_REGISTRATION_CANARY_DIGEST);
+    } else if (config.AUTH_REGISTRATION_CANARY_DIGEST) {
+      fail('AUTH_REGISTRATION_CANARY_DIGEST is only allowed in canary registration mode.');
+    }
     try {
       const publicWeb = new URL(requireValue(config, 'PUBLIC_WEB_URL', 'Durable authentication requires one exact HTTPS web origin.'));
       if (publicWeb.protocol !== 'https:' || publicWeb.username || publicWeb.password || publicWeb.pathname !== '/' || publicWeb.search || publicWeb.hash) {
@@ -108,6 +140,10 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
     if (envFlagEnabled(resolved.ENABLE_DEV_AUTH, true)) fail('ENABLE_DEV_AUTH must be false in preview/prod-like mode.');
     if (envFlagEnabled(resolved.ENABLE_DEV_ROUTES, true)) fail('ENABLE_DEV_ROUTES must be false in preview/prod-like mode.');
     if (!envFlagEnabled(resolved.COOKIE_SECURE, false)) fail('COOKIE_SECURE must be true in preview/prod-like mode.');
+    if (resolved.APP_ENV === 'production' && durableAuthEnabled) {
+      trustedProxyHops(config.TRUSTED_PROXY_HOPS);
+      if (config.EXPECTED_API_REPLICA_COUNT !== '1') fail('EXPECTED_API_REPLICA_COUNT must be exactly 1 for durable-auth activation v1.');
+    }
     resolved.REDIS_URL = config.REDIS_URL ?? '';
     resolved.REDIS_REQUIRED = config.REDIS_REQUIRED ?? 'false';
   }
