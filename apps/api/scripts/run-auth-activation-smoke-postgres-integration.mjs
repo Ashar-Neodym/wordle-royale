@@ -35,11 +35,11 @@ try {
     DATABASE_URL: db.toString(), RUN_AUTH_ACTIVATION_SMOKE_POSTGRES: '1',
   });
   process.stdout.write(output);
-  assert.match(output, /tests 1/u); assert.match(output, /pass 1/u); assert.match(output, /fail 0/u);
+  assert.match(output, /tests 2/u); assert.match(output, /pass 2/u); assert.match(output, /fail 0/u);
   assert.equal(output.includes(rateKey.toString('base64url')), false);
   assert.equal(output.includes(canaryDigest), false);
   assert.equal(output.includes(canaryEmail), false);
-  console.log('[Ticket255B2] PASS real disposable Nest/PostgreSQL smoke (1 test, 9 migrations, no skips)');
+  console.log('[Ticket263] PASS real disposable Nest/PostgreSQL smoke (2 tests, 9 migrations, non-target rate mutation detected, no skips)');
 } finally {
   rateKey.fill(0);
   if (created) run('psql', [admin.toString(), '-X', '-v', 'ON_ERROR_STOP=1', '-c', `DROP SCHEMA IF EXISTS "${schema}" CASCADE`]);

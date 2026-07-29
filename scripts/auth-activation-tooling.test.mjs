@@ -48,7 +48,7 @@ const clearCookie=`__Host-wr_session=; Secure; HttpOnly; SameSite=Lax; Path=/; M
 const authError=(code,message,details={})=>({data:null,error:{code,message,details},requestId:'request-255'});
 const success=(data)=>({data,error:null,requestId:'request-255'});
 const token=(n)=>`wr1.${String(n).repeat(43)}`;
-const emptySnapshot=()=>({accountCount:0,profileCount:0,credentialCount:0,consentCount:0,sessionCount:0,terminalSessionCount:0,activeSessionCount:0,accountIdentityFingerprint:'0'.repeat(64),nonTargetSessionCount:2,nonTargetSessionFingerprint:'7'.repeat(64),nonTargetAuthCount:4,nonTargetAuthFingerprint:'5'.repeat(64),registerAttempts:0,loginAttempts:0,registerBucketCount:0,loginBucketCount:0,blockedBucketCount:0,lobbyWriteCount:0,speedWriteCount:0,ticketWriteCount:0,matchWriteCount:0,gameplayWriteCount:0,mutationWriteCount:0,ratingWriteCount:0,eventWriteCount:0,sharedStateFingerprint:'6'.repeat(64),sharedStateUnchanged:true,catalogFingerprint:'9'.repeat(64)});
+const emptySnapshot=()=>({accountCount:0,profileCount:0,credentialCount:0,consentCount:0,sessionCount:0,terminalSessionCount:0,activeSessionCount:0,accountIdentityFingerprint:'0'.repeat(64),nonTargetSessionCount:2,nonTargetSessionFingerprint:'7'.repeat(64),nonTargetAuthCount:4,nonTargetAuthFingerprint:'5'.repeat(64),nonTargetRateLimitCount:1,nonTargetRateLimitFingerprint:'4'.repeat(64),registerAttempts:0,loginAttempts:0,registerBucketCount:0,loginBucketCount:0,blockedBucketCount:0,lobbyWriteCount:0,speedWriteCount:0,ticketWriteCount:0,matchWriteCount:0,gameplayWriteCount:0,mutationWriteCount:0,ratingWriteCount:0,eventWriteCount:0,sharedStateFingerprint:'6'.repeat(64),sharedStateUnchanged:true,catalogFingerprint:'9'.repeat(64)});
 const finalSnapshot=(fixture)=>({...emptySnapshot(),accountCount:1,profileCount:1,credentialCount:1,accountIdentityFingerprint:fixture.approval.accountFingerprint,sessionCount:3,terminalSessionCount:3,registerAttempts:2,loginAttempts:8,registerBucketCount:2,loginBucketCount:3});
 function smokeAdapters(fixture,{mutateResponse=()=>{},finalOverride={},consume=()=>{},hangPath=null,deadlineCapMs=undefined}={}){
   const calls=[],timeline=[];let snapshots=0,session=0,active=null,rankedReads=0;
@@ -112,6 +112,7 @@ test('smoke reconciliation rejects hostile session cardinality, scoped limiter b
   ['terminal_auth_cardinality_invalid',{accountIdentityFingerprint:'8'.repeat(64)}],
   ['non_target_session_mutation_detected',{nonTargetSessionFingerprint:'8'.repeat(64)}],
   ['non_target_auth_mutation_detected',{nonTargetAuthFingerprint:'8'.repeat(64)}],
+  ['non_target_rate_limit_mutation_detected',{nonTargetRateLimitFingerprint:'8'.repeat(64)}],
 ]){const{result}=await executeSmoke({finalOverride});assert.equal(result.failureCode,code);}});
 
 test('fresh web identity drift fails before approval consumption and register dispatch',async()=>{let consumed=0;const{result,adapters}=await executeSmoke({consume(){consumed++;},mutateResponse(r,c){if(c.path==='/.well-known/wordle-identity')r.body.revision='f'.repeat(40);}});assert.equal(result.failureCode,'web_identity_recheck_failed');assert.equal(consumed,0);assert.equal(adapters.transport.calls.some((call)=>new URL(call.url).pathname==='/auth/register'),false);});

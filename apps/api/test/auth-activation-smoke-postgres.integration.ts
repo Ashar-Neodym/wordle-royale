@@ -7,7 +7,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
 import { MIGRATIONS, canonicalJson, receiptFor, runActivationPreflight } from '../../../scripts/auth-activation-preflight-core.mjs';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
-import { accountFingerprint, runAuthActivationSmoke } from '../../../scripts/auth-activation-smoke-core.mjs';
+import { accountFingerprint, assertNonTargetRateLimitUnchanged, runAuthActivationSmoke, SMOKE_RECONCILIATION_SQL } from '../../../scripts/auth-activation-smoke-core.mjs';
 // @ts-expect-error Production and integration intentionally share this plain ESM implementation.
 import { createAuthSmokeReconciliation } from '../../../scripts/auth-activation-reconciliation.mjs';
 
@@ -67,6 +67,17 @@ async function rawFetch(path: string, init: RequestInit = {}) {
 const sharedReconciliation = createAuthSmokeReconciliation({ db, secrets, rateLimitKey: rateKey, clientIp });
 const reconciliation = { async withReadOnlyTransaction(work: unknown) { try { return await sharedReconciliation.withReadOnlyTransaction(work); } catch (error) { console.error('[Ticket263 reconciliation diagnostic]', error); throw error; } } };
 
+async function reconciliationSnapshot() {
+  let snapshot: Record<string, unknown> | undefined;
+  await sharedReconciliation.withReadOnlyTransaction(async (query: (sql: string, binding?: unknown) => Promise<unknown>) => {
+    await query(SMOKE_RECONCILIATION_SQL.isolation);
+    await query(SMOKE_RECONCILIATION_SQL.readOnlyStatus);
+    snapshot = await query(SMOKE_RECONCILIATION_SQL.snapshot, { runId, accountFingerprint: '0'.repeat(64) }) as Record<string, unknown>;
+  });
+  assert(snapshot);
+  return snapshot;
+}
+
 before(async () => {
   const unrelated = await db.userAccount.create({ data: { email: `unrelated-${randomUUID()}@example.test`, displayName: 'Unrelated', profile: { create: { publicHandle: `unrelated_${randomBytes(5).toString('hex')}` } }, passwordCredential: { create: { passwordHash: 'privacy-safe-test-hash' } } } });
   await db.accountSession.create({ data: { userId: unrelated.id, tokenHash: safeHash(`unrelated-${randomUUID()}`), expiresAt: new Date(Date.now() + 3_600_000) } });
@@ -95,6 +106,18 @@ after(async () => {
   password.replaceAll(/./gu, '0');
   await app?.close();
   await db.$disconnect();
+});
+
+test('Ticket 263 detects content mutation in an unrelated real PostgreSQL rate-limit bucket', async () => {
+  const before = await reconciliationSnapshot();
+  await db.authRateLimitBucket.update({
+    where: { action_keyHash: { action: 'login_ip', keyHash: 'f'.repeat(64) } },
+    data: { attemptCount: 31, windowStartedAt: new Date(Date.now() - 120_000), blockedUntil: new Date(Date.now() + 120_000) },
+  });
+  const after = await reconciliationSnapshot();
+  assert.equal(after.nonTargetRateLimitCount, before.nonTargetRateLimitCount, 'negative regression mutates content without deleting the row');
+  assert.notEqual(after.nonTargetRateLimitFingerprint, before.nonTargetRateLimitFingerprint);
+  assert.throws(() => assertNonTargetRateLimitUnchanged(before, after), /non_target_rate_limit_mutation_detected/u);
 });
 
 test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable PostgreSQL', async () => {

@@ -46,6 +46,18 @@ async function nonTargetAuthState(tx, userId) {
   return { count: rows.reduce((sum, row) => sum + row.count, 0), fingerprint: receiptFor(rows) };
 }
 
+async function nonTargetRateLimitState(tx, scopedRateKeys) {
+  const scoped = scopedRateKeys.map((_, index) => `("action"=$${index * 2 + 1} AND "keyHash"=$${index * 2 + 2})`).join(' OR ');
+  const [row] = await tx.$queryRawUnsafe(
+    `SELECT count(*)::bigint AS count, md5(coalesce(string_agg(to_jsonb(b)::text, E'\\n' ORDER BY to_jsonb(b)::text),'')) AS fingerprint FROM "AuthRateLimitBucket" b WHERE NOT (${scoped})`,
+    ...scopedRateKeys.flatMap(({ action, keyHash }) => [action, keyHash]),
+  );
+  return {
+    count: number(row?.count),
+    fingerprint: createHash('sha256').update(row?.fingerprint ?? '').digest('hex'),
+  };
+}
+
 /** Shared by the production CLI and the disposable Nest/PostgreSQL smoke. */
 export function createAuthSmokeReconciliation({ db, secrets, rateLimitKey, clientIp }) {
   if (!db?.$transaction || !Buffer.isBuffer(rateLimitKey) || rateLimitKey.length < 32 || typeof clientIp !== 'string' || clientIp.length < 3) throw new Error('reconciliation_configuration_invalid');
@@ -68,13 +80,14 @@ export function createAuthSmokeReconciliation({ db, secrets, rateLimitKey, clien
         if (sql !== 'SELECT auth_activation_smoke_reconciliation_v2($1,$2)') throw new Error('sql_not_allowlisted');
         const account = await tx.userAccount.findUnique({ where: { email }, select: { id: true, email: true, displayName: true, profile: { select: { publicHandle: true } } } });
         const userId = account?.id;
-        const [credentialCount, consentCount, sessions, rateRows, nonTargetSessions, nonTargetAuth, ...states] = await Promise.all([
+        const [credentialCount, consentCount, sessions, rateRows, nonTargetSessions, nonTargetAuth, nonTargetRateLimit, ...states] = await Promise.all([
           userId ? tx.passwordCredential.count({ where: { userId } }) : 0,
           userId ? tx.consentRecord.count({ where: { userId } }) : 0,
           userId ? tx.accountSession.findMany({ where: { userId }, select: { revokedAt: true, expiresAt: true } }) : [],
           tx.authRateLimitBucket.findMany({ where: { OR: scopedRateKeys }, select: { action: true, keyHash: true, attemptCount: true, blockedUntil: true } }),
           tx.$queryRawUnsafe(`SELECT count(*)::bigint AS count, md5(coalesce(string_agg(to_jsonb(s)::text, E'\\n' ORDER BY to_jsonb(s)::text),'')) AS fingerprint FROM "AccountSession" s WHERE ($1::text IS NULL OR s."userId"<>$1::text)`, userId ?? null),
           nonTargetAuthState(tx, userId),
+          nonTargetRateLimitState(tx, scopedRateKeys),
           ...Object.values(SHARED_GROUPS).map((tables) => tableState(tx, tables)),
         ]);
         const groups = Object.fromEntries(Object.keys(SHARED_GROUPS).map((key, index) => [key, states[index]]));
@@ -92,6 +105,7 @@ export function createAuthSmokeReconciliation({ db, secrets, rateLimitKey, clien
           accountIdentityFingerprint: account ? identityFingerprint(binding.runId, account.email, account.profile.publicHandle, account.displayName) : '0'.repeat(64),
           nonTargetSessionCount: number(nonTarget?.count), nonTargetSessionFingerprint: createHash('sha256').update(nonTarget?.fingerprint ?? '').digest('hex'),
           nonTargetAuthCount: nonTargetAuth.count, nonTargetAuthFingerprint: nonTargetAuth.fingerprint,
+          nonTargetRateLimitCount: nonTargetRateLimit.count, nonTargetRateLimitFingerprint: nonTargetRateLimit.fingerprint,
           registerAttempts: register.reduce((sum, row) => sum + row.attemptCount, 0), loginAttempts: login.reduce((sum, row) => sum + row.attemptCount, 0),
           registerBucketCount: register.length, loginBucketCount: login.length, blockedBucketCount: rateRows.filter((row) => row.blockedUntil && row.blockedUntil.getTime() > now).length,
           lobbyWriteCount: delta('standard'), speedWriteCount: delta('speed'), ticketWriteCount: delta('matchmaking'), matchWriteCount: delta('match'), gameplayWriteCount: delta('gameplay'), mutationWriteCount: delta('mutation'), ratingWriteCount: delta('rating'), eventWriteCount: delta('event'),
