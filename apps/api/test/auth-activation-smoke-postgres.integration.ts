@@ -6,6 +6,10 @@ import { NestFactory } from '@nestjs/core';
 import { Prisma, PrismaClient } from '@prisma/client';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
 import { MIGRATIONS, canonicalJson, receiptFor, runActivationPreflight } from '../../../scripts/auth-activation-preflight-core.mjs';
+// @ts-expect-error Provider provenance is a shared plain ESM operator boundary.
+import { collectInventory as collectProviderInventory, createReceipt as createProviderReceipt } from '../../../scripts/provider-provenance-core.mjs';
+// @ts-expect-error Deterministic signed provider evidence is intentionally test-only.
+import { collectionConstraints, expectedIdentities, validProviderSnapshot } from '../../../scripts/provider-provenance-fixture.mjs';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
 import { accountFingerprint, assertNonTargetRateLimitUnchanged, runAuthActivationSmoke, SMOKE_RECONCILIATION_SQL } from '../../../scripts/auth-activation-smoke-core.mjs';
 // @ts-expect-error Production and integration intentionally share this plain ESM implementation.
@@ -17,7 +21,7 @@ const apiOrigin = 'https://api.auth-smoke.example.test';
 const webOrigin = 'https://web.auth-smoke.example.test';
 const previewApiOrigin = 'https://preview-api.auth-smoke.example.test';
 const previewWebOrigin = 'https://preview-web.auth-smoke.example.test';
-const revision = '255b2'.padEnd(40, '0');
+const revision = 'e'.repeat(40);
 const runId = `ticket255-${randomUUID()}`;
 const email = `canary-${randomUUID()}@example.test`;
 const password = `${randomBytes(24).toString('base64url')}!Aa9`;
@@ -130,10 +134,17 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
   const identityFingerprint = safeHash(`${databaseIdentity[0]?.database}:${databaseIdentity[0]?.schema}`);
   const databaseHostFingerprint = safeHash('local-disposable-postgresql');
   const migrations = MIGRATIONS.map((id: string) => ({ id, status: 'applied' }));
-  const provider = { projectId: 'local-project', environmentId: 'local-production', apiServiceId: 'local-api', webServiceId: 'mock-web', databaseId: 'disposable-postgres', previewEnvironmentId: 'mock-preview', previewDatabaseId: 'mock-preview-db' };
-  const deployments = { apiDeploymentId: 'local-api-deployment', apiRevision: revision, webDeploymentId: 'mock-web-deployment', webRevision: 'b'.repeat(40) };
+  const nativeEvidence = validProviderSnapshot({ collectedAt: observedAt, nonce: runId });
+  const constraints = collectionConstraints(nativeEvidence);
+  const providerInventory = collectProviderInventory(nativeEvidence, constraints);
+  const providerReceiptKey = Buffer.from('ticket-266-postgres-fixture-receipt-key-material');
+  const providerReceipt = createProviderReceipt(providerInventory, nativeEvidence, providerReceiptKey, 'ticket266-postgres-key', constraints);
+  const production = providerInventory.environments.production;
+  const preview = providerInventory.environments.preview;
+  const provider = { projectId: production.railway.identity.projectId, environmentId: production.railway.identity.environmentId, apiServiceId: production.railway.identity.serviceId, webServiceId: production.vercel.identity.projectId, databaseId: production.postgresql.observations[0].databaseId, previewEnvironmentId: preview.railway.identity.environmentId, previewDatabaseId: preview.postgresql.observations[0].databaseId };
+  const deployments = { apiDeploymentId: production.railway.identity.deploymentId, apiRevision: revision, webDeploymentId: production.vercel.identity.deploymentId, webRevision: revision };
   const inventory = {
-    schemaVersion: 3, activationPhase: 'canary', runId, sourceSha: revision, artifactSha: revision, provider, deployments,
+    schemaVersion: 3, activationPhase: 'canary', runId, sourceSha: revision, artifactSha: production.railway.artifact.artifactDigest.slice(7), provider, deployments,
     origins: { api: apiOrigin, web: webOrigin, previewApi: previewApiOrigin, previewWeb: previewWebOrigin },
     replicas: { expected: 1, observed: 1, observedReplicaId: 'local-replica-1' },
     config: { authMode: 'session_required', durableAuth: true, registrationMode: 'canary', appEnvironment: 'production', nodeEnvironment: 'production', secureCookie: true, hostOnlyCookie: true, proxyHops: 1, requiredKeysPresent: ['AUTH_RATE_LIMIT_KEY', 'DATABASE_URL'], keyFingerprint, configFingerprint },
@@ -178,7 +189,7 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
       return { method: 'GET', status: 200, redirected: false, url, body: envelope, bodyBytes: Buffer.byteLength(JSON.stringify(envelope)), contentType: 'application/json' };
     },
   };
-  const preflight = await runActivationPreflight({ inventory, inventoryReceipt: receiptFor(inventory), publicAdapter: mockPublic, databaseAdapter: preflightDatabase });
+  const preflight = await runActivationPreflight({ operationalInventory: inventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce: runId, expectedIdentities: expectedIdentities(nativeEvidence), providerReceiptKey, publicAdapter: mockPublic, databaseAdapter: preflightDatabase });
   assert.equal(preflight.evidence.result, 'PASS');
   assert.equal(preflightSnapshots, 2);
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
-import { PrismaService } from '../src/prisma/prisma.service.ts';
 // @ts-expect-error no declaration file is emitted for the repository script core
-import { parsePreflightArgs, PREFLIGHT_SQL, runActivationPreflight, canonicalJson, MAX_PUBLIC_BODY_BYTES, normalizeJsonContentType } from '../../../scripts/auth-activation-preflight-core.mjs';
+import { parsePreflightArgs, PREFLIGHT_SQL, runActivationPreflight, verifyAuthenticatedProviderEvidence, canonicalJson, MAX_PUBLIC_BODY_BYTES, normalizeJsonContentType } from '../../../scripts/auth-activation-preflight-core.mjs';
 
 const COUNTS_SQL = `SELECT jsonb_build_object('accountCount',(SELECT count(*) FROM "UserAccount"),'profileCount',(SELECT count(*) FROM "UserProfile"),'credentialCount',(SELECT count(*) FROM "PasswordCredential"),'sessionCount',(SELECT count(*) FROM "AccountSession"),'rateBucketCount',(SELECT count(*) FROM "AuthRateLimitBucket"),'ticketCount',(SELECT count(*) FROM "MatchmakingTicket"),'matchCount',(SELECT count(*) FROM "Match"),'participantCount',(SELECT count(*) FROM "MatchParticipant"),'ratingEventCount',(SELECT count(*) FROM "RatingEvent")) AS snapshot`;
 // Deliberately complete: no WHERE and no LIMIT may hide an unexpected migration.
@@ -27,8 +25,13 @@ async function boundedJson(response: Response): Promise<{body: unknown; bodyByte
   return {body,bodyBytes:size};
 }
 async function main() {
-  const { inventoryPath, inventoryReceiptPath }=parsePreflightArgs(process.argv.slice(2));
-  const [inventory,inventoryReceipt]=await Promise.all([readFile(inventoryPath,'utf8').then(JSON.parse),readFile(inventoryReceiptPath,'utf8').then(x=>x.trim())]);
+  const { operationalInventoryPath, providerInventoryPath, providerReceiptPath, nativeEvidencePath, expectedIdentitiesPath, expectedNonce, providerReceiptKeyPath }=parsePreflightArgs(process.argv.slice(2));
+  const [operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedIdentities,providerReceiptKey]=await Promise.all([
+    readFile(operationalInventoryPath,'utf8').then(JSON.parse),readFile(providerInventoryPath,'utf8').then(JSON.parse),readFile(providerReceiptPath,'utf8').then(JSON.parse),readFile(nativeEvidencePath,'utf8').then(JSON.parse),readFile(expectedIdentitiesPath,'utf8').then(JSON.parse),readFile(providerReceiptKeyPath),
+  ]);
+  // Authenticate all provider evidence before loading database code, opening a client, or issuing public probes.
+  verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey});
+  const [{PrismaClient},{PrismaService}]=await Promise.all([import('@prisma/client'),import('../src/prisma/prisma.service.ts')]);
   const directHostFingerprint=directDatabaseHostFingerprint(process.env.DATABASE_URL); const prisma=new PrismaClient();
   // Every invocation opens a new transaction. The observation invocation therefore cannot
   // reuse the repeatable-read snapshot held while public GET probes execute.
@@ -44,6 +47,6 @@ async function main() {
   };
   const databaseAdapter={withReadOnlyTransaction:inReadOnlyTransaction,withReadOnlyObservation:inReadOnlyTransaction};
   const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const response=await fetch(url,{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url:response.url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
-  try { const result=await runActivationPreflight({inventory,inventoryReceipt,publicAdapter,databaseAdapter});process.stdout.write(`${canonicalJson(result)}\n`); } finally { await prisma.$disconnect(); }
+  try { const result=await runActivationPreflight({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});process.stdout.write(`${canonicalJson(result)}\n`); } finally { await prisma.$disconnect(); }
 }
 main().catch((error:unknown)=>{const prerequisite=error instanceof Error&&error.message==='pg_control_system_execute_required'?'pg_control_system_execute_required':undefined;process.stderr.write(`${canonicalJson({result:'FAIL',failureCode:prerequisite??'preflight_failed'})}\n`);process.exitCode=1;});

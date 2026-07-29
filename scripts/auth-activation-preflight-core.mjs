@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { validateInventory as validateProviderInventory, verifyReceipt as verifyProviderReceipt } from './provider-provenance-core.mjs';
 
 const SHA = /^[a-f0-9]{40,64}$/u;
 const RECEIPT = /^[a-f0-9]{64}$/u;
@@ -28,7 +29,7 @@ const SOURCE = ['kind','observedAt'];
 const CONFIG = ['authMode','durableAuth','registrationMode','appEnvironment','nodeEnvironment','secureCookie','hostOnlyCookie','proxyHops','requiredKeysPresent','keyFingerprint','configFingerprint'];
 const DATABASE = ['identityFingerprint','databaseHostFingerprint','schemaStatus','remediationConflictCount'];
 const PROOF = ['health','readiness','rankedModes','webIdentity','previewIsolation','databaseReadOnly','zeroWrite','providerDerived'];
-const EVIDENCE_KEYS = ['schemaVersion','result','activationPhase','runId','sourceSha','artifactSha','providerInventoryReceipt','provider','deployments','origins','replicas','config','migrations','database','proof','source','expiresAt'];
+const EVIDENCE_KEYS = ['schemaVersion','result','activationPhase','runId','sourceSha','artifactSha','providerInventory','providerReceipt','provider','deployments','origins','replicas','config','migrations','database','proof','source','expiresAt'];
 const EVIDENCE_FORBIDDEN = /(password|secret|token|cookieValue|connection|databaseUrl|email|address|canaryDigest|answer|authorization|rawHost|originHeader)/iu;
 export const PREFLIGHT_SQL = Object.freeze({
   isolation: 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY',
@@ -112,6 +113,46 @@ export function verifyInventoryReceipt(raw, suppliedReceipt, now = Date.now()) {
   return inventory;
 }
 
+function providerComposition(raw, providerInventory) {
+  const production = providerInventory.environments.production;
+  const preview = providerInventory.environments.preview;
+  const productionDatabase = production.postgresql.observations[0];
+  const previewDatabase = preview.postgresql.observations[0];
+  const expected = {
+    runId: providerInventory.nonce,
+    sourceSha: production.railway.artifact.sourceGitSha,
+    artifactSha: production.railway.artifact.artifactDigest.slice('sha256:'.length),
+    provider: {
+      projectId: production.railway.identity.projectId,
+      environmentId: production.railway.identity.environmentId,
+      apiServiceId: production.railway.identity.serviceId,
+      webServiceId: production.vercel.identity.projectId,
+      databaseId: productionDatabase.databaseId,
+      previewEnvironmentId: preview.railway.identity.environmentId,
+      previewDatabaseId: previewDatabase.databaseId,
+    },
+    deployments: {
+      apiDeploymentId: production.railway.identity.deploymentId,
+      apiRevision: production.railway.artifact.sourceGitSha,
+      webDeploymentId: production.vercel.identity.deploymentId,
+      webRevision: production.vercel.artifact.sourceGitSha,
+    },
+    observedAt: providerInventory.collectedAt,
+  };
+  fail(raw.runId === expected.runId && raw.sourceSha === expected.sourceSha && raw.artifactSha === expected.artifactSha, 'provider_operational_identity_mismatch');
+  fail(canonicalJson(raw.provider) === canonicalJson(expected.provider), 'provider_operational_resource_mismatch');
+  fail(canonicalJson(raw.deployments) === canonicalJson(expected.deployments), 'provider_operational_deployment_mismatch');
+  fail(raw.source.observedAt === expected.observedAt, 'provider_operational_time_mismatch');
+}
+
+export function verifyAuthenticatedProviderEvidence({ operationalInventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, now = Date.now() }) {
+  fail(typeof expectedNonce === 'string' && object(expectedIdentities) && providerReceiptKey instanceof Uint8Array && providerReceiptKey.byteLength >= 32, 'provider_verification_inputs_invalid');
+  fail(verifyProviderReceipt(providerInventory, providerReceipt, providerReceiptKey, nativeEvidence, { now, expectedNonce, expectedIdentities }), 'provider_provenance_verification_failed');
+  const inventory = validateInventory(operationalInventory, now);
+  providerComposition(inventory, providerInventory);
+  return inventory;
+}
+
 const dependencyKeys = ['status','checkedAt','message'];
 function validateDependency(v, code, extra = []) { const keys=Object.keys(v ?? {}); const expected=[...dependencyKeys,...extra]; fail(keys.every(k=>expected.includes(k)||k==='latencyMs')&&expected.every(k=>keys.includes(k)),code); fail(['ok','degraded','unavailable','not_checked_stub'].includes(v.status)&&Number.isFinite(Date.parse(v.checkedAt))&&typeof v.message==='string'&&(v.latencyMs===undefined||(typeof v.latencyMs==='number'&&v.latencyMs>=0)),code); }
 function validateHealth(v) { exact(v,['status','service','environment','timestamp','uptimeSeconds','revision'],'health_schema_invalid'); fail(v.status==='ok'&&v.service==='wordle-royale-api'&&v.environment==='production'&&Number.isFinite(Date.parse(v.timestamp))&&typeof v.uptimeSeconds==='number'&&v.uptimeSeconds>=0&&SHA.test(v.revision),'health_schema_invalid'); }
@@ -143,8 +184,9 @@ function assertWebResponse(response, originValue) {
   fail(response?.method==='GET'&&response.redirected===false,'public_redirect'); fail(response.url===`${originValue}/.well-known/wordle-identity`&&response.status===200,'web_authority_mismatch'); fail(response.contentType==='application/json','public_content_type_invalid'); fail(Number.isInteger(response.bodyBytes)&&response.bodyBytes<=MAX_PUBLIC_BODY_BYTES&&Buffer.byteLength(canonicalJson(response.body))<=MAX_PUBLIC_BODY_BYTES,'public_body_oversized'); validateWeb(response.body); scalarSafe(response.body,'web'); return response.body;
 }
 function equalSnapshot(a,b){return canonicalJson(a)===canonicalJson(b);}
-export async function runActivationPreflight({ inventory: raw, inventoryReceipt, publicAdapter, databaseAdapter, now = () => Date.now() }) {
-  const startedAt=now(); const inventory=verifyInventoryReceipt(raw,inventoryReceipt,startedAt);
+export async function runActivationPreflight({ operationalInventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, publicAdapter, databaseAdapter, now = () => Date.now() }) {
+  const startedAt=now();
+  const inventory=verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,now:startedAt});
   fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function'&&typeof databaseAdapter.withReadOnlyObservation==='function','adapter_missing');
   let proof, before;
   await databaseAdapter.withReadOnlyTransaction(async(query)=>{
@@ -182,17 +224,29 @@ export async function runActivationPreflight({ inventory: raw, inventoryReceipt,
   });
   fail(equalSnapshot(before,after),'zero_write_observation_mismatch');
   proof={health:'ok',readiness:'ok',rankedModes:['speed_1v1','standard_1v1'],webIdentity:'ok',previewIsolation:'ok',databaseReadOnly:true,zeroWrite:true,providerDerived:true};
-  const evidence={schemaVersion:3,result:'PASS',activationPhase:inventory.activationPhase,runId:inventory.runId,sourceSha:inventory.sourceSha,artifactSha:inventory.artifactSha,providerInventoryReceipt:inventoryReceipt,provider:inventory.provider,deployments:inventory.deployments,origins:inventory.origins,replicas:inventory.replicas,config:inventory.config,migrations:inventory.migrations,database:inventory.database,proof,source:inventory.source,expiresAt:inventory.expiresAt};
-  scalarSafe(evidence); fail(Buffer.byteLength(canonicalJson(evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); return {evidence,receipt:receiptFor(evidence)};
+  const evidence={schemaVersion:3,result:'PASS',activationPhase:inventory.activationPhase,runId:inventory.runId,sourceSha:inventory.sourceSha,artifactSha:inventory.artifactSha,providerInventory:structuredClone(providerInventory),providerReceipt:structuredClone(providerReceipt),provider:inventory.provider,deployments:inventory.deployments,origins:inventory.origins,replicas:inventory.replicas,config:inventory.config,migrations:inventory.migrations,database:inventory.database,proof,source:inventory.source,expiresAt:inventory.expiresAt};
+  scalarSafe({...evidence,providerInventory:null,providerReceipt:null}); fail(Buffer.byteLength(canonicalJson(evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); return {evidence,receipt:receiptFor(evidence)};
 }
 export function verifyPreflightReceipt(preflight, now=Date.now()) {
   exact(preflight,['evidence','receipt'],'preflight_artifact_schema_invalid'); exact(preflight.evidence,EVIDENCE_KEYS,'preflight_evidence_schema_invalid');
-  fail(preflight.evidence.schemaVersion===3&&preflight.evidence.result==='PASS'&&PHASES.includes(preflight.evidence.activationPhase)&&RECEIPT.test(preflight.evidence.providerInventoryReceipt),'preflight_not_pass');
+  fail(preflight.evidence.schemaVersion===3&&preflight.evidence.result==='PASS'&&PHASES.includes(preflight.evidence.activationPhase),'preflight_not_pass');
   exact(preflight.evidence.proof,PROOF,'preflight_proof_schema_invalid'); fail(Object.values(preflight.evidence.proof).every(v=>v===true||v==='ok'||Array.isArray(v)),'preflight_proof_invalid');
-  validateInventory({schemaVersion:3,activationPhase:preflight.evidence.activationPhase,runId:preflight.evidence.runId,sourceSha:preflight.evidence.sourceSha,artifactSha:preflight.evidence.artifactSha,provider:preflight.evidence.provider,deployments:preflight.evidence.deployments,origins:preflight.evidence.origins,replicas:preflight.evidence.replicas,config:preflight.evidence.config,migrations:preflight.evidence.migrations,database:preflight.evidence.database,source:preflight.evidence.source,expiresAt:preflight.evidence.expiresAt},now);
+  const operationalInventory={schemaVersion:3,activationPhase:preflight.evidence.activationPhase,runId:preflight.evidence.runId,sourceSha:preflight.evidence.sourceSha,artifactSha:preflight.evidence.artifactSha,provider:preflight.evidence.provider,deployments:preflight.evidence.deployments,origins:preflight.evidence.origins,replicas:preflight.evidence.replicas,config:preflight.evidence.config,migrations:preflight.evidence.migrations,database:preflight.evidence.database,source:preflight.evidence.source,expiresAt:preflight.evidence.expiresAt};
+  validateInventory(operationalInventory,now);
+  fail(validateProviderInventory(preflight.evidence.providerInventory).valid,'preflight_provider_inventory_invalid');
+  fail(preflight.evidence.providerReceipt?.inventoryDigest===`sha256:${receiptFor(preflight.evidence.providerInventory)}`,'preflight_provider_receipt_mismatch');
+  providerComposition(operationalInventory,preflight.evidence.providerInventory);
   fail(Buffer.byteLength(canonicalJson(preflight.evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); fail(equalReceipt(receiptFor(preflight.evidence),preflight.receipt),'preflight_receipt_mismatch'); return structuredClone(preflight);
 }
-export function parsePreflightArgs(args) { fail(!args.includes('--apply'),'apply_forbidden'); fail(args.length===4&&args[0]==='--inventory'&&args[2]==='--inventory-receipt'&&typeof args[1]==='string'&&typeof args[3]==='string'&&!args[1].startsWith('-')&&!args[3].startsWith('-'),'arguments_invalid'); return {inventoryPath:args[1],inventoryReceiptPath:args[3]}; }
+export function parsePreflightArgs(args) {
+  fail(!args.includes('--apply'),'apply_forbidden');
+  const names=['operational-inventory','provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
+  fail(args.length===names.length*2,'arguments_invalid');
+  const parsed={};
+  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&names.includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
+  fail(names.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
+  return {operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key']};
+}
 
 export const ROLLBACK_ORDER = Object.freeze(['web-writes-off','registration-closed','sessions-revoked','zero-active-sessions-proven','api-durable-off','code-rollback']);
 export function validateRollbackOrder(steps) {

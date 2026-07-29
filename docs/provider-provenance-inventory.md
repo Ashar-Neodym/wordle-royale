@@ -29,6 +29,12 @@ The HMAC key file must contain at least 32 bytes and is never emitted. Snapshot,
 
 The v2 receipt binds the canonical strict inventory digest and the complete authenticated native-evidence digest, plus collector/schema/key identities. Verification requires the native snapshot, re-authenticates every adapter envelope, checks freshness/nonce/expected identities, independently re-derives the inventory, and compares both digests.
 
+## Activation-preflight composition
+
+The production durable-auth activation preflight consumes this boundary directly. Its explicit inputs are the v2 inventory, structured v2 receipt, signed native snapshot, expected identity map, expected nonce, protected receipt-key file, and a separate schema-v3 operational phase inventory. Authentication completes before database code is loaded, public probes begin, or any provider field is translated.
+
+The operational run ID/nonce, collection time, source and artifact identity, Railway project/environment/service/deployment, Vercel project/deployment, and production/preview PostgreSQL database IDs must agree exactly. The canonical preflight artifact embeds the complete sanitized provider inventory and receipt, thereby binding all remaining Vercel/Railway artifacts and manifests/attestations and every PostgreSQL cluster/database/replica/schema observation. A caller-authored phase inventory or plain digest is never sufficient for `providerDerived=true`.
+
 ## Strict inventory guarantees
 
 `validateInventory` and receipt verification fail closed on unknown/omitted fields and validate all collector, identity, variable, artifact, manifest, observation, and provenance fields. Provider values never enter inventory or receipt. Only variable name, required policy, and `absent`, `explicitly-empty`, `non-empty`, or `masked-unknown` state are retained. Required variables must be `non-empty`.
