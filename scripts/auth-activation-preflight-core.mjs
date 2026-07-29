@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { validateInventory as validateProviderInventory, verifyReceipt as verifyProviderReceipt } from './provider-provenance-core.mjs';
+import { APPLICATION_MANIFEST_DIGEST, APPLICATION_MODEL_TABLES } from './complete-database-fingerprint.mjs';
 
 const SHA = /^[a-f0-9]{40,64}$/u;
 const RECEIPT = /^[a-f0-9]{64}$/u;
@@ -183,9 +184,25 @@ function assertResponse(response, expectedOrigin, path, schema) {
 function assertWebResponse(response, originValue) {
   fail(response?.method==='GET'&&response.redirected===false,'public_redirect'); fail(response.url===`${originValue}/.well-known/wordle-identity`&&response.status===200,'web_authority_mismatch'); fail(response.contentType==='application/json','public_content_type_invalid'); fail(Number.isInteger(response.bodyBytes)&&response.bodyBytes<=MAX_PUBLIC_BODY_BYTES&&Buffer.byteLength(canonicalJson(response.body))<=MAX_PUBLIC_BODY_BYTES,'public_body_oversized'); validateWeb(response.body); scalarSafe(response.body,'web'); return response.body;
 }
-function equalSnapshot(a,b){return canonicalJson(a)===canonicalJson(b);}
+function validateCompleteSnapshot(snapshot) {
+  exact(snapshot,['schemaVersion','manifestDigest','modelCount','totalCount','stateDigest','models'],'complete_fingerprint_schema_invalid');
+  fail(snapshot.schemaVersion===1&&snapshot.manifestDigest===APPLICATION_MANIFEST_DIGEST&&snapshot.modelCount===APPLICATION_MODEL_TABLES.length&&RECEIPT.test(snapshot.stateDigest),'complete_fingerprint_manifest_drift');
+  fail(Array.isArray(snapshot.models)&&snapshot.models.length===APPLICATION_MODEL_TABLES.length,'complete_fingerprint_manifest_drift');
+  let total=0;
+  snapshot.models.forEach((entry,index)=>{
+    exact(entry,['model','table','count','digest'],'complete_fingerprint_model_invalid');
+    const [model,table]=APPLICATION_MODEL_TABLES[index];
+    fail(entry.model===model&&entry.table===table&&Number.isSafeInteger(entry.count)&&entry.count>=0&&RECEIPT.test(entry.digest),'complete_fingerprint_model_invalid');
+    total+=entry.count;
+  });
+  fail(Number.isSafeInteger(total)&&snapshot.totalCount===total,'complete_fingerprint_count_invalid');
+  fail(snapshot.stateDigest===receiptFor(snapshot.models),'complete_fingerprint_state_digest_invalid');
+}
+function equalSnapshot(a,b){validateCompleteSnapshot(a);validateCompleteSnapshot(b);return canonicalJson(a)===canonicalJson(b);}
 export async function runActivationPreflight({ operationalInventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, publicAdapter, databaseAdapter, now = () => Date.now() }) {
   const startedAt=now();
+  // Ticket 266's authenticated provider boundary remains the sole source of the
+  // operational inventory, and executes before any database or public adapter.
   const inventory=verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,now:startedAt});
   fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function'&&typeof databaseAdapter.withReadOnlyObservation==='function','adapter_missing');
   let proof, before;
@@ -193,7 +210,7 @@ export async function runActivationPreflight({ operationalInventory, providerInv
     const allowed=new Set(Object.values(PREFLIGHT_SQL)); let statements=0;
     const q=async(sql)=>{fail(allowed.has(sql),'sql_not_allowlisted'); statements++; return query(sql);};
     await q(PREFLIGHT_SQL.isolation); const readOnly=await q(PREFLIGHT_SQL.readOnlyStatus); fail(readOnly?.transactionReadOnly==='on','transaction_read_only_off');
-    before=await q(PREFLIGHT_SQL.snapshot);
+    before=await q(PREFLIGHT_SQL.snapshot); validateCompleteSnapshot(before);
     const [healthR,readyR,modesR,previewR,webR]=await Promise.all([
       publicAdapter.get(`${inventory.origins.api}/healthz`),publicAdapter.get(`${inventory.origins.api}/readyz`),publicAdapter.get(`${inventory.origins.api}/ranked/modes`),publicAdapter.get(`${inventory.origins.previewApi}/readyz`),publicAdapter.get(`${inventory.origins.web}/.well-known/wordle-identity`),
     ]);
@@ -219,7 +236,7 @@ export async function runActivationPreflight({ operationalInventory, providerInv
     let statements=0;
     await query(PREFLIGHT_SQL.isolation); statements++;
     const readOnly=await query(PREFLIGHT_SQL.readOnlyStatus); statements++; fail(readOnly?.transactionReadOnly==='on','observation_transaction_read_only_off');
-    after=await query(PREFLIGHT_SQL.snapshot); statements++;
+    after=await query(PREFLIGHT_SQL.snapshot); statements++; validateCompleteSnapshot(after);
     fail(statements===3,'observation_statement_accounting_invalid');
   });
   fail(equalSnapshot(before,after),'zero_write_observation_mismatch');

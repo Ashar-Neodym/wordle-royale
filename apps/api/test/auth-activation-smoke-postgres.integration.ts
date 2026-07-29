@@ -14,6 +14,8 @@ import { collectionConstraints, expectedIdentities, validProviderSnapshot } from
 import { accountFingerprint, assertNonTargetRateLimitUnchanged, runAuthActivationSmoke, SMOKE_RECONCILIATION_SQL } from '../../../scripts/auth-activation-smoke-core.mjs';
 // @ts-expect-error Production and integration intentionally share this plain ESM implementation.
 import { createAuthSmokeReconciliation } from '../../../scripts/auth-activation-reconciliation.mjs';
+// @ts-expect-error Production and integration intentionally share this plain ESM implementation.
+import { completeDatabaseFingerprint } from '../../../scripts/complete-database-fingerprint.mjs';
 
 if (process.env.RUN_AUTH_ACTIVATION_SMOKE_POSTGRES !== '1') throw new Error('disposable PostgreSQL wrapper required');
 
@@ -156,7 +158,7 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
     await db.$transaction(async (tx) => work(async (sql) => {
         if (sql.startsWith('SET TRANSACTION')) { await tx.$executeRawUnsafe(sql); return true; }
         if (sql === 'SHOW transaction_read_only') { const rows = await tx.$queryRawUnsafe<Array<{ transaction_read_only: string }>>(sql); return { transactionReadOnly: rows[0]?.transaction_read_only }; }
-        if (sql.includes('readonly_snapshot')) { preflightSnapshots++; return { accountCount: await tx.userAccount.count() }; }
+        if (sql.includes('readonly_snapshot')) { preflightSnapshots++; return completeDatabaseFingerprint(tx, Prisma.dmmf.datamodel.models); }
         if (sql.includes('complete_migration_status')) {
           const rows = await tx.$queryRaw<Array<{ migration_name: string; finished_at: Date | null; rolled_back_at: Date | null }>>`SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY migration_name`;
           return rows.map((row) => ({ id: row.migration_name, status: row.finished_at !== null && row.rolled_back_at === null ? 'applied' : 'invalid' }));
