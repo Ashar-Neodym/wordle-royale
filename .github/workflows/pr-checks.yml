@@ -61,7 +61,13 @@ jobs:
         run: pnpm --filter @wordle-royale/api test
 
       - name: Build all packages and apps
-        run: pnpm build
+        run: |
+          durable_gate_name='DURABLE_AUTH_ENABLED'
+          export "$durable_gate_name=false"
+          export WORDLE_WEB_ENV=preview
+          export WORDLE_ACCOUNT_MODE=preview_demo
+          unset WORDLE_REGISTRATION_MODE
+          pnpm build
 
       # Preview deploy-shape smoke. This starts only local Docker Compose
       # PostgreSQL/Redis services, runs the built API against /readyz, and does
