@@ -11,6 +11,8 @@ export const accountResultMessages = {
   account_conflict: { tone: 'error', text: 'That email or handle cannot be used.' },
   rate_limited: { tone: 'error', text: 'Too many attempts. Wait a moment and try again.' },
   auth_not_configured: { tone: 'error', text: 'Durable accounts are not available in this deployment.' },
+  auth_presentation_disabled: { tone: 'error', text: 'Account actions are unavailable in this deployment.' },
+  registration_closed: { tone: 'error', text: 'Registration is currently closed.' },
   auth_upstream_unavailable: { tone: 'error', text: 'Account service is temporarily unavailable.' },
   auth_transport_unavailable: { tone: 'error', text: 'Account service is temporarily unavailable.' },
   auth_redirect_rejected: { tone: 'error', text: 'Account service is temporarily unavailable.' },

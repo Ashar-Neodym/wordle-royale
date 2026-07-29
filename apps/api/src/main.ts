@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.ts';
-import { allowedCorsOrigins } from './config/runtime-config.ts';
+import { allowedCorsOrigins, trustedProxyHops } from './config/runtime-config.ts';
 import { ApiExceptionFilter } from './shared/api-exception.filter.ts';
 
 const defaultPort = 3001;
@@ -22,8 +22,17 @@ function configureCors(app: INestApplication) {
   });
 }
 
+export function configureTrustedProxy(app: INestApplication): void {
+  const durable = ['1', 'true', 'yes'].includes((process.env.DURABLE_AUTH_ENABLED ?? '').toLowerCase());
+  const productionDurable = durable && process.env.APP_ENV === 'production';
+  if (!productionDurable && process.env.TRUSTED_PROXY_HOPS == null) return;
+  const express = app.getHttpAdapter().getInstance() as { set(name: string, value: number): void };
+  express.set('trust proxy', trustedProxyHops());
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  configureTrustedProxy(app);
   configureCors(app);
   app.useGlobalFilters(new ApiExceptionFilter());
 
@@ -31,4 +40,4 @@ async function bootstrap() {
   await app.listen(Number.isFinite(parsedPort) ? parsedPort : defaultPort);
 }
 
-await bootstrap();
+if (import.meta.url === `file://${process.argv[1]}`) await bootstrap();

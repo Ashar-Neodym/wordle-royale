@@ -17,12 +17,14 @@ import {
   stateFromTicket,
   type QueueUiState,
 } from './standard-queue-state';
+import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation';
 
 type SessionState = 'active' | 'signed_out' | 'unavailable';
 
 type StandardQueuePanelProps = {
   sessionState: SessionState;
   sessionError?: string | null;
+  authPresentationMode: AuthPresentationMode;
 };
 
 function elapsedSeconds(createdAt: string | undefined, now: number): number {
@@ -32,10 +34,10 @@ function elapsedSeconds(createdAt: string | undefined, now: number): number {
   return Math.max(0, Math.floor((now - created) / 1000));
 }
 
-function queueCopy(state: QueueUiState): { eyebrow: string; title: string; message: string } {
+function queueCopy(state: QueueUiState, authPresentationMode: AuthPresentationMode): { eyebrow: string; title: string; message: string } {
   switch (state) {
     case 'signed_out':
-      return { eyebrow: 'Session required', title: 'Start a demo session to queue', message: 'Automatic Standard matchmaking requires an explicit preview session. Public lobbies remain browseable without one.' };
+      return authLimitedPresentation(authPresentationMode, 'Standard queue');
     case 'unavailable':
       return { eyebrow: 'Session check unavailable', title: 'Queue status is unavailable', message: 'The app could not confirm your session or reconnect to the queue. No ticket was created.' };
     case 'reconnecting':
@@ -55,11 +57,11 @@ function queueCopy(state: QueueUiState): { eyebrow: string; title: string; messa
     case 'error':
       return { eyebrow: 'Queue error', title: 'Search needs attention', message: 'No opponent or queue result is being guessed. Retry the server status check or use lobbies.' };
     default:
-      return { eyebrow: 'Standard 1v1', title: 'Find a rated Standard match', message: 'Join the live automatic queue. Rating, pairing, and puzzle selection remain server-authoritative.' };
+      return { eyebrow: 'Standard 1v1', title: 'Find a rated Standard match', message: 'Automatic Standard matchmaking uses the live queue. Rating, pairing, and puzzle selection remain server-authoritative.' };
   }
 }
 
-export function StandardQueuePanel({ sessionState, sessionError }: StandardQueuePanelProps): ReactElement {
+export function StandardQueuePanel({ sessionState, sessionError, authPresentationMode }: StandardQueuePanelProps): ReactElement {
   const initialState: QueueUiState = sessionState === 'active' ? 'reconnecting' : sessionState;
   const [state, setState] = useState<QueueUiState>(initialState);
   const [ticket, setTicket] = useState<Standard1v1Ticket | null>(null);
@@ -199,7 +201,8 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
     return () => window.clearTimeout(timer);
   }, [state, ticket?.matchedMatchId]);
 
-  const copy = queueCopy(state);
+  const copy = queueCopy(state, authPresentationMode);
+  const authCopy = authLimitedPresentation(authPresentationMode, 'Standard queue');
   const busy = state === 'joining' || state === 'reconnecting' || state === 'cancelling';
   const elapsed = elapsedSeconds(ticket?.createdAt, now);
   const matchedHref = hrefForMatchedTicket(ticket);
@@ -215,12 +218,12 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
       </div>
 
       <div className={styles.queueActions}>
-        {state === 'signed_out' ? (
+        {state === 'signed_out' && authCopy.action === 'preview_demo' ? (
           <form action={startPreviewDemoSessionAction}>
             <input type="hidden" name="redirectTo" value="/play#standard-queue" />
             <button className={styles.primaryButton} type="submit">Start preview demo</button>
           </form>
-        ) : null}
+        ) : state === 'signed_out' && authCopy.action === 'sign_in' ? <a className={styles.primaryButton} href="/account">Sign in</a> : null}
         {state === 'idle' || state === 'cancelled' || state === 'timed_out' ? (
           <button className={styles.primaryButton} type="button" onClick={() => void joinQueue()}>{state === 'idle' ? 'Find Standard match' : 'Search again'}</button>
         ) : null}
@@ -230,7 +233,7 @@ export function StandardQueuePanel({ sessionState, sessionError }: StandardQueue
         {busy ? <button className={styles.secondaryButton} type="button" disabled>{state === 'joining' ? 'Joining…' : state === 'cancelling' ? 'Cancelling…' : 'Checking…'}</button> : null}
         <a className={styles.secondaryButton} href="/lobbies">Use lobbies</a>
       </div>
-      <p className={styles.queueFootnote}>Standard and catalog-enabled Speed are separate automatic rated queues in this preview. Classic and Multiplayer are not live matchmaking modes yet.</p>
+      <p className={styles.queueFootnote}>Standard and catalog-enabled Speed are separate automatic rated queues{authPresentationMode === 'preview_demo' ? ' in this preview' : ''}. Classic and Multiplayer are not live matchmaking modes yet.</p>
     </article>
   );
 }

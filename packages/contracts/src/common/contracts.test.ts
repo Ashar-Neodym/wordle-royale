@@ -386,7 +386,7 @@ test('strict web authority schemas reject noncanonical service, partial dependen
   const dependency = { status: 'ok' as const };
   const readiness = {
     status: 'ok', service: 'wordle-royale-api', environment: 'test', revision, checkedAt: ts,
-    dependencies: { database: dependency, applicationSchema: dependency, standardDictionary: dependency, speedRuntime: dependency, speedLifecycleActivation: dependency, redis: dependency },
+    dependencies: { database: dependency, applicationSchema: dependency, durableAuth: dependency, standardDictionary: dependency, speedRuntime: dependency, speedLifecycleActivation: dependency, redis: dependency },
   };
   assert.equal(apiReadinessPayloadSchema.safeParse(readiness).success, true);
   assert.equal(apiReadinessPayloadSchema.safeParse({ ...readiness, dependencies: { speedRuntime: dependency, speedLifecycleActivation: dependency } }).success, false);

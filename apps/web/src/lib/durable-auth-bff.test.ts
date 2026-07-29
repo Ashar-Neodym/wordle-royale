@@ -25,19 +25,46 @@ function response(body: unknown, options: { status?: number; url?: string; setCo
 
 const enabledEnvironment = {
   NODE_ENV: 'production',
+  WORDLE_WEB_ENV: 'production',
+  WORDLE_ACCOUNT_MODE: 'durable',
+  WORDLE_REGISTRATION_MODE: 'open',
   API_BASE_URL: API,
   PUBLIC_WEB_URL: WEB,
   DURABLE_AUTH_ENABLED: 'true',
 };
+const missingGateEnvironment = { ...enabledEnvironment } as Record<string, string>;
+delete missingGateEnvironment[['DURABLE', 'AUTH', 'ENABLED'].join('_')];
 
 describe('durable auth web BFF boundary', () => {
   it('fails closed unless durable auth, a pinned API authority, and one exact web origin are configured', () => {
     assert.equal(resolveDurableAuthConfiguration(enabledEnvironment).status, 'available');
     assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, DURABLE_AUTH_ENABLED: 'false' }).status, 'unavailable');
+    assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, DURABLE_AUTH_ENABLED: 'TRUE' }).status, 'unavailable');
+    assert.equal(resolveDurableAuthConfiguration(missingGateEnvironment).status, 'unavailable');
     assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, API_BASE_URL: `${API}/v1` }).status, 'unavailable');
     assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, PUBLIC_WEB_URL: `${WEB}/account` }).status, 'unavailable');
     assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, NEXT_PUBLIC_API_URL: 'https://other.example.test' }).status, 'unavailable');
     assert.equal(resolveDurableAuthConfiguration({ ...enabledEnvironment, API_BASE_URL: 'http://api.example.test' }).status, 'unavailable');
+  });
+
+  it('requires the exact durable runtime gate and rejects contradictions before fetch', async () => {
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => { fetchCalls += 1; throw new Error('must not fetch'); };
+    const gatedOffEnvironments = [
+      missingGateEnvironment,
+      { ...enabledEnvironment, DURABLE_AUTH_ENABLED: 'false' },
+      { ...enabledEnvironment, DURABLE_AUTH_ENABLED: 'TRUE' },
+    ];
+    for (const environment of gatedOffEnvironments) {
+      const result = await durableAuthRequest({
+        operation: 'login',
+        environment,
+        fetchImpl,
+      });
+      assert.equal(result.status, 'unavailable');
+      assert.equal(result.code, 'auth_not_configured');
+    }
+    assert.equal(fetchCalls, 0);
   });
 
   it('forwards only the allowlisted durable session cookie', () => {
@@ -102,6 +129,46 @@ describe('durable auth web BFF boundary', () => {
       assert.equal(result.status, 'rejected');
     }
     assert.equal(fetchCalls, 0);
+  });
+
+  it('gates disabled and closed registration before any upstream call while canary/open reach the API', async () => {
+    let fetchCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      fetchCalls += 1;
+      return response({ error: { code: 'rate_limited' } }, { status: 429, url: `${API}/auth/register` });
+    };
+    const requestHeaders = new Headers({ origin: WEB, host: 'play.example.test' });
+    const disabled = await durableAuthActionRequest({
+      operation: 'login', requestHeaders, fetchImpl,
+      environment: {
+        NODE_ENV: enabledEnvironment.NODE_ENV,
+        WORDLE_WEB_ENV: enabledEnvironment.WORDLE_WEB_ENV,
+        WORDLE_ACCOUNT_MODE: 'disabled',
+        API_BASE_URL: enabledEnvironment.API_BASE_URL,
+        PUBLIC_WEB_URL: enabledEnvironment.PUBLIC_WEB_URL,
+        DURABLE_AUTH_ENABLED: 'false',
+      },
+    });
+    assert.deepEqual(disabled, {
+      status: 'unavailable', code: 'auth_presentation_disabled', message: 'Account actions are unavailable in this deployment.',
+    });
+    const closed = await durableAuthActionRequest({
+      operation: 'register', requestHeaders, fetchImpl,
+      environment: { ...enabledEnvironment, WORDLE_REGISTRATION_MODE: 'closed' },
+    });
+    assert.deepEqual(closed, {
+      status: 'rejected', code: 'registration_closed', message: 'Registration is currently closed.',
+    });
+    assert.equal(fetchCalls, 0);
+
+    for (const registrationMode of ['canary', 'open'] as const) {
+      const result = await durableAuthActionRequest({
+        operation: 'register', requestHeaders, fetchImpl,
+        environment: { ...enabledEnvironment, WORDLE_REGISTRATION_MODE: registrationMode },
+      });
+      assert.equal(result.code, 'rate_limited');
+    }
+    assert.equal(fetchCalls, 2);
   });
 
   it('pins the authority, uses a manual redirect policy and exact Origin, and rejects redirects/cross-origin responses', async () => {

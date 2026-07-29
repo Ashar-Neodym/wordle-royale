@@ -6,6 +6,7 @@ import { PageFrame, PageHeader } from '../../components/PageFrame';
 import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction } from '../actions';
 import { rankedActionState, resolveSearchParams, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,7 @@ type LobbiesPageProps = {
 export default async function LobbiesPage({ searchParams }: LobbiesPageProps): Promise<ReactElement> {
   const params = await resolveSearchParams(searchParams);
   const api = await getWebApiSnapshot();
+  const presentation = requireAuthPresentationConfiguration();
   const actionState = rankedActionState(params);
   return (
     <PageFrame>
@@ -28,6 +30,7 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
             apiLobbies={api.lobbies}
             actionState={actionState}
             previewSessionActive={api.currentUser.status === 'connected'}
+            authPresentationMode={presentation.mode}
             startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}

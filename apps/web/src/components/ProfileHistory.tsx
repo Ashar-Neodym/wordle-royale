@@ -6,6 +6,7 @@ import { profileReadFallback } from '../lib/read-fallback';
 import { TokenBadge } from './StatusPanels';
 import styles from './web-shell.module.css';
 import { ServerReadRetryButton } from './ServerReadRetryButton';
+import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation';
 
 type ProfileSummary = CurrentProfileSummary | PublicProfileSummary;
 
@@ -38,31 +39,34 @@ export function isAuthLimited(error: string | null | undefined): boolean {
 }
 
 export function AuthRequiredPanel({
-  title = 'Sign in required',
-  message,
+  surface,
+  authPresentationMode,
+  previewMessage,
   previewDemoSessionAction,
   redirectTo = '/profile',
 }: {
-  title?: string;
-  message?: string;
+  surface: 'Profile' | 'History';
+  authPresentationMode: AuthPresentationMode;
+  previewMessage?: string;
   previewDemoSessionAction?: PreviewDemoSessionAction;
   redirectTo?: string;
 }): ReactElement {
+  const presentation = authLimitedPresentation(authPresentationMode, surface);
   return (
     <article className={styles.authPanel} aria-live="polite">
       <div>
-        <p className={styles.eyebrow}>Preview auth</p>
-        <h2>{title}</h2>
-        <p>{message ?? 'Public preview does not silently sign you in as a fixture player. Until real sessions are enabled, this current-player view stays limited instead of showing fake account data.'}</p>
+        <p className={styles.eyebrow}>{presentation.eyebrow}</p>
+        <h2>{presentation.title}</h2>
+        <p>{authPresentationMode === 'preview_demo' && previewMessage ? previewMessage : presentation.message}</p>
       </div>
       <div className={styles.actionRow}>
-        {previewDemoSessionAction ? (
+        {presentation.action === 'preview_demo' && previewDemoSessionAction ? (
           <form action={previewDemoSessionAction}>
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <button className={styles.primaryButton} type="submit">Start preview demo</button>
           </form>
-        ) : null}
-        <a className={previewDemoSessionAction ? styles.secondaryButton : styles.primaryButton} href="/lobbies">Browse lobbies</a>
+        ) : presentation.action === 'sign_in' ? <a className={styles.primaryButton} href="/account">Sign in</a> : null}
+        <a className={presentation.action !== 'none' ? styles.secondaryButton : styles.primaryButton} href="/lobbies">Browse lobbies</a>
         <a className={styles.secondaryButton} href="/leaderboard">View ratings</a>
       </div>
     </article>
@@ -154,7 +158,7 @@ function graphBars(points: number[]): ReactElement {
   );
 }
 
-export function ModeRatingCards({ profile }: { profile: ProfileSummary | null }): ReactElement {
+export function ModeRatingCards({ profile, authPresentationMode }: { profile: ProfileSummary | null; authPresentationMode: AuthPresentationMode }): ReactElement {
   return (
     <div className={styles.modeGrid}>
       {modeCards(profile).map((mode) => {
@@ -189,7 +193,7 @@ export function ModeRatingCards({ profile }: { profile: ProfileSummary | null })
               <span>A {isLive ? mode.abandons : '—'}</span>
               <span>{isLive ? mode.gamesPlayed : '—'} games</span>
             </div>
-            <p className={styles.warningText}>{provisionalLabel ?? (mode.status === 'prepared' ? 'Mode-specific backend data is not live yet; this card intentionally avoids placeholder ratings or fake charts.' : 'Start a preview demo session or open a public profile to load live Standard rating counters.')}</p>
+            <p className={styles.warningText}>{provisionalLabel ?? (mode.status === 'prepared' ? 'Mode-specific backend data is not live yet; this card intentionally avoids placeholder ratings or fake charts.' : authPresentationMode === 'preview_demo' ? 'Start a preview demo session or open a public profile to load live Standard rating counters.' : authPresentationMode === 'durable' ? 'Sign in with a durable account or open a public profile to load live Standard rating counters.' : 'Account-backed ratings are unavailable; open a public profile to browse available rating counters.')}</p>
             {isLive && mode.graph !== null ? graphBars(mode.graph) : <div className={styles.ratingPlaceholder} aria-label={`${mode.label} has no live rating chart`}>No live rating chart yet</div>}
           </article>
         );

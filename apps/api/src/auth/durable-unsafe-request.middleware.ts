@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, type NestMiddleware } from '@nestjs/common';
 
-type RequestLike = { method?: string; headers?: Record<string, string | string[] | undefined> };
+type RequestLike = { method?: string; originalUrl?: string; url?: string; headers?: Record<string, string | string[] | undefined> };
 type ResponseLike = { setHeader(name: string, value: string): void };
 type Next = () => void;
 
@@ -48,6 +48,28 @@ export class DurableUnsafeRequestMiddleware implements NestMiddleware {
         message: 'Request origin is not allowed.',
         details: {},
       });
+    }
+    // Ambiguous durable credentials and preview credentials must never reach a
+    // durable mutation. This is deliberately enforced before rate limiting,
+    // session revocation, or account creation in the controller/service.
+    const path = (request.originalUrl ?? request.url ?? '').split('?')[0];
+    if (path === '/auth/register' || path === '/auth/login' || path === '/auth/logout') {
+      const rawCookie = request.headers?.cookie;
+      const cookieLines = Array.isArray(rawCookie) ? rawCookie : rawCookie ? [rawCookie] : [];
+      const names = cookieLines.flatMap((line) => line.split(';').map((part) => {
+        const separator = part.indexOf('=');
+        return separator < 0 ? '' : part.slice(0, separator).trim();
+      }));
+      const hostCount = names.filter((name) => name === '__Host-wr_session').length;
+      const legacyCount = names.filter((name) => name === 'wr_session').length;
+      const durableCount = hostCount + legacyCount;
+      if (hostCount > 1 || legacyCount > 1 || (hostCount > 0 && legacyCount > 0) || (durableCount > 0 && names.includes('wr_preview_demo_session'))) {
+        throw new ForbiddenException({
+          code: 'unsafe_auth_cookie',
+          message: 'Authentication cookie is not allowed.',
+          details: {},
+        });
+      }
     }
     next();
   }

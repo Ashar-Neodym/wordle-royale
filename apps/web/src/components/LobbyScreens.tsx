@@ -36,6 +36,7 @@ type LobbyBrowserProps = {
   apiLobbies: ApiClientResult<LobbyListPayload>;
   actionState: LobbyActionState;
   previewSessionActive: boolean;
+  authPresentationMode: 'preview_demo' | 'disabled' | 'durable';
   startPreviewDemoSessionAction: FormAction;
   createRankedLobbyAction: ButtonAction;
   joinLobbyByCodeAction: FormAction;
@@ -92,6 +93,7 @@ export function LobbyBrowser({
   apiLobbies,
   actionState,
   previewSessionActive,
+  authPresentationMode,
   startPreviewDemoSessionAction,
   createRankedLobbyAction,
   joinLobbyByCodeAction,
@@ -104,7 +106,7 @@ export function LobbyBrowser({
   const lobbies = apiLobbyData ? apiLobbyData.items.map(apiLobbyToDisplay) : fixtureLobbies.map(fixtureLobbyToDisplay);
   const sourceLabel = apiLobbies.status === 'connected' ? 'Local API route' : 'Fixture fallback';
   const feedback = actionCopy(actionState);
-  const writeActionsEnabled = usingApiLobbies && previewSessionActive;
+  const writeActionsEnabled = usingApiLobbies && previewSessionActive && authPresentationMode !== 'disabled';
 
   return (
     <section id="lobbies" className={styles.section} aria-labelledby="lobby-browser-heading">
@@ -126,20 +128,24 @@ export function LobbyBrowser({
       {usingApiLobbies && !previewSessionActive ? (
         <article className={styles.authPanel} aria-live="polite">
           <div>
-            <p className={styles.eyebrow}>Preview demo session</p>
-            <h2>Start demo mode before lobby writes</h2>
-            <p>Public lobbies stay visible, but creating, joining, and starting ranked rooms require an explicit preview demo session. No fixture player is silently used.</p>
+            <p className={styles.eyebrow}>{authPresentationMode === 'preview_demo' ? 'Preview demo session' : 'Account access'}</p>
+            <h2>{authPresentationMode === 'preview_demo' ? 'Start demo mode before lobby writes' : authPresentationMode === 'durable' ? 'Sign in before lobby writes' : 'Lobby writes are unavailable'}</h2>
+            <p>{authPresentationMode === 'preview_demo'
+              ? 'Public lobbies stay visible, but creating, joining, and starting ranked rooms require an explicit preview demo session. No fixture player is silently used.'
+              : authPresentationMode === 'durable'
+                ? 'Public lobbies stay visible. Use your durable account session to create, join, or start a rated room.'
+                : 'Public lobbies stay visible, but account-backed lobby actions are disabled in this production deployment.'}</p>
           </div>
-          <form action={startPreviewDemoSessionAction}>
+          {authPresentationMode === 'preview_demo' ? <form action={startPreviewDemoSessionAction}>
             <input type="hidden" name="redirectTo" value="/lobbies" />
             <button className={styles.primaryButton} type="submit">Start preview demo</button>
-          </form>
+          </form> : authPresentationMode === 'durable' ? <a className={styles.primaryButton} href="/account">Sign in</a> : null}
         </article>
       ) : null}
       <div className={styles.splitGrid}>
         <article className={styles.panel}>
           <h3>Standard rated</h3>
-          <p className={styles.muted}>{previewSessionActive ? 'Create a public Standard 1v1 rated room. Quick queue, Speed, Classic, and casual lobby choices are visible as product structure but only this Standard lobby path is live today.' : 'Start preview demo mode first; public rooms remain browseable without a current user.'}</p>
+          <p className={styles.muted}>{previewSessionActive ? 'Create a public Standard 1v1 rated room. Quick queue, Speed, Classic, and casual lobby choices are visible as product structure but only this Standard lobby path is live today.' : authPresentationMode === 'preview_demo' ? 'Start preview demo mode first; public rooms remain browseable without a current user.' : authPresentationMode === 'durable' ? 'Sign in with a durable account first; public rooms remain browseable.' : 'Account-backed writes are unavailable; public rooms remain browseable.'}</p>
           <form action={createRankedLobbyAction}>
             <button className={styles.primaryButton} type="submit" disabled={!writeActionsEnabled}>Create rated room</button>
           </form>
@@ -149,7 +155,7 @@ export function LobbyBrowser({
             <button className={styles.secondaryButton} type="submit" disabled={!writeActionsEnabled}>Join live code</button>
           </form>
           {!usingApiLobbies ? <p className={styles.warningText}>Server offline. Fixture rooms are view-only.</p> : null}
-          {usingApiLobbies && !previewSessionActive ? <p className={styles.warningText}>Preview demo session required for write actions.</p> : null}
+          {usingApiLobbies && !previewSessionActive ? <p className={styles.warningText}>{authPresentationMode === 'preview_demo' ? 'Preview demo session required for write actions.' : authPresentationMode === 'durable' ? 'Durable account sign-in required for write actions.' : 'Write actions are disabled in this deployment.'}</p> : null}
         </article>
         <div className={styles.cardGrid}>
           {usingApiLobbies && lobbies.length === 0 ? (

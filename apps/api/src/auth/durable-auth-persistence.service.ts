@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { canonicalizeEmail, normalizeDisplayName, normalizeHandle, validatePassword } from './auth-input.js';
 import { createDummyPasswordHash, hashPassword, parsePasswordHash, verifyPassword } from './password-crypto.js';
@@ -11,7 +11,14 @@ export type DurableSessionResult = { token: string; session: { id: string; userI
 export class AuthUnavailableError extends Error { readonly code = 'auth_unavailable'; constructor() { super('Durable authentication is unavailable.'); } }
 export class RegistrationUnavailableError extends Error { readonly code = 'registration_unavailable'; constructor() { super('Registration unavailable.'); } }
 export class InvalidCredentialsError extends Error { readonly code = 'invalid_credentials'; constructor() { super('Invalid credentials.'); } }
-export type DurableAuthOptions = { enabled: boolean; rateLimitKey?: Buffer; now?: () => Date; sessionTtlMs?: number; lastSeenIntervalMs?: number; cryptoObserver?: (event: 'dummy_hash' | 'verify') => void };
+export type DurableAuthOptions = { enabled: boolean; rateLimitKey?: Buffer; registrationMode?: 'closed' | 'canary' | 'open'; registrationCanaryDigest?: Buffer; now?: () => Date; sessionTtlMs?: number; lastSeenIntervalMs?: number; cryptoObserver?: (event: 'dummy_hash' | 'verify') => void };
+
+export function registrationAllowed(email: string, mode: 'closed' | 'canary' | 'open', key: Buffer, canaryDigest?: Buffer): boolean {
+  if (mode === 'open') return true;
+  if (mode === 'closed' || canaryDigest?.length !== 32) return false;
+  const actual = createHmac('sha256', key).update(canonicalizeEmail(email), 'utf8').digest();
+  return timingSafeEqual(actual, canaryDigest);
+}
 
 export class DurableAuthPersistenceService {
   private readonly now: () => Date;
@@ -29,6 +36,9 @@ export class DurableAuthPersistenceService {
       if (!options.rateLimitKey) throw new Error('AUTH_RATE_LIMIT_KEY is required when durable auth is enabled');
       this.limiter = new PostgresAuthRateLimiter(db, options.rateLimitKey, this.now);
       this.dummyHash = createDummyPasswordHash().then((hash) => { options.cryptoObserver?.('dummy_hash'); return hash; });
+      const mode = options.registrationMode ?? 'closed';
+      if (!['closed', 'canary', 'open'].includes(mode)) throw new Error('invalid registration mode');
+      if (mode === 'canary' && options.registrationCanaryDigest?.length !== 32) throw new Error('canary registration requires one 32-byte digest');
     }
   }
   private requireEnabled(): void {
@@ -41,6 +51,8 @@ export class DurableAuthPersistenceService {
     this.requireEnabled();
     const email = canonicalizeEmail(input.email), handle = normalizeHandle(input.handle);
     const displayName = normalizeDisplayName(input.displayName), password = validatePassword(input.password);
+    const mode = this.options.registrationMode ?? 'closed';
+    if (!registrationAllowed(email, mode, this.options.rateLimitKey!, this.options.registrationCanaryDigest)) throw new RegistrationUnavailableError();
     await this.limit('register', email, ip);
     const passwordHash = await hashPassword(password), token = generateSessionToken();
     const now = this.now(), expiresAt = new Date(now.getTime() + this.ttl);

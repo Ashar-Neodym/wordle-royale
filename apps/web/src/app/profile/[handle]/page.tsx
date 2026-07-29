@@ -3,6 +3,7 @@ import { getPublicProfileSummary } from '../../../lib/api-client';
 import { MatchHistoryRows, ModeRatingCards, ProfileSummaryCard } from '../../../components/ProfileHistory';
 import { PageFrame, PageHeader } from '../../../components/PageFrame';
 import styles from '../../../components/web-shell.module.css';
+import { requireAuthPresentationConfiguration } from '../../../lib/auth-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ export default async function PublicProfilePage({ params }: PublicProfilePagePro
   const { handle } = await params;
   const profileResult = await getPublicProfileSummary(handle);
   const profile = profileResult.status === 'connected' ? profileResult.data : null;
+  const presentation = requireAuthPresentationConfiguration();
   return (
     <PageFrame>
       <PageHeader eyebrow="Profile" title={profile ? profile.displayName : `@${handle}`}>
@@ -33,7 +35,7 @@ export default async function PublicProfilePage({ params }: PublicProfilePagePro
           <h2 id="public-mode-ratings-heading">Per-mode rating cards</h2>
           <p>Public profiles present separate mode ladders. Non-Standard modes are marked as prepared UI until live mode-aware backend data is available.</p>
         </div>
-        <ModeRatingCards profile={profile} />
+        <ModeRatingCards profile={profile} authPresentationMode={presentation.mode} />
       </section>
       <section className={styles.section} aria-labelledby="public-recent-heading">
         <div className={styles.sectionHeader}>

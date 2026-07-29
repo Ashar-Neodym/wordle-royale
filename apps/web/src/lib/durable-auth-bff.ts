@@ -1,12 +1,43 @@
 import { resolveApiOriginConfiguration, type ApiOriginEnvironment } from './api-authority.ts';
+import {
+  authPresentationEnvironmentFromProcess,
+  resolveAuthPresentationConfiguration,
+  type AuthPresentationEnvironment,
+} from './auth-presentation.ts';
 
 export const DURABLE_COOKIE_NAMES = ['__Host-wr_session', 'wr_session'] as const;
 type DurableCookieName = typeof DURABLE_COOKIE_NAMES[number];
 
-export type DurableAuthEnvironment = ApiOriginEnvironment & Readonly<{
+export type DurableAuthEnvironment = ApiOriginEnvironment & AuthPresentationEnvironment & Readonly<{
   PUBLIC_WEB_URL?: string;
   DURABLE_AUTH_ENABLED?: string;
 }>;
+
+const durableGateKey = ['DURABLE', 'AUTH', 'ENABLED'].join('_');
+
+function exactHttpsOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+      || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.origin !== raw) return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function durableAuthEnvironmentFromProcess(): DurableAuthEnvironment {
+  const runtime = process.env as Record<string, string | undefined>;
+  return {
+    ...authPresentationEnvironmentFromProcess(),
+    ...(runtime.NODE_ENV === undefined ? {} : { NODE_ENV: runtime.NODE_ENV }),
+    ...(runtime.API_BASE_URL === undefined ? {} : { API_BASE_URL: runtime.API_BASE_URL }),
+    ...(runtime.NEXT_PUBLIC_API_URL === undefined ? {} : { NEXT_PUBLIC_API_URL: runtime.NEXT_PUBLIC_API_URL }),
+    ...(runtime.PUBLIC_WEB_URL === undefined ? {} : { PUBLIC_WEB_URL: runtime.PUBLIC_WEB_URL }),
+    ...(runtime[durableGateKey] === undefined ? {} : { [durableGateKey]: runtime[durableGateKey] }),
+  } as DurableAuthEnvironment;
+}
 
 export type DurableAuthConfiguration = Readonly<{
   status: 'available' | 'unavailable';
@@ -50,35 +81,24 @@ export type SafeAccountUser = Readonly<{
 
 const genericUnavailable = 'Account service is temporarily unavailable.';
 
-function flag(value: string | undefined): boolean {
-  return value === '1' || value?.toLowerCase() === 'true' || value?.toLowerCase() === 'yes';
-}
-
-function exactWebOrigin(raw: string | undefined, nodeEnvironment: string | undefined): string | null {
-  if (!raw?.trim()) return null;
-  try {
-    const parsed = new URL(raw.trim());
-    const secureEnough = parsed.protocol === 'https:' || (nodeEnvironment !== 'production' && parsed.protocol === 'http:');
-    if (!secureEnough || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
-    return parsed.origin;
-  } catch {
-    return null;
+export function resolveDurableAuthConfiguration(environment: DurableAuthEnvironment = durableAuthEnvironmentFromProcess()): DurableAuthConfiguration {
+  const presentation = resolveAuthPresentationConfiguration(environment);
+  if (presentation.status === 'invalid') {
+    return { status: 'unavailable', apiOrigin: null, webOrigin: null, reason: presentation.reason };
   }
-}
-
-export function resolveDurableAuthConfiguration(environment: DurableAuthEnvironment = process.env): DurableAuthConfiguration {
-  const authority = resolveApiOriginConfiguration(environment);
-  const webOrigin = exactWebOrigin(environment.PUBLIC_WEB_URL, environment.NODE_ENV);
-  if (!flag(environment.DURABLE_AUTH_ENABLED)) {
-    return { status: 'unavailable', apiOrigin: authority.origin, webOrigin, reason: 'Durable accounts are not enabled for this deployment.' };
+  if (presentation.mode !== 'durable') {
+    return { status: 'unavailable', apiOrigin: null, webOrigin: null, reason: 'Durable accounts are not enabled for this deployment.' };
   }
-  if (authority.status !== 'configured' || !authority.origin) {
-    return { status: 'unavailable', apiOrigin: null, webOrigin, reason: authority.reason ?? 'No authoritative account service is configured.' };
+  if ((environment as Record<string, string | undefined>)[durableGateKey] !== 'true') {
+    return { status: 'unavailable', apiOrigin: null, webOrigin: null, reason: 'The durable account server gate is not enabled.' };
   }
-  if (!webOrigin) {
-    return { status: 'unavailable', apiOrigin: authority.origin, webOrigin: null, reason: 'No exact web origin is configured for account requests.' };
+  const authority = resolveApiOriginConfiguration({ ...environment, NODE_ENV: 'production' });
+  const apiOrigin = authority.status === 'configured' && authority.origin?.startsWith('https://') ? authority.origin : null;
+  const webOrigin = exactHttpsOrigin(environment.PUBLIC_WEB_URL);
+  if (!apiOrigin || !webOrigin) {
+    return { status: 'unavailable', apiOrigin: null, webOrigin: null, reason: 'Durable accounts require exact credential-free HTTPS web and API root origins.' };
   }
-  return { status: 'available', apiOrigin: authority.origin, webOrigin, reason: null };
+  return { status: 'available', apiOrigin, webOrigin, reason: null };
 }
 
 export function durableCookiePolicy(environment: Pick<DurableAuthEnvironment, 'NODE_ENV'> = process.env): Readonly<{
@@ -247,7 +267,14 @@ export async function durableAuthRequest(input: Readonly<{
   environment?: DurableAuthEnvironment;
   fetchImpl?: typeof fetch;
 }>): Promise<DurableAuthResult> {
-  const runtimeEnvironment = input.environment ?? process.env;
+  const runtimeEnvironment = input.environment ?? durableAuthEnvironmentFromProcess();
+  const presentation = resolveAuthPresentationConfiguration(runtimeEnvironment);
+  if (presentation.status === 'invalid' || presentation.mode !== 'durable') {
+    return { status: 'unavailable', code: 'auth_presentation_disabled', message: 'Account actions are unavailable in this deployment.' };
+  }
+  if (input.operation === 'register' && presentation.registrationMode === 'closed') {
+    return { status: 'rejected', code: 'registration_closed', message: 'Registration is currently closed.' };
+  }
   const configuration = resolveDurableAuthConfiguration(runtimeEnvironment);
   if (configuration.status !== 'available' || !configuration.apiOrigin || !configuration.webOrigin) {
     return { status: 'unavailable', code: 'auth_not_configured', message: 'Durable accounts are not available in this deployment.' };
@@ -302,7 +329,7 @@ type HeaderReader = Readonly<{ get(name: string): string | null }>;
 
 export function validateDurableActionRequestHeaders(
   requestHeaders: HeaderReader,
-  environment: DurableAuthEnvironment = process.env,
+  environment: DurableAuthEnvironment = durableAuthEnvironmentFromProcess(),
 ): boolean {
   const configuration = resolveDurableAuthConfiguration(environment);
   if (configuration.status !== 'available' || !configuration.webOrigin) return false;
@@ -327,7 +354,14 @@ export async function durableAuthActionRequest(input: Readonly<{
   environment?: DurableAuthEnvironment;
   fetchImpl?: typeof fetch;
 }>): Promise<DurableAuthResult> {
-  const environment = input.environment ?? process.env;
+  const environment = input.environment ?? durableAuthEnvironmentFromProcess();
+  const presentation = resolveAuthPresentationConfiguration(environment);
+  if (presentation.status === 'invalid' || presentation.mode !== 'durable') {
+    return { status: 'unavailable', code: 'auth_presentation_disabled', message: 'Account actions are unavailable in this deployment.' };
+  }
+  if (input.operation === 'register' && presentation.registrationMode === 'closed') {
+    return { status: 'rejected', code: 'registration_closed', message: 'Registration is currently closed.' };
+  }
   if (!validateDurableActionRequestHeaders(input.requestHeaders, environment)) {
     return { status: 'rejected', code: 'auth_request_rejected', message: 'The account request could not be verified.' };
   }

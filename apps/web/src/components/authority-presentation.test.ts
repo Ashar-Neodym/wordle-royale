@@ -8,7 +8,7 @@ const panelSource = readFileSync(new URL('./SpeedQueuePanel.tsx', import.meta.ur
 
 describe('Speed authority presentation boundary', () => {
   it('renders configured temporary/unproven authority as unavailable, never disabled', () => {
-    const unavailable = speedQueueCopy('authority_unavailable');
+    const unavailable = speedQueueCopy('authority_unavailable', 'durable');
     assert.equal(unavailable.title, 'Live Speed availability could not be verified');
     assert.match(unavailable.eyebrow, /status unavailable/i);
     assert.doesNotMatch(unavailable.title, /queue is not enabled/i);
@@ -16,7 +16,7 @@ describe('Speed authority presentation boundary', () => {
   });
 
   it('reserves disabled copy for coherent authoritative configuration disablement', () => {
-    const disabled = speedQueueCopy('disabled');
+    const disabled = speedQueueCopy('disabled', 'durable');
     assert.equal(disabled.title, 'Speed queue is not enabled');
     assert.doesNotMatch(disabled.title, /could not be verified/i);
     assert.match(panelSource, /!catalogAvailable \? 'authority_unavailable' : !queueEnabled \? 'disabled'/);

@@ -1,26 +1,44 @@
 import type { ReactElement, ReactNode } from 'react';
 import { SiteNav } from './SiteNav';
 import styles from './web-shell.module.css';
-import { resolveDurableAuthConfiguration } from '../lib/durable-auth-bff';
+import { publicAuthPresentation, requireAuthPresentationConfiguration, type AuthPresentationPublic } from '../lib/auth-presentation';
 
 export function PageFrame({ children }: { children: ReactNode }): ReactElement {
+  const presentation = publicAuthPresentation(requireAuthPresentationConfiguration());
   return (
     <main className={styles.shell}>
-      <SiteNav />
-      <PreviewNotice />
+      <SiteNav presentation={presentation} />
+      <EnvironmentNotice presentation={presentation} />
       {children}
     </main>
   );
 }
 
-function PreviewNotice(): ReactElement {
-  const durableAccountsAvailable = resolveDurableAuthConfiguration().status === 'available';
+function EnvironmentNotice({ presentation }: { presentation: AuthPresentationPublic }): ReactElement {
+  if (presentation.mode === 'preview_demo') {
+    return (
+      <aside className={styles.previewNotice} aria-label="Public preview limitations">
+        <strong>Public preview</strong>
+        <span>Demo sessions only — no durable accounts in this deployment. Sessions, ratings, lobbies, match history, and demo profiles may reset. Mobile remains experimental until physical Expo Go smoke is complete.</span>
+      </aside>
+    );
+  }
+  if (presentation.mode === 'disabled') {
+    return (
+      <aside className={styles.previewNotice} aria-label="Account availability">
+        <strong>Production</strong>
+        <span>Account access is currently unavailable. Sign-in and registration are disabled for this deployment.</span>
+      </aside>
+    );
+  }
   return (
-    <aside className={styles.previewNotice} aria-label="Public preview limitations">
-      <strong>Public preview</strong>
-      <span>{durableAccountsAvailable
-        ? 'Durable account access is configured for this deployment. Preview game features may still change, and mobile remains experimental until physical Expo Go smoke is complete.'
-        : 'Demo sessions only — no durable accounts in this deployment. Sessions, ratings, lobbies, match history, and demo profiles may reset. Mobile remains experimental until physical Expo Go smoke is complete.'}</span>
+    <aside className={styles.previewNotice} aria-label="Account availability">
+      <strong>Production</strong>
+      <span>Durable account access is active. {presentation.registrationMode === 'open'
+        ? 'Public registration is open.'
+        : presentation.registrationMode === 'canary'
+          ? 'Registration is limited to a controlled canary; public signup is not open.'
+          : 'Registration is closed; existing accounts may sign in.'}</span>
     </aside>
   );
 }

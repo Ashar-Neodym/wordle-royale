@@ -10,7 +10,7 @@ const db = new PrismaClient();
 after(async () => db.$disconnect());
 const key = randomBytes(32);
 let clock = new Date('2026-07-28T12:00:00.000Z');
-const service = () => new DurableAuthPersistenceService(db, { enabled: true, rateLimitKey: key, now: () => new Date(clock), sessionTtlMs: 3_600_000 });
+const service = () => new DurableAuthPersistenceService(db, { enabled: true, rateLimitKey: key, registrationMode: 'open', now: () => new Date(clock), sessionTtlMs: 3_600_000 });
 const password = () => `${randomBytes(12).toString('base64url')}!Aa9`;
 
 test('durable auth requires its HMAC key only when enabled and errors have exact public shapes', () => {
@@ -85,7 +85,7 @@ test('email and IP service consumption is one atomic PostgreSQL transaction', as
 
 test('dummy initialization is shared, awaited on both paths, and every login performs one real verify KDF', async () => {
   const events: Array<'dummy_hash' | 'verify'> = [];
-  const auth = new DurableAuthPersistenceService(db, { enabled: true, rateLimitKey: key, now: () => new Date(clock), sessionTtlMs: 3_600_000, cryptoObserver: (event) => events.push(event) });
+  const auth = new DurableAuthPersistenceService(db, { enabled: true, rateLimitKey: key, registrationMode: 'open', now: () => new Date(clock), sessionTtlMs: 3_600_000, cryptoObserver: (event) => events.push(event) });
   const secret = password();
   await auth.register({ email: 'kdf-paths@example.com', password: secret, handle: 'kdf_paths', displayName: 'KDF Paths' }, '203.0.113.100');
   events.length = 0;
