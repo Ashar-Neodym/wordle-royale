@@ -1,0 +1,8 @@
+[
+  {"blocker":1,"name":"strict-inventory-schema","rejects":["unknown-or-omitted-fields","wrong-collector","invalid-identity","artifact-or-manifest-corruption","replica-disagreement","forged-provenance"]},
+  {"blocker":2,"name":"authenticated-native-evidence","rejects":["unsigned-caller-assertions","wrong-native-adapter","tampered-native-signature","unbound-evidence-digest"]},
+  {"blocker":3,"name":"freshness-and-challenge","rejects":["stale-evidence","future-evidence","absent-or-wrong-expected-nonce","unexpected-identity"]},
+  {"blocker":4,"name":"deployment-artifact-linkage","rejects":["deployment-swap","manifest-subject-swap","cross-environment-artifact-reuse"]},
+  {"blocker":5,"name":"global-environment-isolation","rejects":["same-field-overlap","postgres-replica-overlap","cross-provider-resource-collision"]},
+  {"blocker":6,"name":"nonblank-derivation","rejects":["empty-derivation","whitespace-only-derivation"],"normalizes":"trim"}
+]

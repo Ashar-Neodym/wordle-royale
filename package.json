@@ -30,7 +30,12 @@
     "smoke:speed:hosted": "node scripts/hosted-speed-smoke.mjs",
     "test:smoke:speed:hosted": "node --test scripts/hosted-speed-smoke.test.mjs",
     "test:auth:activation-tooling": "node --test scripts/auth-activation-tooling.test.mjs",
+    "test:provider-provenance": "node --test scripts/provider-provenance.test.mjs",
+    "typecheck:provider-provenance": "node --check scripts/provider-provenance-core.mjs && node --check scripts/provider-provenance.mjs && node --check scripts/provider-provenance-fixture.mjs && node --check scripts/provider-provenance.test.mjs",
+    "provider-provenance": "node scripts/provider-provenance.mjs",
     "test:postgres:auth-activation-smoke": "pnpm --filter @wordle-royale/api test:postgres:auth-activation-smoke",
+    "test:postgres:preflight-fingerprint": "pnpm --filter @wordle-royale/api test:postgres:preflight-fingerprint",
+    "test:postgres:auth-preflight-cli-e2e": "pnpm --filter @wordle-royale/api test:postgres:auth-preflight-cli-e2e",
     "secret-scan": "node scripts/secret-scan.mjs",
     "word:fixture:build": "pnpm --filter @wordle-royale/word-tools word:fixture:build",
     "rating:simulate": "pnpm --filter @wordle-royale/rating-tools rating:simulate"

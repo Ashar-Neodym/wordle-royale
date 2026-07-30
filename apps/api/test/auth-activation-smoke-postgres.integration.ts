@@ -6,8 +6,16 @@ import { NestFactory } from '@nestjs/core';
 import { Prisma, PrismaClient } from '@prisma/client';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
 import { MIGRATIONS, canonicalJson, receiptFor, runActivationPreflight } from '../../../scripts/auth-activation-preflight-core.mjs';
+// @ts-expect-error Provider provenance is a shared plain ESM operator boundary.
+import { collectInventory as collectProviderInventory, createReceipt as createProviderReceipt } from '../../../scripts/provider-provenance-core.mjs';
+// @ts-expect-error Deterministic signed provider evidence is intentionally test-only.
+import { collectionConstraints, expectedIdentities, validProviderSnapshot } from '../../../scripts/provider-provenance-fixture.mjs';
 // @ts-expect-error The shared executable core is intentionally plain ESM and exercised directly.
-import { runAuthActivationSmoke, SMOKE_RECONCILIATION_SQL } from '../../../scripts/auth-activation-smoke-core.mjs';
+import { accountFingerprint, assertNonTargetRateLimitUnchanged, runAuthActivationSmoke, SMOKE_RECONCILIATION_SQL } from '../../../scripts/auth-activation-smoke-core.mjs';
+// @ts-expect-error Production and integration intentionally share this plain ESM implementation.
+import { createAuthSmokeReconciliation } from '../../../scripts/auth-activation-reconciliation.mjs';
+// @ts-expect-error Production and integration intentionally share this plain ESM implementation.
+import { completeDatabaseFingerprint } from '../../../scripts/complete-database-fingerprint.mjs';
 
 if (process.env.RUN_AUTH_ACTIVATION_SMOKE_POSTGRES !== '1') throw new Error('disposable PostgreSQL wrapper required');
 
@@ -15,13 +23,14 @@ const apiOrigin = 'https://api.auth-smoke.example.test';
 const webOrigin = 'https://web.auth-smoke.example.test';
 const previewApiOrigin = 'https://preview-api.auth-smoke.example.test';
 const previewWebOrigin = 'https://preview-web.auth-smoke.example.test';
-const revision = '255b2'.padEnd(40, '0');
+const revision = 'e'.repeat(40);
 const runId = `ticket255-${randomUUID()}`;
 const email = `canary-${randomUUID()}@example.test`;
 const password = `${randomBytes(24).toString('base64url')}!Aa9`;
 const secrets = { email, password, handle: `canary_${randomBytes(6).toString('hex')}`, displayName: 'Activation Canary' };
 const rateKey = randomBytes(32);
 const rateKeyEncoded = rateKey.toString('base64url');
+const clientIp = '198.51.100.255';
 const canaryDigest = createHmac('sha256', rateKey).update(email.trim().toLowerCase()).digest('base64url');
 
 Object.assign(process.env, {
@@ -37,11 +46,9 @@ Object.assign(process.env, {
 const db = new PrismaClient();
 let app: INestApplication | undefined;
 let localOrigin = '';
-let initialCatalogFingerprint = '';
 let approvalConsumeCount = 0;
 let requestCount = 0;
 let registerRequestCount = 0;
-const baseline = { ticket: 0, match: 0, gameplay: 0, rating: 0, event: 0 };
 
 function safeHash(value: string | Buffer): string { return createHash('sha256').update(value).digest('hex'); }
 function dependency(status = 'ok') { return { status, checkedAt: new Date().toISOString(), message: 'integration observation' }; }
@@ -63,63 +70,24 @@ async function rawFetch(path: string, init: RequestInit = {}) {
   return { response, body, bodyBytes: Buffer.byteLength(text), elapsedMs: performance.now() - started };
 }
 
-async function currentDeltas(client: Prisma.TransactionClient | PrismaClient) {
-  const [ticket, match, guesses, rounds, scores, mutations, ratings, ratingEvents, analytics, audits] = await Promise.all([
-    client.matchmakingTicket.count(), client.match.count(), client.guessAttempt.count(), client.matchRound.count(),
-    client.scoreBreakdown.count(), client.matchMutationRequest.count(), client.ratingProfile.count(), client.ratingEvent.count(),
-    client.analyticsEvent.count(), client.auditLog.count(),
-  ]);
-  return {
-    ticket: ticket - baseline.ticket,
-    match: match - baseline.match,
-    gameplay: guesses + rounds + scores + mutations - baseline.gameplay,
-    rating: ratings + ratingEvents - baseline.rating,
-    event: analytics + audits - baseline.event,
-  };
-}
+const sharedReconciliation = createAuthSmokeReconciliation({ db, secrets, rateLimitKey: rateKey, clientIp });
+const reconciliation = { async withReadOnlyTransaction(work: unknown) { try { return await sharedReconciliation.withReadOnlyTransaction(work); } catch (error) { console.error('[Ticket263 reconciliation diagnostic]', error); throw error; } } };
 
-async function smokeSnapshot(client: Prisma.TransactionClient) {
-  const account = await client.userAccount.findUnique({ where: { email }, select: { id: true } });
-  const userId = account?.id;
-  const [profileCount, credentialCount, sessions, buckets, deltas] = await Promise.all([
-    userId ? client.userProfile.count({ where: { userId } }) : 0,
-    userId ? client.passwordCredential.count({ where: { userId } }) : 0,
-    userId ? client.accountSession.findMany({ where: { userId }, select: { revokedAt: true, expiresAt: true } }) : [],
-    client.authRateLimitBucket.findMany({ select: { action: true, attemptCount: true, blockedUntil: true } }),
-    currentDeltas(client),
-  ]);
-  const now = Date.now();
-  const terminal = sessions.filter((s) => s.revokedAt !== null || s.expiresAt.getTime() <= now).length;
-  const register = buckets.filter((b) => b.action.startsWith('register_'));
-  const login = buckets.filter((b) => b.action.startsWith('login_'));
-  return {
-    accountCount: account ? 1 : 0, profileCount, credentialCount, sessionCount: sessions.length,
-    terminalSessionCount: terminal, activeSessionCount: sessions.length - terminal,
-    registerAttempts: register.reduce((n, b) => n + b.attemptCount, 0), loginAttempts: login.reduce((n, b) => n + b.attemptCount, 0),
-    registerBucketCount: register.length, loginBucketCount: login.length,
-    blockedBucketCount: buckets.filter((b) => b.blockedUntil !== null && b.blockedUntil.getTime() > now).length,
-    ticketWriteCount: deltas.ticket, matchWriteCount: deltas.match, gameplayWriteCount: deltas.gameplay,
-    ratingWriteCount: deltas.rating, eventWriteCount: deltas.event, catalogFingerprint: initialCatalogFingerprint,
-  };
+async function reconciliationSnapshot() {
+  let snapshot: Record<string, unknown> | undefined;
+  await sharedReconciliation.withReadOnlyTransaction(async (query: (sql: string, binding?: unknown) => Promise<unknown>) => {
+    await query(SMOKE_RECONCILIATION_SQL.isolation);
+    await query(SMOKE_RECONCILIATION_SQL.readOnlyStatus);
+    snapshot = await query(SMOKE_RECONCILIATION_SQL.snapshot, { runId, accountFingerprint: '0'.repeat(64) }) as Record<string, unknown>;
+  });
+  assert(snapshot);
+  return snapshot;
 }
-
-const reconciliation = {
-  async withReadOnlyTransaction(work: (query: (sql: string, binding?: unknown) => Promise<unknown>) => Promise<void>) {
-    await db.$transaction(async (tx) => {
-      await work(async (sql) => {
-        if (sql === SMOKE_RECONCILIATION_SQL.isolation) { await tx.$executeRawUnsafe(sql); return true; }
-        if (sql === SMOKE_RECONCILIATION_SQL.readOnlyStatus) {
-          const rows = await tx.$queryRawUnsafe<Array<{ transaction_read_only: string }>>(sql);
-          return { transactionReadOnly: rows[0]?.transaction_read_only };
-        }
-        if (sql === SMOKE_RECONCILIATION_SQL.snapshot) return smokeSnapshot(tx);
-        throw new Error('reconciliation SQL is not allowlisted');
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  },
-};
 
 before(async () => {
+  const unrelated = await db.userAccount.create({ data: { email: `unrelated-${randomUUID()}@example.test`, displayName: 'Unrelated', profile: { create: { publicHandle: `unrelated_${randomBytes(5).toString('hex')}` } }, passwordCredential: { create: { passwordHash: 'privacy-safe-test-hash' } } } });
+  await db.accountSession.create({ data: { userId: unrelated.id, tokenHash: safeHash(`unrelated-${randomUUID()}`), expiresAt: new Date(Date.now() + 3_600_000) } });
+  await db.authRateLimitBucket.create({ data: { action: 'login_ip', keyHash: 'f'.repeat(64), windowStartedAt: new Date(), attemptCount: 29 } });
   const releaseId = randomUUID();
   await db.dictionaryRelease.create({ data: {
     id: releaseId, locale: 'en', wordLength: 5, version: `ticket255-${randomUUID()}`, status: 'active',
@@ -138,14 +106,24 @@ before(async () => {
   const address = app.getHttpServer().address();
   assert(address && typeof address === 'object');
   localOrigin = `http://127.0.0.1:${address.port}`;
-  const counts = await currentDeltas(db);
-  baseline.ticket = counts.ticket; baseline.match = counts.match; baseline.gameplay = counts.gameplay; baseline.rating = counts.rating; baseline.event = counts.event;
 });
 
 after(async () => {
   password.replaceAll(/./gu, '0');
   await app?.close();
   await db.$disconnect();
+});
+
+test('Ticket 263 detects content mutation in an unrelated real PostgreSQL rate-limit bucket', async () => {
+  const before = await reconciliationSnapshot();
+  await db.authRateLimitBucket.update({
+    where: { action_keyHash: { action: 'login_ip', keyHash: 'f'.repeat(64) } },
+    data: { attemptCount: 31, windowStartedAt: new Date(Date.now() - 120_000), blockedUntil: new Date(Date.now() + 120_000) },
+  });
+  const after = await reconciliationSnapshot();
+  assert.equal(after.nonTargetRateLimitCount, before.nonTargetRateLimitCount, 'negative regression mutates content without deleting the row');
+  assert.notEqual(after.nonTargetRateLimitFingerprint, before.nonTargetRateLimitFingerprint);
+  assert.throws(() => assertNonTargetRateLimitUnchanged(before, after), /non_target_rate_limit_mutation_detected/u);
 });
 
 test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable PostgreSQL', async () => {
@@ -158,10 +136,17 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
   const identityFingerprint = safeHash(`${databaseIdentity[0]?.database}:${databaseIdentity[0]?.schema}`);
   const databaseHostFingerprint = safeHash('local-disposable-postgresql');
   const migrations = MIGRATIONS.map((id: string) => ({ id, status: 'applied' }));
-  const provider = { projectId: 'local-project', environmentId: 'local-production', apiServiceId: 'local-api', webServiceId: 'mock-web', databaseId: 'disposable-postgres', previewEnvironmentId: 'mock-preview', previewDatabaseId: 'mock-preview-db' };
-  const deployments = { apiDeploymentId: 'local-api-deployment', apiRevision: revision, webDeploymentId: 'mock-web-deployment', webRevision: 'b'.repeat(40) };
+  const nativeEvidence = validProviderSnapshot({ collectedAt: observedAt, nonce: runId });
+  const constraints = collectionConstraints(nativeEvidence);
+  const providerInventory = collectProviderInventory(nativeEvidence, constraints);
+  const providerReceiptKey = Buffer.from('ticket-266-postgres-fixture-receipt-key-material');
+  const providerReceipt = createProviderReceipt(providerInventory, nativeEvidence, providerReceiptKey, 'ticket266-postgres-key', constraints);
+  const production = providerInventory.environments.production;
+  const preview = providerInventory.environments.preview;
+  const provider = { projectId: production.railway.identity.projectId, environmentId: production.railway.identity.environmentId, apiServiceId: production.railway.identity.serviceId, webServiceId: production.vercel.identity.projectId, databaseId: production.postgresql.observations[0].databaseId, previewEnvironmentId: preview.railway.identity.environmentId, previewDatabaseId: preview.postgresql.observations[0].databaseId };
+  const deployments = { apiDeploymentId: production.railway.identity.deploymentId, apiRevision: revision, webDeploymentId: production.vercel.identity.deploymentId, webRevision: revision };
   const inventory = {
-    schemaVersion: 2, runId: `preflight-${runId}`, sourceSha: revision, artifactSha: revision, provider, deployments,
+    schemaVersion: 3, activationPhase: 'canary', runId, sourceSha: revision, artifactSha: production.railway.artifact.artifactDigest.slice(7), provider, deployments,
     origins: { api: apiOrigin, web: webOrigin, previewApi: previewApiOrigin, previewWeb: previewWebOrigin },
     replicas: { expected: 1, observed: 1, observedReplicaId: 'local-replica-1' },
     config: { authMode: 'session_required', durableAuth: true, registrationMode: 'canary', appEnvironment: 'production', nodeEnvironment: 'production', secureCookie: true, hostOnlyCookie: true, proxyHops: 1, requiredKeysPresent: ['AUTH_RATE_LIMIT_KEY', 'DATABASE_URL'], keyFingerprint, configFingerprint },
@@ -169,12 +154,11 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
     source: { kind: 'provider-read-only', observedAt }, expiresAt,
   };
   let preflightSnapshots = 0;
-  const preflightDatabase = {
-    async withReadOnlyTransaction(work: (query: (sql: string) => Promise<unknown>) => Promise<void>) {
-      await db.$transaction(async (tx) => work(async (sql) => {
+  const preflightReadOnly = async (work: (query: (sql: string) => Promise<unknown>) => Promise<void>) => {
+    await db.$transaction(async (tx) => work(async (sql) => {
         if (sql.startsWith('SET TRANSACTION')) { await tx.$executeRawUnsafe(sql); return true; }
         if (sql === 'SHOW transaction_read_only') { const rows = await tx.$queryRawUnsafe<Array<{ transaction_read_only: string }>>(sql); return { transactionReadOnly: rows[0]?.transaction_read_only }; }
-        if (sql.includes('readonly_snapshot')) { preflightSnapshots++; return { accountCount: await tx.userAccount.count() }; }
+        if (sql.includes('readonly_snapshot')) { preflightSnapshots++; return completeDatabaseFingerprint(tx, Prisma.dmmf.datamodel); }
         if (sql.includes('complete_migration_status')) {
           const rows = await tx.$queryRaw<Array<{ migration_name: string; finished_at: Date | null; rolled_back_at: Date | null }>>`SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY migration_name`;
           return rows.map((row) => ({ id: row.migration_name, status: row.finished_at !== null && row.rolled_back_at === null ? 'applied' : 'invalid' }));
@@ -185,8 +169,11 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
           return { status: rows[0]?.present ? 'ok' : 'unavailable', remediationConflictCount: 0 };
         }
         throw new Error('preflight SQL is not allowlisted');
-      }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    },
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  };
+  const preflightDatabase = {
+    withReadOnlyTransaction: preflightReadOnly,
+    withReadOnlyObservation: preflightReadOnly,
   };
   const mockPublic = {
     async get(url: string) {
@@ -204,28 +191,24 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
       return { method: 'GET', status: 200, redirected: false, url, body: envelope, bodyBytes: Buffer.byteLength(JSON.stringify(envelope)), contentType: 'application/json' };
     },
   };
-  const preflight = await runActivationPreflight({ inventory, inventoryReceipt: receiptFor(inventory), publicAdapter: mockPublic, databaseAdapter: preflightDatabase });
+  const preflight = await runActivationPreflight({ operationalInventory: inventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce: runId, expectedIdentities: expectedIdentities(nativeEvidence), providerReceiptKey, publicAdapter: mockPublic, databaseAdapter: preflightDatabase });
   assert.equal(preflight.evidence.result, 'PASS');
   assert.equal(preflightSnapshots, 2);
-
-  const actualCatalog = await rawFetch('/ranked/modes');
-  assert.equal(actualCatalog.response.status, 200);
-  const catalogEnvelope = actualCatalog.body as { data: unknown };
-  initialCatalogFingerprint = safeHash(canonicalJson(catalogEnvelope.data));
 
   const approval = {
     schemaVersion: 1, approvalId: `approval-${randomUUID()}`, runId, preflightReceipt: preflight.receipt,
     artifactSha: preflight.evidence.artifactSha, provider: preflight.evidence.provider, deployments: preflight.evidence.deployments,
     origins: { api: apiOrigin, web: webOrigin }, registrationMode: 'canary',
-    accountFingerprint: safeHash(`auth-smoke-account-v1\0${runId}\0${email.trim().toLowerCase()}`),
+    accountFingerprint: accountFingerprint(runId, secrets),
     approvedAt: new Date(now - 1_000).toISOString(), expiresAt: new Date(now + 20 * 60_000).toISOString(),
   };
   const transport = {
     async request(input: { method: string; url: string; redirect: 'manual'; origin: string; json?: unknown; cookie?: string }) {
       requestCount++;
       const path = new URL(input.url).pathname;
+      if (path === '/.well-known/wordle-identity') { const identity = { revision: deployments.webRevision, appEnvironment: 'production', mode: 'durable', registrationMode: 'canary' }; return { method: input.method, url: input.url, effectiveUrl: input.url, origin: input.origin, redirect: input.redirect, status: 200, contentType: 'application/json', bodyBytes: Buffer.byteLength(JSON.stringify(identity)), setCookie: [], body: identity, elapsedMs: 1, attempts: 1 }; }
       if (path === '/auth/register') registerRequestCount++;
-      const headers: Record<string, string> = { Origin: input.origin, 'X-Forwarded-For': '198.51.100.255', 'X-Request-Id': `ticket255-${requestCount}` };
+      const headers: Record<string, string> = { Origin: input.origin, 'X-Forwarded-For': clientIp, 'X-Request-Id': `ticket263-${requestCount}` };
       if (input.cookie) headers.Cookie = input.cookie;
       let body: string | undefined;
       if (input.json !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(input.json); }
@@ -233,7 +216,7 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
       const contentTypeHeader = result.response.headers.get('content-type');
       const contentType = contentTypeHeader?.toLowerCase().startsWith('application/json') ? 'application/json' : contentTypeHeader;
       const setCookie = result.response.headers.get('set-cookie');
-      return { method: input.method, url: input.url, effectiveUrl: input.url, origin: input.origin, redirect: input.redirect, status: result.response.status, contentType, bodyBytes: result.bodyBytes, setCookie: setCookie ? [setCookie] : [], body: result.body, elapsedMs: result.elapsedMs };
+      return { method: input.method, url: input.url, effectiveUrl: input.url, origin: input.origin, redirect: input.redirect, status: result.response.status, contentType, bodyBytes: result.bodyBytes, setCookie: setCookie ? [setCookie] : [], body: result.body, elapsedMs: result.elapsedMs, attempts: 1 };
     },
   };
   const consumed = new Set<string>();
@@ -242,22 +225,20 @@ test('Ticket 255B2 runs the actual smoke core over real Nest HTTP and disposable
     consumeApproval: async (binding: { approvalId: string }) => { assert.equal(consumed.has(binding.approvalId), false); consumed.add(binding.approvalId); approvalConsumeCount++; },
   });
   assert.equal(result.result, 'PASS', `smoke failed: ${String((result as { failureCode?: string }).failureCode)}`);
-  assert.deepEqual(result.statuses, [200,200,200,403,201,200,204,401,403,403,403,401,401,200,200,401,200,204,401,200]);
-  assert.equal(result.statuses.length, 20);
+  assert.deepEqual(result.statuses, [200,200,200,403,200,201,200,204,401,403,403,403,401,401,200,200,401,200,204,401,200]);
+  assert.equal(result.statuses.length, 21);
   assert.equal(result.sessionsCreated, 3);
   assert.equal(result.approvalConsumed, true);
   assert.equal(approvalConsumeCount, 1);
   assert.equal(registerRequestCount, 1);
-  assert.equal(requestCount, 20);
+  assert.equal(requestCount, 21);
   assert.equal(canonicalJson(result).includes(email), false);
   assert.equal(canonicalJson(result).includes(password), false);
   assert.equal(canonicalJson(result).includes('wr1.'), false);
-  const final = await db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(SMOKE_RECONCILIATION_SQL.isolation);
-    return smokeSnapshot(tx);
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  assert.deepEqual({ account: final.accountCount, profile: final.profileCount, credential: final.credentialCount, sessions: final.sessionCount, terminal: final.terminalSessionCount, active: final.activeSessionCount }, { account: 1, profile: 1, credential: 1, sessions: 3, terminal: 3, active: 0 });
-  assert.deepEqual({ registerAttempts: final.registerAttempts, loginAttempts: final.loginAttempts, registerBuckets: final.registerBucketCount, loginBuckets: final.loginBucketCount, blocked: final.blockedBucketCount }, { registerAttempts: 2, loginAttempts: 8, registerBuckets: 2, loginBuckets: 3, blocked: 0 });
-  assert.deepEqual({ tickets: final.ticketWriteCount, matches: final.matchWriteCount, gameplay: final.gameplayWriteCount, rating: final.ratingWriteCount, events: final.eventWriteCount }, { tickets: 0, matches: 0, gameplay: 0, rating: 0, events: 0 });
-  console.log('[Ticket255B2] PASS statuses=20 account/profile/credential=1/1/1 sessions=3 terminal=3 active=0 rateAttempts=2/8 rateBuckets=2/3 blocked=0 rankedDeltas=0/0/0/0/0 approval=1 registerDispatch=1 retries=0 leakScan=clean');
+  const target = await db.userAccount.findUniqueOrThrow({ where: { email }, include: { profile: true, passwordCredential: true, accountSessions: true } });
+  assert.equal(target.profile?.publicHandle, secrets.handle); assert.equal(target.displayName, secrets.displayName); assert(target.passwordCredential);
+  assert.deepEqual({ sessions: target.accountSessions.length, terminal: target.accountSessions.filter((session) => session.revokedAt !== null).length, active: target.accountSessions.filter((session) => session.revokedAt === null).length }, { sessions: 3, terminal: 3, active: 0 });
+  assert.equal(await db.accountSession.count({ where: { userId: { not: target.id }, revokedAt: null } }), 1, 'unrelated active session remains private and unrevoked');
+  assert.equal(await db.authRateLimitBucket.count(), 6, 'four scoped buckets plus unrelated bucket state are preserved');
+  console.log('[Ticket263] PASS statuses=21 account/profile/credential=1/1/1 sessions=3 terminal=3 active=0 rateAttempts=2/8 rateBuckets=2/3 unrelatedBucket=preserved nonTargetSession=unchanged sharedDeltas=0 approval=1 registerDispatch=1 retries=0 leakScan=clean');
 });
