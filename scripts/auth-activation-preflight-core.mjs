@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { validateInventory as validateProviderInventory, verifyReceipt as verifyProviderReceipt } from './provider-provenance-core.mjs';
+import { LIVE_INVENTORY_VERSION, validateLiveInventory, validateLiveReceipt, verifyLiveBundle } from './provider-provenance-live-core.mjs';
 import { APPLICATION_MANIFEST_DIGEST, APPLICATION_MODEL_TABLES } from './complete-database-fingerprint.mjs';
 
 const SHA = /^[a-f0-9]{40,64}$/u;
@@ -117,10 +118,10 @@ export function verifyInventoryReceipt(raw, suppliedReceipt, now = Date.now()) {
 function providerComposition(raw, providerInventory) {
   const production = providerInventory.environments.production;
   const preview = providerInventory.environments.preview;
-  const productionDatabase = production.postgresql.observations[0];
-  const previewDatabase = preview.postgresql.observations[0];
+  const productionDatabase = providerInventory.schemaVersion === LIVE_INVENTORY_VERSION ? production.postgresql.subject : production.postgresql.observations[0];
+  const previewDatabase = providerInventory.schemaVersion === LIVE_INVENTORY_VERSION ? preview.postgresql.subject : preview.postgresql.observations[0];
   const expected = {
-    runId: providerInventory.nonce,
+    runId: providerInventory.schemaVersion === LIVE_INVENTORY_VERSION ? providerInventory.runId : providerInventory.nonce,
     sourceSha: production.railway.artifact.sourceGitSha,
     artifactSha: production.railway.artifact.artifactDigest.slice('sha256:'.length),
     provider: {
@@ -146,12 +147,27 @@ function providerComposition(raw, providerInventory) {
   fail(raw.source.observedAt === expected.observedAt, 'provider_operational_time_mismatch');
 }
 
-export function verifyAuthenticatedProviderEvidence({ operationalInventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, now = Date.now() }) {
-  fail(typeof expectedNonce === 'string' && object(expectedIdentities) && providerReceiptKey instanceof Uint8Array && providerReceiptKey.byteLength >= 32, 'provider_verification_inputs_invalid');
-  fail(verifyProviderReceipt(providerInventory, providerReceipt, providerReceiptKey, nativeEvidence, { now, expectedNonce, expectedIdentities }), 'provider_provenance_verification_failed');
+export function verifyAuthenticatedProviderEvidence({ operationalInventory, providerEvidenceLane, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, liveChallenge = undefined, collectorPublicKey = undefined, replayGuard = undefined, expectedChallengeId = undefined, expectedRunId = undefined, expectedCollectorKeyId = undefined, now = Date.now() }) {
+  if (providerEvidenceLane === 'fixture-v2-test-only') {
+    fail(typeof expectedNonce === 'string' && object(expectedIdentities) && providerReceiptKey instanceof Uint8Array && providerReceiptKey.byteLength >= 32, 'provider_verification_inputs_invalid');
+    fail(verifyProviderReceipt(providerInventory, providerReceipt, providerReceiptKey, nativeEvidence, { now, expectedNonce, expectedIdentities }), 'provider_provenance_verification_failed');
+  } else {
+    fail(providerEvidenceLane === 'production-live-v3' && object(liveChallenge) && collectorPublicKey, 'production_provider_v3_required');
+    try {
+      verifyLiveBundle({ challenge: liveChallenge, evidence: nativeEvidence, inventory: providerInventory, receipt: providerReceipt, collectorPublicKey, now, expectedChallengeId, expectedRunId, expectedNonce, expectedCollectorKeyId, consumeReplay: false });
+    } catch { throw new ActivationFailure('provider_provenance_verification_failed'); }
+  }
   const inventory = validateInventory(operationalInventory, now);
   providerComposition(inventory, providerInventory);
   return inventory;
+}
+
+async function consumeProviderReplay(providerEvidenceLane, replayGuard, nonce) {
+  if (providerEvidenceLane !== 'production-live-v3') return;
+  try {
+    fail(replayGuard && typeof replayGuard.consumeAsync === 'function', 'provider_replay_guard_required');
+    fail(await replayGuard.consumeAsync(nonce) === true, 'provider_challenge_replay');
+  } catch { throw new ActivationFailure('provider_provenance_verification_failed'); }
 }
 
 const dependencyKeys = ['status','checkedAt','message'];
@@ -199,12 +215,15 @@ function validateCompleteSnapshot(snapshot) {
   fail(snapshot.stateDigest===receiptFor(snapshot.models),'complete_fingerprint_state_digest_invalid');
 }
 function equalSnapshot(a,b){validateCompleteSnapshot(a);validateCompleteSnapshot(b);return canonicalJson(a)===canonicalJson(b);}
-export async function runActivationPreflight({ operationalInventory, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, publicAdapter, databaseAdapter, now = () => Date.now() }) {
+export async function runActivationPreflight({ operationalInventory, providerEvidenceLane, providerInventory, providerReceipt, nativeEvidence, expectedNonce, expectedIdentities, providerReceiptKey, liveChallenge = undefined, collectorPublicKey = undefined, replayGuard = undefined, expectedChallengeId = undefined, expectedRunId = undefined, expectedCollectorKeyId = undefined, publicAdapter, databaseAdapter, now = () => Date.now() }) {
   const startedAt=now();
-  // Ticket 266's authenticated provider boundary remains the sole source of the
-  // operational inventory, and executes before any database or public adapter.
-  const inventory=verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,now:startedAt});
+  // Production claims require a verified live v3 bundle. The legacy v2 path is
+  // reachable only through the explicit fixture-v2-test-only lane.
+  const inventory=verifyAuthenticatedProviderEvidence({operationalInventory,providerEvidenceLane,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,liveChallenge,collectorPublicKey,replayGuard,expectedChallengeId,expectedRunId,expectedCollectorKeyId,now:startedAt});
   fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function'&&typeof databaseAdapter.withReadOnlyObservation==='function','adapter_missing');
+  // Replay is the final gate after cryptographic verification, operational mapping,
+  // and adapter validation, and before the first database transaction/public probe.
+  await consumeProviderReplay(providerEvidenceLane,replayGuard,liveChallenge?.nonce);
   let proof, before;
   await databaseAdapter.withReadOnlyTransaction(async(query)=>{
     const allowed=new Set(Object.values(PREFLIGHT_SQL)); let statements=0;
@@ -250,20 +269,30 @@ export function verifyPreflightReceipt(preflight, now=Date.now()) {
   exact(preflight.evidence.proof,PROOF,'preflight_proof_schema_invalid'); fail(Object.values(preflight.evidence.proof).every(v=>v===true||v==='ok'||Array.isArray(v)),'preflight_proof_invalid');
   const operationalInventory={schemaVersion:3,activationPhase:preflight.evidence.activationPhase,runId:preflight.evidence.runId,sourceSha:preflight.evidence.sourceSha,artifactSha:preflight.evidence.artifactSha,provider:preflight.evidence.provider,deployments:preflight.evidence.deployments,origins:preflight.evidence.origins,replicas:preflight.evidence.replicas,config:preflight.evidence.config,migrations:preflight.evidence.migrations,database:preflight.evidence.database,source:preflight.evidence.source,expiresAt:preflight.evidence.expiresAt};
   validateInventory(operationalInventory,now);
-  fail(validateProviderInventory(preflight.evidence.providerInventory).valid,'preflight_provider_inventory_invalid');
+  const providerInventoryValid = preflight.evidence.providerInventory?.schemaVersion === LIVE_INVENTORY_VERSION
+    ? validateLiveInventory(preflight.evidence.providerInventory).valid
+    : validateProviderInventory(preflight.evidence.providerInventory).valid;
+  fail(providerInventoryValid,'preflight_provider_inventory_invalid');
+  if (preflight.evidence.providerInventory.schemaVersion === LIVE_INVENTORY_VERSION) fail(validateLiveReceipt(preflight.evidence.providerReceipt).valid,'preflight_provider_receipt_invalid');
   fail(preflight.evidence.providerReceipt?.inventoryDigest===`sha256:${receiptFor(preflight.evidence.providerInventory)}`,'preflight_provider_receipt_mismatch');
   providerComposition(operationalInventory,preflight.evidence.providerInventory);
   fail(Buffer.byteLength(canonicalJson(preflight.evidence))<=MAX_EVIDENCE_BYTES,'evidence_oversized'); fail(equalReceipt(receiptFor(preflight.evidence),preflight.receipt),'preflight_receipt_mismatch'); return structuredClone(preflight);
 }
 export function parsePreflightArgs(args) {
   fail(!args.includes('--apply'),'apply_forbidden');
-  const names=['operational-inventory','provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
+  const commonNames=['provider-evidence-lane','operational-inventory'];
+  const fixtureNames=['provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
+  const liveNames=['live-output-root','live-run-id','challenge-policy','collector-keyring','replay-root'];
   const optionalNames=['output'];
-  fail(args.length===names.length*2||args.length===(names.length+optionalNames.length)*2,'arguments_invalid');
   const parsed={};
-  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&[...names,...optionalNames].includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
-  fail(names.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
-  return {operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key'],outputPath:parsed.output};
+  const allowed=[...commonNames,...fixtureNames,...liveNames,...optionalNames];
+  fail(args.length%2===0,'arguments_invalid');
+  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&allowed.includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
+  fail(commonNames.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
+  const providerEvidenceLane=parsed['provider-evidence-lane'];
+  const required=providerEvidenceLane==='fixture-v2-test-only'?[...commonNames,...fixtureNames]:providerEvidenceLane==='production-live-v3'?[...commonNames,...liveNames]:[];
+  fail(required.length>0&&required.every(name=>Object.hasOwn(parsed,name))&&Object.keys(parsed).every(name=>required.includes(name)||optionalNames.includes(name)),'arguments_invalid');
+  return {providerEvidenceLane,operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key'],liveOutputRoot:parsed['live-output-root'],liveRunId:parsed['live-run-id'],challengePolicyPath:parsed['challenge-policy'],collectorKeyringPath:parsed['collector-keyring'],replayRoot:parsed['replay-root'],outputPath:parsed.output};
 }
 
 export const ROLLBACK_ORDER = Object.freeze(['web-writes-off','registration-closed','sessions-revoked','zero-active-sessions-proven','api-durable-off','code-rollback']);

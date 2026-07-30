@@ -23,6 +23,7 @@
     "test:postgres:auth-activation-smoke": "node scripts/run-auth-activation-smoke-postgres-integration.mjs",
     "test:postgres:preflight-fingerprint": "node scripts/run-preflight-complete-fingerprint-postgres-integration.mjs",
     "test:postgres:auth-preflight-cli-e2e": "node scripts/run-auth-activation-preflight-cli-e2e.mjs",
+    "test:auth-preflight-live-v3-cli-e2e": "node scripts/run-auth-activation-preflight-live-v3-cli-e2e.mjs",
     "test:rating-reads:postgres": "node --import tsx --test test/standard-rating-read-integration.test.ts",
     "test:speed-rating:postgres": "node --import tsx --test test/speed-rating-postgres.integration.test.ts",
     "test:postgres:matchmaking": "node scripts/run-matchmaking-postgres-integration.mjs",
