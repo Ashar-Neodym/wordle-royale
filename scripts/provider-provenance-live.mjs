@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
-  assertProtectedDirectory, collectLiveBundle, commitLiveBundle, createSecureChildRunner, loadCommittedBundle,
+  collectLiveBundle, commitLiveBundle, createSecureChildRunner, loadCommittedBundle,
   readProtectedFile, readProtectedJson, verifyAndConsumeLiveBundle,
 } from './provider-provenance-live-collector-core.mjs';
 
@@ -33,8 +34,9 @@ try {
     const policy = await readProtectedJson(absoluteOption(values.policy));
     const plans = await readProtectedJson(absoluteOption(values.plans));
     const signingKey = await readProtectedFile(absoluteOption(values['signing-key']), { maxBytes: 16 * 1024 });
-    const outputDirectory = await assertProtectedDirectory(absoluteOption(values['output-dir']));
-    const stagingDirectory = await mkdtemp(join(outputDirectory, '.executors-'));
+    const outputDirectory = absoluteOption(values['output-dir']);
+    // Executor snapshots are transient and independent of publication. commitLiveBundle validates and anchors the output root itself.
+    const stagingDirectory = await mkdtemp(join(tmpdir(), 'wordle-live-executors-'));
     try {
       const bundle = await collectLiveBundle({ challenge, policy, plans, signingKey, childRunner: createSecureChildRunner({ stagingDirectory }) });
       const path = await commitLiveBundle(outputDirectory, bundle);

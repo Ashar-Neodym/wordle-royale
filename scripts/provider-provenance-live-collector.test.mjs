@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { mkdirSync, renameSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   KEYRING_VERSION, OPERATION_PLANS_VERSION, collectLiveBundle, commitLiveBundle,
-  createSecureChildRunner, loadCommittedBundle, resolveCollectorKey, spawnBounded,
+  createReplayGuard, createSecureChildRunner, loadCommittedBundle, resolveCollectorKey, spawnBounded,
   parseStrictJson, readProtectedFile, validateOperationPlans, verifyAndConsumeLiveBundle, verifyLiveBundleWithKeyring,
 } from './provider-provenance-live-collector-core.mjs';
 import { CHALLENGE_VERSION, POSTGRES_SQL_DIGEST, POSTGRES_SQL_QUERY_ID, liveCanonicalJson, liveSha256 } from './provider-provenance-live-core.mjs';
@@ -88,7 +89,7 @@ test('bundle publication is atomic/protected and durable replay consumption reje
   const root = await mkdtemp(join(tmpdir(), 'ticket273-')); const output = join(root, 'output'); const replay = join(root, 'replay'); await Promise.all([mkdir(output, { mode: 0o700 }), mkdir(replay, { mode: 0o700 })]);
   try {
     const bundle = await collect(); const committed = await commitLiveBundle(output, bundle); assert.equal((await stat(committed)).mode & 0o777, 0o700);
-    assert.deepEqual((await readdir(committed)).sort(), ['challenge.json', 'evidence.json', 'inventory.json', 'receipt.json']);
+    assert.deepEqual((await readdir(committed)).sort(), ['challenge.json', 'commit.json', 'evidence.json', 'inventory.json', 'receipt.json']);
     for (const name of await readdir(committed)) assert.equal((await stat(join(committed, name))).mode & 0o777, 0o600);
     const loaded = await loadCommittedBundle(committed); assert.equal(liveSha256(liveCanonicalJson(loaded)), liveSha256(liveCanonicalJson(bundle)));
     assert.equal((await verifyAndConsumeLiveBundle({ bundle: loaded, keyring: keyring(), policy, replayDirectory: replay, clock: () => NOW })).runId, policy.expectedRunId);
@@ -96,6 +97,52 @@ test('bundle publication is atomic/protected and durable replay consumption reje
     await assert.rejects(() => commitLiveBundle(output, bundle), (error) => ['BUNDLE_ALREADY_COMMITTED', 'EEXIST'].includes(error.code));
     const occupied = structuredClone(bundle); occupied.challenge.runId = 'run-occupied-file'; await writeFile(join(output, occupied.challenge.runId), 'do not replace', { mode: 0o600 });
     await assert.rejects(() => commitLiveBundle(output, occupied), (error) => error.code === 'BUNDLE_ALREADY_COMMITTED'); assert.equal(await readFile(join(output, occupied.challenge.runId), 'utf8'), 'do not replace');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('directory descriptors anchor publication/replay across root replacement and exclusive mkdir never replaces a raced target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ticket273-anchor-')); const output = join(root, 'output'); const movedOutput = join(root, 'moved-output');
+  const replay = join(root, 'replay'); const movedReplay = join(root, 'moved-replay');
+  await Promise.all([mkdir(output, { mode: 0o700 }), mkdir(replay, { mode: 0o700 })]);
+  try {
+    const bundle = await collect(); let swapped = false; const raced = structuredClone(bundle);
+    Object.defineProperty(raced.challenge, 'runId', { enumerable: true, get() {
+      if (!swapped) { swapped = true; renameSync(output, movedOutput); mkdirSync(output, { mode: 0o700 }); }
+      return policy.expectedRunId;
+    } });
+    await commitLiveBundle(output, raced);
+    assert.deepEqual(await readdir(output), []);
+    assert.equal((await loadCommittedBundle(join(movedOutput, policy.expectedRunId))).challenge.runId, policy.expectedRunId);
+
+    const guard = await createReplayGuard(replay); renameSync(replay, movedReplay); mkdirSync(replay, { mode: 0o700 });
+    try { assert.equal(await guard.consumeAsync(bundle.challenge.nonce), true); } finally { await guard.close(); }
+    assert.deepEqual(await readdir(replay), []);
+    const replayName = `${createHash('sha256').update(bundle.challenge.nonce).digest('hex')}.used`;
+    assert.deepEqual(await readdir(movedReplay), [replayName]);
+
+    const occupiedBundle = structuredClone(bundle); const occupied = join(output, 'run-raced-target'); let occupiedCreated = false;
+    Object.defineProperty(occupiedBundle.challenge, 'runId', { enumerable: true, get() {
+      if (!occupiedCreated) { occupiedCreated = true; mkdirSync(occupied, { mode: 0o700 }); mkdirSync(join(occupied, 'owned'), { mode: 0o700 }); }
+      return 'run-raced-target';
+    } });
+    await assert.rejects(() => commitLiveBundle(output, occupiedBundle), (error) => error.code === 'BUNDLE_ALREADY_COMMITTED');
+    assert.deepEqual(await readdir(occupied), ['owned']);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('an incomplete or digest-mismatched directory is unusable and failed publication removes only its own target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ticket273-partial-')); const output = join(root, 'output'); await mkdir(output, { mode: 0o700 });
+  try {
+    const partial = join(output, 'run-partial'); await mkdir(partial, { mode: 0o700 }); await writeFile(join(partial, 'challenge.json'), '{}\n', { mode: 0o600 });
+    await assert.rejects(() => loadCommittedBundle(partial), (error) => error.code === 'BUNDLE_MANIFEST_MISMATCH');
+
+    const broken = await collect(); broken.challenge.runId = 'run-failed-write'; broken.evidence = 1n;
+    await assert.rejects(() => commitLiveBundle(output, broken), (error) => error.code === 'NON_JSON_VALUE');
+    assert.deepEqual((await readdir(output)).sort(), ['run-partial']);
+
+    const valid = await collect(); valid.challenge.runId = 'run-digest-tamper'; const committed = await commitLiveBundle(output, valid);
+    await writeFile(join(committed, 'inventory.json'), '{}\n', { mode: 0o600 });
+    await assert.rejects(() => loadCommittedBundle(committed), (error) => error.code === 'BUNDLE_MANIFEST_MISMATCH');
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

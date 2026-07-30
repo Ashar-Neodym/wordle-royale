@@ -14,7 +14,7 @@ Implement the production live collector/verifier lane for Vercel, Railway, and P
 - Structured allowlist sanitization and raw-response digests without raw data disclosure.
 - Atomic signed evidence/inventory/receipt bundle and replay ledger.
 - Provider/API identity and variable-state evidence without secret-value retrieval.
-- Production CLI E2E with fake executables/local TLS; no live calls.
+- Production CLI E2E with fake executables/local TLS is owned by Ticket 274 and is not credited to this ticket; no live calls.
 - Fixture/live lanes impossible to mix; test seams reject production.
 
 ## Verification

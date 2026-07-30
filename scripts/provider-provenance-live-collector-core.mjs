@@ -1,8 +1,8 @@
 import { constants, createReadStream } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, rmdir, stat } from 'node:fs/promises';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import {
   LIVE_COLLECTOR_ID, LIVE_EVIDENCE_VERSION, LIVE_RECEIPT_VERSION, POSTGRES_SQL_DIGEST,
   POSTGRES_SQL_QUERY_ID, deriveLiveInventory, liveCanonicalJson, liveSha256, validateLiveChallenge,
@@ -13,6 +13,10 @@ export const OPERATION_PLANS_VERSION = 'wordle-provider-operation-plans/v1';
 export const KEYRING_VERSION = 'wordle-provider-collector-keyring/v1';
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_JSON_DEPTH = 32;
+const BUNDLE_COMMIT_VERSION = 'wordle-provider-bundle-commit/v1';
+const BUNDLE_FILES = Object.freeze(['challenge', 'evidence', 'inventory', 'receipt']);
+const BUNDLE_FILE_NAMES = Object.freeze(BUNDLE_FILES.map((name) => `${name}.json`));
+const BUNDLE_COMMIT_FILE = 'commit.json';
 const EXECUTORS = Object.freeze({
   'vercel-control-plane': 'vercel',
   'railway-control-plane': 'railway',
@@ -208,34 +212,105 @@ export async function readProtectedFile(path, { maxBytes = MAX_JSON_BYTES, uid =
 }
 export async function readProtectedJson(path, options) { const bytes = await readProtectedFile(path, options); try { return parseStrictJson(bytes, 'path'); } catch (error) { if (error?.code === 'DUPLICATE_JSON_KEY' || error?.code === 'JSON_DEPTH') throw error; fail('PROTECTED_JSON_INVALID', 'path'); } }
 
-async function assertDirectory(path) {
-  if (!isAbsolute(path)) fail('OUTPUT_PATH_NOT_ABSOLUTE', 'directory'); const info = await lstat(path).catch(() => fail('OUTPUT_DIRECTORY_UNAVAILABLE', 'directory'));
-  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o700) fail('OUTPUT_DIRECTORY_POLICY', 'directory'); return realpath(path);
-}
-export const assertProtectedDirectory = (path) => assertDirectory(path);
-async function durableWrite(path, value) { const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); try { await handle.writeFile(`${liveCanonicalJson(value)}\n`); await handle.sync(); } finally { await handle.close(); } }
-export async function commitLiveBundle(outputDirectory, bundle) {
-  const root = await assertDirectory(outputDirectory); safeId(bundle?.challenge?.runId, 'bundle.runId'); const target = join(root, bundle.challenge.runId);
-  const temporary = await mkdtemp(join(root, '.bundle-')); await chmod(temporary, 0o700);
+async function openDirectory(path) {
+  if (typeof path !== 'string' || !isAbsolute(path)) fail('OUTPUT_PATH_NOT_ABSOLUTE', 'directory');
+  let handle;
+  try { handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
+  catch { fail('OUTPUT_DIRECTORY_UNAVAILABLE', 'directory'); }
   try {
-    for (const name of ['challenge', 'evidence', 'inventory', 'receipt']) await durableWrite(join(temporary, `${name}.json`), bundle[name]);
-    const directory = await open(temporary, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); try { await directory.sync(); } finally { await directory.close(); }
-    try { await lstat(target); fail('BUNDLE_ALREADY_COMMITTED', 'runId'); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
-    await rename(temporary, target); const parent = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); try { await parent.sync(); } finally { await parent.close(); }
-    return target;
-  } catch (error) { await rm(temporary, { recursive: true, force: true }); if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') fail('BUNDLE_ALREADY_COMMITTED', 'runId'); throw error; }
+    const info = await handle.stat();
+    if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o700) fail('OUTPUT_DIRECTORY_POLICY', 'directory');
+    const anchoredPath = `/proc/self/fd/${handle.fd}`;
+    const anchored = await stat(anchoredPath).catch(() => fail('DIRECTORY_DESCRIPTOR_UNAVAILABLE', 'directory'));
+    if (!anchored.isDirectory() || anchored.dev !== info.dev || anchored.ino !== info.ino) fail('DIRECTORY_DESCRIPTOR_UNAVAILABLE', 'directory');
+    return { handle, info, anchoredPath };
+  } catch (error) { await handle.close(); throw error; }
+}
+export async function assertProtectedDirectory(path) {
+  const root = await openDirectory(path); try { return path; } finally { await root.handle.close(); }
+}
+async function durableWrite(path, value) {
+  const bytes = Buffer.from(`${liveCanonicalJson(value)}\n`);
+  const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+  return liveSha256(bytes);
+}
+async function removeCreatedBundle(root, runId, targetHandle, targetInfo) {
+  if (!targetHandle || !targetInfo) return;
+  const target = `/proc/self/fd/${targetHandle.fd}`;
+  for (const name of [...BUNDLE_FILE_NAMES, BUNDLE_COMMIT_FILE]) await rm(join(target, name), { force: true }).catch(() => {});
+  await targetHandle.sync().catch(() => {});
+  const entry = join(root.anchoredPath, runId);
+  const current = await lstat(entry).catch(() => undefined);
+  if (current?.isDirectory() && current.dev === targetInfo.dev && current.ino === targetInfo.ino) await rmdir(entry).catch(() => {});
+  await root.handle.sync().catch(() => {});
+}
+export async function commitLiveBundle(outputDirectory, bundle) {
+  const root = await openDirectory(outputDirectory);
+  let targetHandle; let targetInfo; let runId;
+  try {
+    runId = safeId(bundle?.challenge?.runId, 'bundle.runId');
+    const targetEntry = join(root.anchoredPath, runId);
+    try { await mkdir(targetEntry, { mode: 0o700 }); }
+    catch (error) { if (error?.code === 'EEXIST') fail('BUNDLE_ALREADY_COMMITTED', 'runId'); throw error; }
+    targetHandle = await open(targetEntry, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    targetInfo = await targetHandle.stat();
+    if (!targetInfo.isDirectory() || targetInfo.uid !== process.getuid?.() || (targetInfo.mode & 0o777) !== 0o700) fail('OUTPUT_DIRECTORY_POLICY', 'bundle');
+    const target = `/proc/self/fd/${targetHandle.fd}`; const files = {};
+    for (const name of BUNDLE_FILES) files[`${name}.json`] = await durableWrite(join(target, `${name}.json`), bundle[name]);
+    await targetHandle.sync();
+    await durableWrite(join(target, BUNDLE_COMMIT_FILE), { schemaVersion: BUNDLE_COMMIT_VERSION, runId, files });
+    await targetHandle.sync(); await root.handle.sync();
+    const publishedPath = await realpath(target); return publishedPath;
+  } catch (error) {
+    await removeCreatedBundle(root, runId, targetHandle, targetInfo);
+    if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') fail('BUNDLE_ALREADY_COMMITTED', 'runId');
+    throw error;
+  } finally { await targetHandle?.close(); await root.handle.close(); }
 }
 export async function loadCommittedBundle(directory) {
-  const root = await assertDirectory(directory); const result = {}; for (const name of ['challenge', 'evidence', 'inventory', 'receipt']) result[name] = await readProtectedJson(join(root, `${name}.json`)); return result;
+  const root = await openDirectory(directory);
+  try {
+    const expectedEntries = [...BUNDLE_FILE_NAMES, BUNDLE_COMMIT_FILE].sort();
+    if ((await readdir(root.anchoredPath)).sort().join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
+    const markerBytes = await readProtectedFile(join(root.anchoredPath, BUNDLE_COMMIT_FILE));
+    let marker; try { marker = parseStrictJson(markerBytes, BUNDLE_COMMIT_FILE); } catch { fail('BUNDLE_COMMIT_INVALID', 'bundle'); }
+    exact(marker, ['schemaVersion', 'runId', 'files'], 'bundle.commit');
+    if (marker.schemaVersion !== BUNDLE_COMMIT_VERSION) fail('BUNDLE_COMMIT_INVALID', 'bundle');
+    safeId(marker.runId, 'bundle.commit.runId'); exact(marker.files, BUNDLE_FILE_NAMES, 'bundle.commit.files');
+    if (!markerBytes.equals(Buffer.from(`${liveCanonicalJson(marker)}\n`))) fail('BUNDLE_COMMIT_INVALID', 'bundle');
+    const result = {};
+    for (const name of BUNDLE_FILES) {
+      const fileName = `${name}.json`; const bytes = await readProtectedFile(join(root.anchoredPath, fileName));
+      if (marker.files[fileName] !== liveSha256(bytes)) fail('BUNDLE_MANIFEST_MISMATCH', fileName);
+      try { result[name] = parseStrictJson(bytes, fileName); } catch { fail('PROTECTED_JSON_INVALID', fileName); }
+    }
+    if (result.challenge?.runId !== marker.runId || (await readdir(root.anchoredPath)).sort().join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
+    return result;
+  } finally { await root.handle.close(); }
 }
 export async function createReplayGuard(directory) {
-  const root = await assertDirectory(directory);
-  return { async consumeAsync(nonce) { safeId(nonce, 'nonce'); const name = createHash('sha256').update(nonce).digest('hex'); let handle; try { handle = await open(join(root, `${name}.used`), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); await handle.writeFile(`${name}\n`); await handle.sync(); } catch (error) { if (error?.code === 'EEXIST') return false; throw error; } finally { await handle?.close(); } const parent = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); try { await parent.sync(); } finally { await parent.close(); } return true; } };
+  const root = await openDirectory(directory); let closed = false;
+  return {
+    async consumeAsync(nonce) {
+      if (closed) fail('REPLAY_GUARD_CLOSED', 'replay');
+      safeId(nonce, 'nonce'); const name = createHash('sha256').update(nonce).digest('hex'); let handle;
+      try {
+        handle = await open(join(root.anchoredPath, `${name}.used`), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        await handle.writeFile(`${name}\n`); await handle.sync();
+      } catch (error) { if (error?.code === 'EEXIST') return false; throw error; }
+      finally { await handle?.close(); }
+      await root.handle.sync(); return true;
+    },
+    async close() { if (!closed) { closed = true; await root.handle.close(); } },
+  };
 }
 export async function verifyAndConsumeLiveBundle({ bundle, keyring, policy, replayDirectory, clock = Date.now }) {
   // Verify without consumption, then atomically create the durable nonce marker. No async adapter is passed into the synchronous semantic verifier.
   const inventory = verifyLiveBundleWithKeyring({ bundle, keyring, policy, clock, replayGuard: undefined, consumeReplay: false });
   const guard = await createReplayGuard(replayDirectory);
-  if (await guard.consumeAsync(bundle.challenge.nonce) !== true) fail('CHALLENGE_REPLAY', 'challenge.nonce');
-  return inventory;
+  try {
+    if (await guard.consumeAsync(bundle.challenge.nonce) !== true) fail('CHALLENGE_REPLAY', 'challenge.nonce');
+    return inventory;
+  } finally { await guard.close(); }
 }
