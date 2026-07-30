@@ -67,8 +67,11 @@ async function main() {
   const [operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedIdentities,providerReceiptKey]=await Promise.all([
     readProtected(operationalInventoryPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerInventoryPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerReceiptPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(nativeEvidencePath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(expectedIdentitiesPath).then(x=>JSON.parse(x.toString('utf8'))),readProtected(providerReceiptKeyPath),
   ]);
+  const providerEvidenceLane = process.env.NODE_ENV === 'test' && process.env.RUN_AUTH_PREFLIGHT_CLI_E2E === '1'
+    ? 'fixture-v2-test-only'
+    : 'production-live-v3';
   // Authenticate all provider evidence before loading database code, opening a client, or issuing public probes.
-  verifyAuthenticatedProviderEvidence({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey});
+  verifyAuthenticatedProviderEvidence({operationalInventory,providerEvidenceLane,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey});
   const [{Prisma,PrismaClient},{PrismaService}]=await Promise.all([import('@prisma/client'),import('../src/prisma/prisma.service.ts')]);
   const directHostFingerprint=directDatabaseHostFingerprint(process.env.DATABASE_URL); const prisma=new PrismaClient();
   // Every invocation opens a new transaction. The observation invocation therefore cannot
@@ -85,6 +88,6 @@ async function main() {
   };
   const databaseAdapter={withReadOnlyTransaction:inReadOnlyTransaction,withReadOnlyObservation:inReadOnlyTransaction};
   const publicAdapter={async get(url:string){const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),5_000);try{const transport=testTransportTarget(url);const response=await fetch(transport.targetUrl,{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:controller.signal});const parsed=await boundedJson(response);return{method:'GET',status:response.status,redirected:response.status>=300&&response.status<400,url:transport.useMockObservedUrl?response.headers.get(TEST_OBSERVED_URL_HEADER):response.url,contentType:normalizeJsonContentType(response.headers.get('content-type')),...parsed};}finally{clearTimeout(timeout);}}};
-  try { const result=await runActivationPreflight({operationalInventory,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});const output=`${canonicalJson(result)}\n`;if(outputPath)await writeProtected(outputPath,output);else process.stdout.write(output); } finally { await prisma.$disconnect(); }
+  try { const result=await runActivationPreflight({operationalInventory,providerEvidenceLane,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,publicAdapter,databaseAdapter});const output=`${canonicalJson(result)}\n`;if(outputPath)await writeProtected(outputPath,output);else process.stdout.write(output); } finally { await prisma.$disconnect(); }
 }
 main().catch((error:unknown)=>{const prerequisite=error instanceof Error&&error.message==='pg_control_system_execute_required'?'pg_control_system_execute_required':undefined;process.stderr.write(`${canonicalJson({result:'FAIL',failureCode:prerequisite??'preflight_failed'})}\n`);process.exitCode=1;});
