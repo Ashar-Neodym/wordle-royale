@@ -44,13 +44,14 @@ pnpm provider-provenance:live collect \
   --output-dir /protected/committed-bundles
 
 pnpm provider-provenance:live verify \
-  --bundle-dir /protected/committed-bundles/RUN_ID \
+  --output-dir /protected/committed-bundles \
+  --run-id RUN_ID \
   --policy /protected/challenge-policy.json \
   --keyring /protected/approved-collector-keyring.json \
   --replay-dir /protected/consumed-nonces
 ```
 
-Every CLI path must be absolute. Every input and signing file must be a no-follow, owner-owned regular file with mode `0600`. Output, committed-bundle, executor-staging, and replay directories are owner-owned `0700`; committed JSON and replay markers are `0600`. Collection writes no bundle until all eight operations, sanitization, signatures, and offline derivation succeed. It then fsyncs four files and the staging directory and publishes the complete run directory with one rename, refusing to replace an existing run path. Verification checks the whole bundle before atomically creating a nonce marker with `O_EXCL`.
+Every CLI path must be absolute. Every input and signing file must be a no-follow, owner-owned regular file with mode `0600`. Output, executor-staging, and replay directories are owner-owned `0700`; committed JSON and replay markers are `0600`. Publication keeps the output root open with `O_DIRECTORY|O_NOFOLLOW` and uses its descriptor anchor even if its pathname is replaced. It creates the flat canonical names `RUN_ID.challenge.json`, `RUN_ID.evidence.json`, `RUN_ID.inventory.json`, and `RUN_ID.receipt.json` using `O_CREAT|O_EXCL|O_NOFOLLOW`, records each opened inode, writes and fsyncs it, then publishes `RUN_ID.commit.json` last. The canonical commit binds the exact component names and byte digests. Failure cleanup unlinks only a still-matching created inode and preserves unknown or raced replacements. The root is fsynced after components, commit, and cleanup. Verification receives the output root plus run ID, requires the canonical commit and exact run-prefixed set, and rejects partial, extra, replaced, or digest-mismatched bundles. Replay consumption remains descriptor-anchored and atomic with `O_EXCL`.
 
 Operation plans use `wordle-provider-operation-plans/v1`. They pin absolute executable path and realpath, SHA-256, exact `--version` output, UID, and exact non-group/world-writable executable mode. The production runner snapshots the validated bytes before spawn and uses `shell:false`, fixed argv, closed stdin, a fixed minimal environment, timeout/SIGKILL, and independent stdout/stderr caps. Adapter failures expose fixed codes only; stderr and response snippets never enter evidence or CLI errors. Raw adapter bytes are bounded and SHA-256-addressed while structural allowlists copy only identity, artifact, variable state, and PostgreSQL observation facts into evidence.
 

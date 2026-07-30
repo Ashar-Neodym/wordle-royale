@@ -40,11 +40,11 @@ try {
     try {
       const bundle = await collectLiveBundle({ challenge, policy, plans, signingKey, childRunner: createSecureChildRunner({ stagingDirectory }) });
       const path = await commitLiveBundle(outputDirectory, bundle);
-      output({ ok: true, command: 'collect', runId: challenge.runId, bundleDirectory: path });
+      output({ ok: true, command: 'collect', runId: challenge.runId, commitManifest: path });
     } finally { await rm(stagingDirectory, { recursive: true, force: true }); }
   } else if (command === 'verify') {
-    requireOnly(values, ['bundle-dir', 'policy', 'keyring', 'replay-dir']);
-    const bundle = await loadCommittedBundle(absoluteOption(values['bundle-dir']));
+    requireOnly(values, ['output-dir', 'run-id', 'policy', 'keyring', 'replay-dir']);
+    const bundle = await loadCommittedBundle(absoluteOption(values['output-dir']), values['run-id']);
     const policy = await readProtectedJson(absoluteOption(values.policy));
     const keyring = await readProtectedJson(absoluteOption(values.keyring));
     const inventory = await verifyAndConsumeLiveBundle({ bundle, keyring, policy, replayDirectory: absoluteOption(values['replay-dir']) });

@@ -1,5 +1,5 @@
 import { constants, createReadStream } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, rmdir, stat } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, stat, unlink } from 'node:fs/promises';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { isAbsolute, join } from 'node:path';
@@ -15,8 +15,7 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_JSON_DEPTH = 32;
 const BUNDLE_COMMIT_VERSION = 'wordle-provider-bundle-commit/v1';
 const BUNDLE_FILES = Object.freeze(['challenge', 'evidence', 'inventory', 'receipt']);
-const BUNDLE_FILE_NAMES = Object.freeze(BUNDLE_FILES.map((name) => `${name}.json`));
-const BUNDLE_COMMIT_FILE = 'commit.json';
+
 const EXECUTORS = Object.freeze({
   'vercel-control-plane': 'vercel',
   'railway-control-plane': 'railway',
@@ -229,63 +228,74 @@ async function openDirectory(path) {
 export async function assertProtectedDirectory(path) {
   const root = await openDirectory(path); try { return path; } finally { await root.handle.close(); }
 }
-async function durableWrite(path, value) {
+function bundleNames(runId) {
+  const files = Object.fromEntries(BUNDLE_FILES.map((component) => [component, `${runId}.${component}.json`]));
+  return { files, commit: `${runId}.commit.json`, prefix: `${runId}.` };
+}
+async function durableWrite(root, name, value, created, publicationHooks) {
   const bytes = Buffer.from(`${liveCanonicalJson(value)}\n`);
+  const path = join(root.anchoredPath, name);
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+  try {
+    const info = await handle.stat();
+    created.set(name, { dev: info.dev, ino: info.ino });
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o600) fail('OUTPUT_FILE_POLICY', name);
+    await publicationHooks?.afterCreate?.({ name });
+    await handle.writeFile(bytes); await handle.sync();
+  } finally { await handle.close(); }
+  const current = await lstat(path).catch(() => undefined); const owned = created.get(name);
+  if (!current?.isFile() || current.isSymbolicLink() || current.dev !== owned.dev || current.ino !== owned.ino) fail('BUNDLE_PUBLICATION_RACE', name);
   return liveSha256(bytes);
 }
-async function removeCreatedBundle(root, runId, targetHandle, targetInfo) {
-  if (!targetHandle || !targetInfo) return;
-  const target = `/proc/self/fd/${targetHandle.fd}`;
-  for (const name of [...BUNDLE_FILE_NAMES, BUNDLE_COMMIT_FILE]) await rm(join(target, name), { force: true }).catch(() => {});
-  await targetHandle.sync().catch(() => {});
-  const entry = join(root.anchoredPath, runId);
-  const current = await lstat(entry).catch(() => undefined);
-  if (current?.isDirectory() && current.dev === targetInfo.dev && current.ino === targetInfo.ino) await rmdir(entry).catch(() => {});
+async function assertCreatedInodes(root, created) {
+  for (const [name, owned] of created) {
+    const current = await lstat(join(root.anchoredPath, name)).catch(() => undefined);
+    if (!current?.isFile() || current.isSymbolicLink() || current.dev !== owned.dev || current.ino !== owned.ino) fail('BUNDLE_PUBLICATION_RACE', name);
+  }
+}
+async function removeCreatedBundle(root, created) {
+  for (const [name, owned] of created) {
+    const path = join(root.anchoredPath, name); const current = await lstat(path).catch(() => undefined);
+    if (current && !current.isSymbolicLink() && current.dev === owned.dev && current.ino === owned.ino) await unlink(path).catch(() => {});
+  }
   await root.handle.sync().catch(() => {});
 }
-export async function commitLiveBundle(outputDirectory, bundle) {
+export async function commitLiveBundle(outputDirectory, bundle, publicationHooks = undefined) {
   const root = await openDirectory(outputDirectory);
-  let targetHandle; let targetInfo; let runId;
+  const created = new Map();
   try {
-    runId = safeId(bundle?.challenge?.runId, 'bundle.runId');
-    const targetEntry = join(root.anchoredPath, runId);
-    try { await mkdir(targetEntry, { mode: 0o700 }); }
-    catch (error) { if (error?.code === 'EEXIST') fail('BUNDLE_ALREADY_COMMITTED', 'runId'); throw error; }
-    targetHandle = await open(targetEntry, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    targetInfo = await targetHandle.stat();
-    if (!targetInfo.isDirectory() || targetInfo.uid !== process.getuid?.() || (targetInfo.mode & 0o777) !== 0o700) fail('OUTPUT_DIRECTORY_POLICY', 'bundle');
-    const target = `/proc/self/fd/${targetHandle.fd}`; const files = {};
-    for (const name of BUNDLE_FILES) files[`${name}.json`] = await durableWrite(join(target, `${name}.json`), bundle[name]);
-    await targetHandle.sync();
-    await durableWrite(join(target, BUNDLE_COMMIT_FILE), { schemaVersion: BUNDLE_COMMIT_VERSION, runId, files });
-    await targetHandle.sync(); await root.handle.sync();
-    const publishedPath = await realpath(target); return publishedPath;
+    const runId = safeId(bundle?.challenge?.runId, 'bundle.runId'); const names = bundleNames(runId); const files = {};
+    for (const component of BUNDLE_FILES) files[names.files[component]] = await durableWrite(root, names.files[component], bundle[component], created, publicationHooks);
+    await root.handle.sync(); await assertCreatedInodes(root, created);
+    await durableWrite(root, names.commit, { schemaVersion: BUNDLE_COMMIT_VERSION, runId, files }, created, publicationHooks);
+    await root.handle.sync(); await assertCreatedInodes(root, created);
+    return join(await realpath(root.anchoredPath), names.commit);
   } catch (error) {
-    await removeCreatedBundle(root, runId, targetHandle, targetInfo);
+    await removeCreatedBundle(root, created);
     if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') fail('BUNDLE_ALREADY_COMMITTED', 'runId');
     throw error;
-  } finally { await targetHandle?.close(); await root.handle.close(); }
+  } finally { await root.handle.close(); }
 }
-export async function loadCommittedBundle(directory) {
-  const root = await openDirectory(directory);
+export async function loadCommittedBundle(outputDirectory, runIdRaw) {
+  const runId = safeId(runIdRaw, 'runId'); const names = bundleNames(runId); const root = await openDirectory(outputDirectory);
   try {
-    const expectedEntries = [...BUNDLE_FILE_NAMES, BUNDLE_COMMIT_FILE].sort();
-    if ((await readdir(root.anchoredPath)).sort().join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
-    const markerBytes = await readProtectedFile(join(root.anchoredPath, BUNDLE_COMMIT_FILE));
-    let marker; try { marker = parseStrictJson(markerBytes, BUNDLE_COMMIT_FILE); } catch { fail('BUNDLE_COMMIT_INVALID', 'bundle'); }
+    const expectedEntries = [...Object.values(names.files), names.commit].sort();
+    const runEntries = (await readdir(root.anchoredPath)).filter((name) => name.startsWith(names.prefix)).sort();
+    if (runEntries.join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
+    const markerBytes = await readProtectedFile(join(root.anchoredPath, names.commit));
+    let marker; try { marker = parseStrictJson(markerBytes, names.commit); } catch { fail('BUNDLE_COMMIT_INVALID', 'bundle'); }
     exact(marker, ['schemaVersion', 'runId', 'files'], 'bundle.commit');
     if (marker.schemaVersion !== BUNDLE_COMMIT_VERSION) fail('BUNDLE_COMMIT_INVALID', 'bundle');
-    safeId(marker.runId, 'bundle.commit.runId'); exact(marker.files, BUNDLE_FILE_NAMES, 'bundle.commit.files');
+    if (safeId(marker.runId, 'bundle.commit.runId') !== runId) fail('BUNDLE_COMMIT_INVALID', 'bundle'); exact(marker.files, Object.values(names.files), 'bundle.commit.files');
     if (!markerBytes.equals(Buffer.from(`${liveCanonicalJson(marker)}\n`))) fail('BUNDLE_COMMIT_INVALID', 'bundle');
     const result = {};
     for (const name of BUNDLE_FILES) {
-      const fileName = `${name}.json`; const bytes = await readProtectedFile(join(root.anchoredPath, fileName));
+      const fileName = names.files[name]; const bytes = await readProtectedFile(join(root.anchoredPath, fileName));
       if (marker.files[fileName] !== liveSha256(bytes)) fail('BUNDLE_MANIFEST_MISMATCH', fileName);
       try { result[name] = parseStrictJson(bytes, fileName); } catch { fail('PROTECTED_JSON_INVALID', fileName); }
     }
-    if (result.challenge?.runId !== marker.runId || (await readdir(root.anchoredPath)).sort().join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
+    const finalEntries = (await readdir(root.anchoredPath)).filter((name) => name.startsWith(names.prefix)).sort();
+    if (result.challenge?.runId !== marker.runId || finalEntries.join('|') !== expectedEntries.join('|')) fail('BUNDLE_MANIFEST_MISMATCH', 'bundle');
     return result;
   } finally { await root.handle.close(); }
 }
