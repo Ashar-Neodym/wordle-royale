@@ -32,6 +32,29 @@ test('artifact digest binds path, mode, and content', async()=>{ const base=invo
 test('stale target SHA is rejected', async()=>{ const repo=await fixture(); await writeFile(join(repo,'dirty.txt'),'x'); git(repo,['add','dirty.txt']); git(repo,['commit','--quiet','-m','new head']); const stale=git(repo,['rev-parse','HEAD^']); const receipt=join(root,'stale.json'); const result=spawnSync(process.execPath,[join(repo,'scripts/g0-qualification.mjs'),'--repo',repo,'--manifest',join(repo,'docs/wordle-royale-g0-provisioning-manifest.yaml'),'--target-sha',stale,'--receipt',receipt],{encoding:'utf8'}); assert.equal(result.status,1); assert.equal(JSON.parse(result.stderr).code,'TARGET_SHA_STALE'); });
 test('dirty tracked or untracked source is rejected', async()=>{ const repo=await fixture(); await writeFile(join(repo,'untracked-sensitive'),'x'); const result=invoke(repo); assert.equal(result.status,1); assert.equal(result.json.code,'RELEVANT_TREE_DIRTY'); });
 test('approval, cost, preview, and gate manifest negatives fail closed', async(t)=>{ const cases=[['approvalId: null','approvalId: leaked','APPROVAL_NOT_NULL'],['railwayCurrentBillingPeriodUsageApprox: 1.3531','railwayCurrentBillingPeriodUsageApprox: 5.0001','COST_POLICY_INVALID'],['mutationAllowed: false','mutationAllowed: true','PREVIEW_PRESERVATION_INVALID'],['hostedMutationAllowed: false','hostedMutationAllowed: true','HOSTED_MUTATION_FORBIDDEN']]; for(const [find,repl,code] of cases) await t.test(code,async()=>{ const repo=await fixture(); await amend(repo,'docs/wordle-royale-g0-provisioning-manifest.yaml',find,repl); const result=invoke(repo); assert.equal(result.status,1); assert.equal(result.json.code,code); assert.doesNotMatch(result.stderr,/leaked/u); }); });
+test('full manifest policy mutations fail in genuine committed CLI subprocesses', async(t)=>{
+  const cases = [
+    ['Vercel project count', '  vercel:\n    projectCount: 1', '  vercel:\n    projectCount: 999', 'ZERO_ACTION_POLICY_INVALID'],
+    ['private network fence', 'apiAndPostgresPrivateNetwork: true', 'apiAndPostgresPrivateNetwork: false', 'TOPOLOGY_POLICY_INVALID'],
+    ['Vercel target plan', 'vercelTargetPlan: Hobby', 'vercelTargetPlan: Enterprise', 'COST_POLICY_INVALID'],
+    ['Vercel eligibility reconfirmation', 'vercelEligibilityMustBeReconfirmed: true', 'vercelEligibilityMustBeReconfirmed: false', 'COST_POLICY_INVALID'],
+    ['required forbidden action', '  - source image or branch assignment', '  - source image linkage is allowed', 'FORBIDDEN_POLICY_INVALID'],
+    ['rollback order step', '  - delete new API service shell', '  - retain new API service shell', 'ROLLBACK_POLICY_INVALID'],
+    ['backup blocker reason', 'backup retention, restore destination, RPO/RTO, and restore drill are not yet proven', 'backup retention, restore destination, RPO/RTO, and restore drill are fully proven', 'BLOCKER_CLASSIFICATION_INVALID'],
+    ['unknown nested field', '  plannedApiOrigin: null', '  plannedApiOrigin: null\n  futureTopologyPolicy: enabled', 'TOPOLOGY_SCHEMA_INVALID'],
+    ['omitted nested field', '  apiReplicasAtDormantDeploy: 1\n', '', 'TOPOLOGY_SCHEMA_INVALID'],
+    ['duplicate parser field', 'status: local_qualification_required', 'status: local_qualification_required\nstatus: local_qualification_required', 'MANIFEST_DUPLICATE_KEY'],
+  ];
+  for (const [name,find,replacement,code] of cases) await t.test(name, async()=>{
+    const repo=await fixture();
+    await amend(repo,'docs/wordle-royale-g0-provisioning-manifest.yaml',find,replacement);
+    const result=invoke(repo);
+    assert.equal(result.status,1,result.stdout);
+    assert.equal(result.json.code,code);
+    assert.equal(await lstat(result.receipt).then(()=>true,()=>false),false,'failure must not publish a receipt');
+    assert.doesNotMatch(result.stdout+result.stderr,/NETWORK_OR_PROVIDER_CANARY/u);
+  });
+});
 test('Wave AD package downgrade is rejected', async()=>{ const repo=await fixture(); await amend(repo,'package.json','scripts/provider-provenance-live-cli.e2e.test.mjs','scripts/provider-provenance-live.test.mjs'); const result=invoke(repo); assert.equal(result.status,1); assert.equal(result.json.code,'WAVE_AD_PACKAGE_WIRING_INVALID'); });
 test('unsupported symlink Git entries are rejected', async()=>{ const repo=await fixture(); await symlink('README.md',join(repo,'linked-readme')); git(repo,['add','linked-readme']); git(repo,['commit','--quiet','-m','symlink']); const result=invoke(repo); assert.equal(result.status,1); assert.equal(result.json.code,'UNSUPPORTED_GIT_ENTRY'); });
 test('symlinked repository paths and relative paths are rejected', async()=>{ const repo=await fixture(), alias=join(root,'repo-alias'); await symlink(repo,alias); let result=spawnSync(process.execPath,[join(repo,'scripts/g0-qualification.mjs'),'--repo',alias,'--manifest',join(alias,'docs/wordle-royale-g0-provisioning-manifest.yaml'),'--target-sha',git(repo,['rev-parse','HEAD']),'--receipt',join(root,'alias.json')],{encoding:'utf8'}); assert.equal(JSON.parse(result.stderr).code,'REPOSITORY_SYMLINK_FORBIDDEN'); result=spawnSync(process.execPath,[join(repo,'scripts/g0-qualification.mjs'),'--repo','relative','--manifest','relative','--target-sha','a'.repeat(40),'--receipt','relative'],{encoding:'utf8'}); assert.equal(result.status,1); assert.match(result.stderr,/PATH_NOT_ABSOLUTE/u); });
