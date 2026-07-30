@@ -12,7 +12,7 @@ Production activation uses these exact versions:
 - `wordle-provider-receipt/v3`
 - collector identity `wordle-royale/provider-provenance@3`
 
-`scripts/provider-provenance-live-core.mjs` is the offline schema, derivation, and verification core. It performs no network, process, provider, or database collection. The collector and protected-key/transport implementation are intentionally outside Ticket 272.
+`scripts/provider-provenance-live-core.mjs` is the offline schema, derivation, and verification core. `scripts/provider-provenance-live-collector-core.mjs` and `scripts/provider-provenance-live.mjs` add the production collector, Ed25519 keyring verifier, protected filesystem handling, process boundary, atomic publication, and durable replay ledger. Evidence is **collector-attested** evidence from provider-authenticated collection; it is not provider-signed evidence.
 
 A verifier challenge binds the challenge ID, run ID, nonce, bounded issue/expiry window, authorized Ed25519 collector key ID, exact expected identities and source/artifact expectations, exact PostgreSQL subjects, and an eight-operation collection plan with allowed target hosts. The protected challenge ID/run ID/nonce/key ID must also be supplied out of band. The evidence and receipt have independent collector signatures and bind canonical challenge, evidence, and inventory digests. The replay interface is an atomic `consume(nonce) -> boolean`: it is called only after the complete bundle verifies (and, in G3, after operational mapping), and false rejects replay before any database or public probe.
 
@@ -29,7 +29,32 @@ Observation IDs, challenge operation IDs, and methods are unique and exact. Evid
 
 Both observations must carry the exact challenge-bound project/environment/service/deployment/cluster/database/database-name/schema/schema-digest/endpoint scope. Field provenance distinguishes values observed by a method from values bound from the protected challenge or direct connection configuration. Both methods must classify the endpoint as `direct`; `pooler` is rejected.
 
-The direct SQL observation proves the database name, schema name, and schema digest using only the fixed `wordle-postgresql-subject-readonly/v1` operation. Its exact query and SHA-256 digest are exported as `POSTGRES_SQL` and `POSTGRES_SQL_DIGEST`; the fixed query reads an ordered schema manifest which the Ticket 273 collector must canonicalize and hash, while only the digest enters evidence. Sanitized facts are limited to database/schema/schema digest, hashed server address, bounded server port, and `isInRecovery=false`. Arbitrary SQL or process collection is not implemented.
+The direct SQL observation proves the database name, schema name, and schema digest using only the fixed `wordle-postgresql-subject-readonly/v1` operation. Its exact query and SHA-256 digest are exported as `POSTGRES_SQL` and `POSTGRES_SQL_DIGEST`; the pinned adapter is invoked with that query ID/digest and an explicit read-only transaction contract. The adapter canonicalizes the ordered schema manifest and returns only sanitized facts. Those facts are limited to database/schema/schema digest, hashed server address, bounded server port, and `isInRecovery=false`. Arbitrary commands, caller-provided argv, SQL, URLs, and environment variables are not accepted.
+
+### Production collector and offline verifier
+
+The live CLI deliberately has no `--now`, fixture, transport injection, command, SQL, token, or URL option. Its clock is the production clock.
+
+```sh
+pnpm provider-provenance:live collect \
+  --challenge /protected/challenge.json \
+  --policy /protected/challenge-policy.json \
+  --plans /protected/operation-plans.json \
+  --signing-key /protected/collector-ed25519.pem \
+  --output-dir /protected/committed-bundles
+
+pnpm provider-provenance:live verify \
+  --bundle-dir /protected/committed-bundles/RUN_ID \
+  --policy /protected/challenge-policy.json \
+  --keyring /protected/approved-collector-keyring.json \
+  --replay-dir /protected/consumed-nonces
+```
+
+Every CLI path must be absolute. Every input and signing file must be a no-follow, owner-owned regular file with mode `0600`. Output, committed-bundle, executor-staging, and replay directories are owner-owned `0700`; committed JSON and replay markers are `0600`. Collection writes no bundle until all eight operations, sanitization, signatures, and offline derivation succeed. It then fsyncs four files and the staging directory and publishes the complete run directory with one rename, refusing to replace an existing run path. Verification checks the whole bundle before atomically creating a nonce marker with `O_EXCL`.
+
+Operation plans use `wordle-provider-operation-plans/v1`. They pin absolute executable path and realpath, SHA-256, exact `--version` output, UID, and exact non-group/world-writable executable mode. The production runner snapshots the validated bytes before spawn and uses `shell:false`, fixed argv, closed stdin, a fixed minimal environment, timeout/SIGKILL, and independent stdout/stderr caps. Adapter failures expose fixed codes only; stderr and response snippets never enter evidence or CLI errors. Raw adapter bytes are bounded and SHA-256-addressed while structural allowlists copy only identity, artifact, variable state, and PostgreSQL observation facts into evidence.
+
+The approved keyring uses `wordle-provider-collector-keyring/v1` and exact entries `{keyId, publicKeyPem, notBefore, notAfter, revokedAt}`. Key IDs must be unique at lookup, the key must be Ed25519 and active when evidence was collected, and any revoked entry is rejected. Rotation is performed by adding a distinct active key ID and issuing new challenges for it; duplicate IDs and unknown keys fail closed.
 
 ## Legacy fixture lane (v2)
 
@@ -43,6 +68,7 @@ The API CLI permits the fixture lane only when both `NODE_ENV=test` and `RUN_AUT
 pnpm test:provider-provenance
 pnpm test:provider-provenance:fixture-v2
 pnpm test:provider-provenance:live-v3
+pnpm test:provider-provenance:live-collector
 pnpm test:auth:activation-tooling
 pnpm typecheck:provider-provenance
 pnpm secret-scan
