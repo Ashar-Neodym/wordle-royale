@@ -1,0 +1,131 @@
+schema: wordle-royale-g0-provisioning/v1
+status: blocked_pending_wave_ad_tooling
+repository: Ashar-Neodym/wordle-royale
+sourceSha: 55f84535cc2ac259c9b15ae6581e8f7acba6d6c1
+approval:
+  singleUse: true
+  executeWithinMinutes: 60
+  partialAttemptConsumesApproval: true
+  approvalId: null
+  approvedBy: null
+  approvedAt: null
+  executeBefore: null
+operator:
+  principal: ashar
+  timezone: Asia/Karachi
+accounts:
+  vercel:
+    teamId: team_OeoH1n8WNMnJfgo4otQGevCG
+    teamSlug: ashar-neodyms-projects
+  railway:
+    workspaceId: ae263dc6-85f3-4d84-9415-ecdf621f49b6
+    workspaceName: "ashar-neodym's Projects"
+previewPreservation:
+  vercel:
+    projectId: prj_2YxPufRTr52AjnQKvKiIunHnnZXl
+    projectName: wordle-royale-web
+  railway:
+    projectId: 12f01fb0-40a0-483a-9d88-923b4677b4c0
+    projectName: lucid-dream
+    environmentId: 25f2e37e-88a6-4587-a875-d8662b684e54
+    serviceId: c2d7de01-1827-4df3-933c-572615e020a4
+  postgresql:
+    provider: supabase
+    projectRef: edixtvmzktafxipifxvi
+  mutationAllowed: false
+productionShells:
+  policy: strict_no_secret_g0
+  vercel:
+    projectCount: 1
+    projectName: wordle-royale-production-web
+    sourceLinkage: forbidden
+    deployments: 0
+    environmentVariables: 0
+    domains: 0
+  railway:
+    projectCount: 1
+    projectName: wordle-royale-production
+    environmentCount: 1
+    environmentName: production
+    region: southeast-asia
+    apiServiceCount: 1
+    apiServiceName: wordle-royale-production-api
+    apiServingReplicas: 0
+    postgresServiceCount: 0
+    postgresDeferredGate: G1
+    postgresFutureName: wordle-royale-production-postgres
+    sourceLinkage: forbidden
+    deployments: 0
+    variables: 0
+    domains: 0
+  supabase:
+    newProjects: 0
+  redis:
+    services: 0
+plannedTopology:
+  railwayRegion: southeast-asia
+  apiReplicasAtDormantDeploy: 1
+  apiAndPostgresPrivateNetwork: true
+  vercelRuntimeRegionPreference: sin1
+  plannedWebOrigin: null
+  plannedApiOrigin: null
+cost:
+  currency: USD
+  observedAt: 2026-07-30
+  railwayCurrentBillingPeriodUsageApprox: 1.3531
+  railwayTargetPlan: Hobby
+  railwayMonthlyMinimumIncludingCredits: 5.00
+  railwayWholeWorkspaceInvoiceCapPreTax: 5.00
+  overageApproved: false
+  paidAddonsApproved: false
+  vercelTargetPlan: Hobby
+  vercelApprovedMonthlyCharge: 0.00
+  vercelEligibilityMustBeReconfirmed: true
+  supabaseApprovedMonthlyCharge: 0.00
+  planUpgradeUnderThisManifest: false
+network:
+  publicTrafficAllowed: false
+  generatedDomainsAllowed: false
+  customDomains: []
+  dnsChanges: []
+  tlsChanges: []
+forbidden:
+  - preview mutation or reuse
+  - git repository linkage
+  - source image or branch assignment
+  - build, deployment, promotion, restart, or replica start
+  - PostgreSQL creation or provider-generated credential access
+  - variables, secrets, references, tokens, or credential inspection
+  - migrations, SQL, schema access, seeds, or account writes
+  - domains, DNS, certificates, aliases, or public traffic
+  - paid upgrade, overage, add-on, invitation, or payment-method change
+  - Supabase or Redis changes
+rollback:
+  authorizedOnlyForNewUnambiguousIds: true
+  triggers:
+    - wrong account, name, region, plan, count, or cost
+    - automatic source linkage, deployment, replica, domain, or exposure
+    - unexpected variables, credentials, add-ons, or preview mutation
+    - evidence ambiguity or cost projection above cap
+  order:
+    - preserve sanitized metadata and audit evidence
+    - delete new API service shell
+    - delete new Railway environment and project
+    - delete new Vercel project
+    - prove preview unchanged and all new IDs absent
+blockingPrerequisites:
+  - id: LIVE_PROVIDER_PROVENANCE
+    state: unresolved
+    reason: current provider adapters authenticate fixture/mock evidence only
+  - id: SINGLE_NODE_POSTGRES_OBSERVATION
+    state: unresolved
+    reason: current contract requires distinct replica IDs and cannot honestly model two independent observations of one single-node database
+  - id: RAILWAY_BACKUP_RESTORE
+    state: unresolved_before_G2
+    reason: backup retention, restore destination, RPO/RTO, and restore drill are not yet proven
+  - id: PLAN_AND_COST
+    state: approval_required
+    reason: Railway Hobby or any billing change is not authorized by this draft
+nextGate:
+  name: Wave AD local tooling repair
+  hostedMutationAllowed: false
