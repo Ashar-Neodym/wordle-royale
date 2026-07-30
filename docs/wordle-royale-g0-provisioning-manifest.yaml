@@ -1,7 +1,7 @@
 schema: wordle-royale-g0-provisioning/v1
-status: blocked_pending_wave_ad_tooling
+status: local_qualification_required
 repository: Ashar-Neodym/wordle-royale
-sourceSha: 55f84535cc2ac259c9b15ae6581e8f7acba6d6c1
+sourceSha: null
 approval:
   singleUse: true
   executeWithinMinutes: 60
@@ -52,7 +52,7 @@ productionShells:
     apiServiceName: wordle-royale-production-api
     apiServingReplicas: 0
     postgresServiceCount: 0
-    postgresDeferredGate: G1
+    postgresDeferredGate: G2
     postgresFutureName: wordle-royale-production-postgres
     sourceLinkage: forbidden
     deployments: 0
@@ -115,11 +115,11 @@ rollback:
     - prove preview unchanged and all new IDs absent
 blockingPrerequisites:
   - id: LIVE_PROVIDER_PROVENANCE
-    state: unresolved
-    reason: current provider adapters authenticate fixture/mock evidence only
+    state: resolved_by_wave_ad
+    reason: production-live-v3 collector, verifier, replay consumption, and shipped CLI E2E are wired by Wave AD
   - id: SINGLE_NODE_POSTGRES_OBSERVATION
-    state: unresolved
-    reason: current contract requires distinct replica IDs and cannot honestly model two independent observations of one single-node database
+    state: resolved_by_wave_ad
+    reason: Wave AD models the production single-node database with one provider-derived observedReplicaId
   - id: RAILWAY_BACKUP_RESTORE
     state: unresolved_before_G2
     reason: backup retention, restore destination, RPO/RTO, and restore drill are not yet proven
@@ -127,5 +127,5 @@ blockingPrerequisites:
     state: approval_required
     reason: Railway Hobby or any billing change is not authorized by this draft
 nextGate:
-  name: Wave AD local tooling repair
+  name: Wave AE exact-SHA local qualification
   hostedMutationAllowed: false
