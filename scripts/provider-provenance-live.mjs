@@ -35,7 +35,7 @@ try {
     const plans = await readProtectedJson(absoluteOption(values.plans));
     const signingKey = await readProtectedFile(absoluteOption(values['signing-key']), { maxBytes: 16 * 1024 });
     const outputDirectory = absoluteOption(values['output-dir']);
-    // Executor snapshots are transient and independent of publication. commitLiveBundle validates and anchors the output root itself.
+    // This private temp directory is outside the protected output root and contains executor snapshots only, never run evidence.
     const stagingDirectory = await mkdtemp(join(tmpdir(), 'wordle-live-executors-'));
     try {
       const bundle = await collectLiveBundle({ challenge, policy, plans, signingKey, childRunner: createSecureChildRunner({ stagingDirectory }) });

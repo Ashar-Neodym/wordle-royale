@@ -15,6 +15,10 @@ import { CHALLENGE_VERSION, POSTGRES_SQL_DIGEST, POSTGRES_SQL_QUERY_ID, liveCano
 const NOW = Date.parse('2026-07-30T12:01:00.000Z');
 const hex = (c) => `sha256:${c.repeat(64)}`; const source = (c) => c.repeat(40);
 const policy = { expectedChallengeId: 'challenge-ticket-273', expectedRunId: 'run-ticket-273', expectedNonce: 'nonce-ticket-273', expectedCollectorKeyId: 'collector-ticket-273' };
+const publicationComponents = ['challenge', 'evidence', 'inventory', 'receipt', 'commit'];
+async function assertRunCannotVerify(output, runId = policy.expectedRunId) {
+  await assert.rejects(() => loadCommittedBundle(output, runId));
+}
 function challenge() {
   const expectedIdentities = {}; const expectedArtifacts = {}; const postgresqlSubjects = {}; const operations = [];
   for (const env of ['preview', 'production']) {
@@ -124,18 +128,21 @@ test('directory descriptors anchor flat publication/replay across root replaceme
 });
 
 test('every preexisting canonical name fails exclusively, remains untouched, and yields no collector commit', async () => {
-  for (const component of ['challenge', 'evidence', 'inventory', 'receipt', 'commit']) {
+  for (const [index, component] of publicationComponents.entries()) {
     const root = await mkdtemp(join(tmpdir(), `ticket273-existing-${component}-`)); const output = join(root, 'output'); await mkdir(output, { mode: 0o700 });
     try {
       const name = `${policy.expectedRunId}.${component}.json`; const bundle = await collect(); await writeFile(join(output, name), 'preexisting\n', { mode: 0o600 });
       await assert.rejects(() => commitLiveBundle(output, bundle), (error) => error.code === 'BUNDLE_ALREADY_COMMITTED');
-      assert.equal(await readFile(join(output, name), 'utf8'), 'preexisting\n'); assert.deepEqual(await readdir(output), [name]);
+      assert.equal(await readFile(join(output, name), 'utf8'), 'preexisting\n');
+      const retained = publicationComponents.slice(0, index).map((entry) => `${policy.expectedRunId}.${entry}.json`);
+      assert.deepEqual((await readdir(output)).sort(), [...retained, name].sort());
+      await assertRunCannotVerify(output);
     } finally { await rm(root, { recursive: true, force: true }); }
   }
 });
 
-test('each post-create name replacement/removal fails, publishes no valid commit, and cleanup preserves replacements', async () => {
-  for (const action of ['replace', 'remove']) for (const component of ['challenge', 'evidence', 'inventory', 'receipt', 'commit']) {
+test('each post-create name replacement/removal fails closed and retains all published evidence and replacements', async () => {
+  for (const action of ['replace', 'remove']) for (const [index, component] of publicationComponents.entries()) {
     const root = await mkdtemp(join(tmpdir(), `ticket273-race-${action}-${component}-`)); const output = join(root, 'output'); await mkdir(output, { mode: 0o700 });
     try {
       const bundle = await collect(); const racedName = `${policy.expectedRunId}.${component}.json`; const detached = join(root, `detached-${component}`); let raced = false;
@@ -143,15 +150,17 @@ test('each post-create name replacement/removal fails, publishes no valid commit
         if (name !== racedName) return; raced = true; await rename(join(output, name), detached);
         if (action === 'replace') await writeFile(join(output, name), 'attacker replacement\n', { mode: 0o600 });
       } }), (error) => error.code === 'BUNDLE_PUBLICATION_RACE');
-      assert.equal(raced, true); await assert.rejects(() => loadCommittedBundle(output, policy.expectedRunId));
+      assert.equal(raced, true); await assertRunCannotVerify(output);
+      const retained = publicationComponents.slice(0, index).map((entry) => `${policy.expectedRunId}.${entry}.json`);
       if (action === 'replace') {
-        assert.equal(await readFile(join(output, racedName), 'utf8'), 'attacker replacement\n'); assert.deepEqual(await readdir(output), [racedName]);
-      } else assert.deepEqual(await readdir(output), []);
+        assert.equal(await readFile(join(output, racedName), 'utf8'), 'attacker replacement\n');
+        assert.deepEqual((await readdir(output)).sort(), [...retained, racedName].sort());
+      } else assert.deepEqual((await readdir(output)).sort(), retained.sort());
     } finally { await rm(root, { recursive: true, force: true }); }
   }
 });
 
-test('partial, extra, and digest-mismatched flat bundles are unusable and failed publication removes only owned inodes', async () => {
+test('partial, extra, and digest-mismatched flat bundles are unusable and failed publication retains evidence', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ticket273-partial-')); const output = join(root, 'output'); await mkdir(output, { mode: 0o700 });
   try {
     await writeFile(join(output, 'run-partial.challenge.json'), '{}\n', { mode: 0o600 });
@@ -159,7 +168,8 @@ test('partial, extra, and digest-mismatched flat bundles are unusable and failed
 
     const broken = await collect(); broken.challenge.runId = 'run-failed-write'; broken.evidence = 1n;
     await assert.rejects(() => commitLiveBundle(output, broken), (error) => error.code === 'NON_JSON_VALUE');
-    assert.deepEqual((await readdir(output)).sort(), ['run-partial.challenge.json']);
+    assert.deepEqual((await readdir(output)).sort(), ['run-failed-write.challenge.json', 'run-partial.challenge.json']);
+    await assertRunCannotVerify(output, 'run-failed-write');
 
     const valid = await collect(); valid.challenge.runId = 'run-digest-tamper'; await commitLiveBundle(output, valid);
     await writeFile(join(output, 'run-digest-tamper.inventory.json'), '{}\n', { mode: 0o600 });
