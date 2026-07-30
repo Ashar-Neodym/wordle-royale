@@ -43,7 +43,7 @@ function evidence(c = challenge()) {
       const ident = c.expectedIdentities[env][provider]; const method = `${provider}-control-plane`; const op = c.operations.find((x) => x.environment === env && x.provider === provider);
       environments[env][provider] = { identity: clone(ident), artifact: clone(c.expectedArtifacts[env][provider]), variables: provider === 'railway' ? variables : [{ name: 'APP_ENV', required: true, state: 'non-empty' }], provenance: { operationId: op.operationId, method, evidenceDigest: hex((++digestChar).toString(16)), observedAt: '2026-07-30T12:01:00.000Z' } };
     }
-    const common = { subject: clone(subject), observedAt: '2026-07-30T12:01:00.000Z', physicalNodeId: 'physical-primary-shared' };
+    const common = { subject: clone(subject), observedAt: '2026-07-30T12:01:00.000Z', physicalNodeId: `physical-primary-${env}` };
     environments[env].postgresql = { identity: clone(c.expectedIdentities[env].postgresql), variables, observations: [
       { ...common, observationId: `observation-${env}-control`, operationId: c.operations.find((x) => x.environment === env && x.provider === 'postgresql' && x.method === 'railway-control-plane').operationId, method: 'railway-control-plane', evidenceDigest: hex((++digestChar).toString(16)), fieldProvenance: fp('railway-control-plane'), facts: { endpointClassification: 'direct' } },
       { ...common, observationId: `observation-${env}-sql`, operationId: c.operations.find((x) => x.environment === env && x.provider === 'postgresql' && x.method === 'postgres-direct-sql').operationId, method: 'postgres-direct-sql', evidenceDigest: hex((++digestChar).toString(16)), fieldProvenance: fp('postgres-direct-sql'), facts: { endpointClassification: 'direct', queryId: POSTGRES_SQL_QUERY_ID, queryDigest: POSTGRES_SQL_DIGEST, databaseName: subject.databaseName, schemaName: subject.schemaName, schemaDigest: subject.schemaDigest, serverAddressDigest: hex((++digestChar).toString(16)), serverPort: 5432, isInRecovery: false } },
@@ -73,6 +73,13 @@ test('accepts honest one-node PostgreSQL observations with repeated or null phys
   assert.equal(verified.environments.production.postgresql.observations[0].physicalNodeId, verified.environments.production.postgresql.observations[1].physicalNodeId);
   const c = challenge(); const e = evidence(c); e.environments.preview.postgresql.observations[1].physicalNodeId = null; resign(e);
   assert.equal(deriveLiveInventory(e, c, publicKey, policy).environments.preview.postgresql.observations[1].physicalNodeId, null);
+});
+
+test('rejects a physical PostgreSQL node shared only across preview and production', () => {
+  semanticReject((e) => {
+    const previewNodeId = e.environments.preview.postgresql.observations[0].physicalNodeId;
+    for (const observation of e.environments.production.postgresql.observations) observation.physicalNodeId = previewNodeId;
+  }, ['PREVIEW_PRODUCTION_OVERLAP']);
 });
 
 test('production G3 accepts verified live v3 and consumes only after operational mapping', () => {
