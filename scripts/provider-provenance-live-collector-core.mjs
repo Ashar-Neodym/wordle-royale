@@ -189,10 +189,29 @@ export function resolveCollectorKey(keyring, keyId, at) {
   if (key.asymmetricKeyType !== 'ed25519') fail('INVALID_COLLECTOR_KEY', 'publicKeyPem'); return key;
 }
 
-export function verifyLiveBundleWithKeyring({ bundle, keyring, replayGuard, policy, clock = Date.now, consumeReplay = true }) {
+// Internal composition primitive. This authenticates every committed component and
+// returns the exact authorized key identity, but deliberately cannot consume replay.
+// Shipped standalone verification remains verifyAndConsumeLiveBundle below.
+export function verifyCommittedLiveBundle({ bundle, keyring, policy, clock = Date.now }) {
   exact(bundle, ['challenge', 'evidence', 'inventory', 'receipt'], 'bundle');
-  const key = resolveCollectorKey(keyring, bundle.challenge.collectorKeyId, bundle.evidence.collectedAt);
-  return verifyLiveBundle({ ...bundle, collectorPublicKey: key, replayGuard, ...policy, now: clock(), consumeReplay });
+  exact(policy, ['expectedChallengeId', 'expectedRunId', 'expectedNonce', 'expectedCollectorKeyId'], 'policy');
+  const collectorPublicKey = resolveCollectorKey(keyring, bundle?.challenge?.collectorKeyId, bundle?.evidence?.collectedAt);
+  const inventory = verifyLiveBundle({
+    ...bundle,
+    collectorPublicKey,
+    ...policy,
+    now: clock(),
+    consumeReplay: false,
+  });
+  return {
+    inventory,
+    liveChallenge: structuredClone(bundle.challenge),
+    nativeEvidence: structuredClone(bundle.evidence),
+    providerInventory: structuredClone(bundle.inventory),
+    providerReceipt: structuredClone(bundle.receipt),
+    collectorPublicKey,
+    collectorKeyId: bundle.challenge.collectorKeyId,
+  };
 }
 
 export async function readProtectedFile(path, { maxBytes = MAX_JSON_BYTES, uid = process.getuid?.() } = {}) {
@@ -308,8 +327,9 @@ export async function createReplayGuard(directory) {
   };
 }
 export async function verifyAndConsumeLiveBundle({ bundle, keyring, policy, replayDirectory, clock = Date.now }) {
-  // Verify without consumption, then atomically create the durable nonce marker. No async adapter is passed into the synchronous semantic verifier.
-  const inventory = verifyLiveBundleWithKeyring({ bundle, keyring, policy, clock, replayGuard: undefined, consumeReplay: false });
+  // Standalone verification intentionally consumes only after complete cryptographic
+  // and inventory validation. The non-consuming primitive is not exposed by the CLI.
+  const { inventory } = verifyCommittedLiveBundle({ bundle, keyring, policy, clock });
   const guard = await createReplayGuard(replayDirectory);
   try {
     if (await guard.consumeAsync(bundle.challenge.nonce) !== true) fail('CHALLENGE_REPLAY', 'challenge.nonce');

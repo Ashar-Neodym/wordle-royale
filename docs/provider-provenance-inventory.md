@@ -59,11 +59,31 @@ Operation plans use `wordle-provider-operation-plans/v1`. They pin absolute exec
 
 The approved keyring uses `wordle-provider-collector-keyring/v1` and exact entries `{keyId, publicKeyPem, notBefore, notAfter, revokedAt}`. Key IDs must be unique at lookup, the key must be Ed25519 and active when evidence was collected, and any revoked entry is rejected. Rotation is performed by adding a distinct active key ID and issuing new challenges for it; duplicate IDs and unknown keys fail closed.
 
+## G3 activation-preflight composition
+
+The shipped API preflight consumes a committed live-v3 bundle directly; operators do not run the standalone `verify` command first because standalone verification securely consumes the nonce. All paths are absolute and use the protected file/directory policies above:
+
+```sh
+pnpm --filter @wordle-royale/api auth:activation:preflight \
+  --provider-evidence-lane production-live-v3 \
+  --operational-inventory /protected/g3-operational-inventory.json \
+  --live-output-root /protected/committed-bundles \
+  --live-run-id RUN_ID \
+  --challenge-policy /protected/challenge-policy.json \
+  --collector-keyring /protected/approved-collector-keyring.json \
+  --replay-root /protected/g3-consumed-nonces \
+  --output /protected/preflight-output/preflight.json
+```
+
+The CLI strictly parses the protected operational inventory, policy, keyring, commit, and four committed components. It verifies the commit, challenge, approved collector key, signatures, operation plan, evidence, inventory, and receipt without consuming replay. Core preflight then binds the verified provider identities to the separately protected operational inventory. Only after that mapping succeeds does it durably consume the nonce, immediately before the first read-only database transaction; all database/public probes follow. Mapping failure consumes nothing, while a repeated valid attempt fails replay before any probe. Production rejects fixture-v2 and every test adapter/transport seam.
+
+The live collector is subprocess-only: its production collector path has no HTTP/fetch provider adapter or production transport seam. Ticket 271/274 TLS, redirect, and authority cases are therefore conditional and not applicable to the shipped collector. If a direct HTTP provider adapter is introduced, the complete TLS certificate/hostname, redirect, and authority matrix is mandatory before that adapter may be used.
+
 ## Legacy fixture lane (v2)
 
 `scripts/provider-provenance-core.mjs`, `scripts/provider-provenance-fixture.mjs`, and their old tests remain unchanged as the deterministic Ticket 262 mock-native fixture lane (`native-evidence/v1`, inventory/receipt v2, collector v2). Preflight can use it only when the caller explicitly selects `fixture-v2-test-only`. The production/default path requires `production-live-v3`; omitted, mixed, downgrade, and mock lanes fail before public or database adapters run.
 
-The API CLI permits the fixture lane only when both `NODE_ENV=test` and `RUN_AUTH_PREFLIGHT_CLI_E2E=1` are set. Outside that controlled test seam it selects the production-v3 lane, so old fixture inputs cannot yield `providerDerived=true`.
+The API CLI permits the fixture lane only when both `NODE_ENV=test` and `RUN_AUTH_PREFLIGHT_CLI_E2E=1` are set. The lane is always explicit; omitted, mixed, and production attempts to enable a fixture/test seam fail closed, so old fixture inputs cannot yield `providerDerived=true`.
 
 ## Verification
 
@@ -72,6 +92,7 @@ pnpm test:provider-provenance
 pnpm test:provider-provenance:fixture-v2
 pnpm test:provider-provenance:live-v3
 pnpm test:provider-provenance:live-collector
+pnpm test:auth-preflight-live-v3-cli-e2e
 pnpm test:auth:activation-tooling
 pnpm typecheck:provider-provenance
 pnpm secret-scan

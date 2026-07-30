@@ -8,7 +8,7 @@ import test from 'node:test';
 import {
   KEYRING_VERSION, OPERATION_PLANS_VERSION, collectLiveBundle, commitLiveBundle,
   createReplayGuard, createSecureChildRunner, loadCommittedBundle, resolveCollectorKey, spawnBounded,
-  parseStrictJson, readProtectedFile, validateOperationPlans, verifyAndConsumeLiveBundle, verifyLiveBundleWithKeyring,
+  parseStrictJson, readProtectedFile, validateOperationPlans, verifyAndConsumeLiveBundle, verifyCommittedLiveBundle,
 } from './provider-provenance-live-collector-core.mjs';
 import { CHALLENGE_VERSION, POSTGRES_SQL_DIGEST, POSTGRES_SQL_QUERY_ID, liveCanonicalJson, liveSha256 } from './provider-provenance-live-core.mjs';
 
@@ -64,7 +64,7 @@ test('collector executes exactly eight fixed shell-free adapter plans and emits 
     assert.deepEqual(Object.keys(call).sort(), ['argv', 'executable', 'limits']); assert.equal(call.argv[0], 'collect'); assert.equal(call.argv.includes(c.operations[index].operationId), true);
     if (c.operations[index].method === 'postgres-direct-sql') assert.deepEqual(call.argv.slice(-6), ['--query-id', POSTGRES_SQL_QUERY_ID, '--query-digest', POSTGRES_SQL_DIGEST, '--transaction', 'read-only']);
   }
-  assert.equal(verifyLiveBundleWithKeyring({ bundle, keyring: keyring(), policy, clock: () => NOW, replayGuard: { consume: () => true } }).runId, c.runId);
+  assert.equal(verifyCommittedLiveBundle({ bundle, keyring: keyring(), policy, clock: () => NOW }).inventory.runId, c.runId);
 });
 
 test('raw responses are represented only by byte digests and unknown/raw credential fields fail closed', async () => {
@@ -84,7 +84,8 @@ test('partial child failure, oversized output and PostgreSQL method disagreement
 
 test('keyring enforces approved key IDs, validity, rotation uniqueness and revocation', async () => {
   const bundle = await collect();
-  assert.throws(() => verifyLiveBundleWithKeyring({ bundle, keyring: { ...keyring(), keys: [] }, policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'COLLECTOR_KEY_NOT_APPROVED');
+  assert.throws(() => verifyCommittedLiveBundle({ bundle, keyring: { ...keyring(), keys: [] }, policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'COLLECTOR_KEY_NOT_APPROVED');
+  assert.throws(() => verifyCommittedLiveBundle({ bundle, keyring: keyring(), policy: { ...policy, callerOverride: true }, clock: () => NOW }), (error) => error.code === 'UNKNOWN_FIELD');
   assert.throws(() => resolveCollectorKey(keyring({ revokedAt: '2026-07-30T12:02:00.000Z' }), policy.expectedCollectorKeyId, bundle.evidence.collectedAt), (error) => error.code === 'COLLECTOR_KEY_INACTIVE');
   const duplicate = keyring(); duplicate.keys.push(structuredClone(duplicate.keys[0])); assert.throws(() => resolveCollectorKey(duplicate, policy.expectedCollectorKeyId, bundle.evidence.collectedAt), (error) => error.code === 'COLLECTOR_KEY_NOT_APPROVED');
 });
@@ -207,7 +208,7 @@ test('strict protected inputs and operation plans reject ambiguity and unsafe fi
 
 test('evidence and receipt signatures fail closed after bundle tampering', async () => {
   const bundle = await collect(); const evidenceTamper = structuredClone(bundle); evidenceTamper.evidence.environments.preview.vercel.identity.projectId = 'tampered-project';
-  assert.throws(() => verifyLiveBundleWithKeyring({ bundle: evidenceTamper, keyring: keyring(), policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'INVALID_COLLECTOR_SIGNATURE');
+  assert.throws(() => verifyCommittedLiveBundle({ bundle: evidenceTamper, keyring: keyring(), policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'INVALID_COLLECTOR_SIGNATURE');
   const receiptTamper = structuredClone(bundle); receiptTamper.receipt.inventoryDigest = hex('9');
-  assert.throws(() => verifyLiveBundleWithKeyring({ bundle: receiptTamper, keyring: keyring(), policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'RECEIPT_DIGEST_MISMATCH');
+  assert.throws(() => verifyCommittedLiveBundle({ bundle: receiptTamper, keyring: keyring(), policy, clock: () => NOW, consumeReplay: false }), (error) => error.code === 'RECEIPT_DIGEST_MISMATCH');
 });

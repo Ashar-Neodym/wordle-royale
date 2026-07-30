@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { validateInventory as validateProviderInventory, verifyReceipt as verifyProviderReceipt } from './provider-provenance-core.mjs';
-import { LIVE_INVENTORY_VERSION, consumeLiveNonce, validateLiveInventory, validateLiveReceipt, verifyLiveBundle } from './provider-provenance-live-core.mjs';
+import { LIVE_INVENTORY_VERSION, validateLiveInventory, validateLiveReceipt, verifyLiveBundle } from './provider-provenance-live-core.mjs';
 import { APPLICATION_MANIFEST_DIGEST, APPLICATION_MODEL_TABLES } from './complete-database-fingerprint.mjs';
 
 const SHA = /^[a-f0-9]{40,64}$/u;
@@ -159,10 +159,15 @@ export function verifyAuthenticatedProviderEvidence({ operationalInventory, prov
   }
   const inventory = validateInventory(operationalInventory, now);
   providerComposition(inventory, providerInventory);
-  if (providerEvidenceLane === 'production-live-v3') {
-    try { consumeLiveNonce(replayGuard, liveChallenge.nonce); } catch { throw new ActivationFailure('provider_provenance_verification_failed'); }
-  }
   return inventory;
+}
+
+async function consumeProviderReplay(providerEvidenceLane, replayGuard, nonce) {
+  if (providerEvidenceLane !== 'production-live-v3') return;
+  try {
+    fail(replayGuard && typeof replayGuard.consumeAsync === 'function', 'provider_replay_guard_required');
+    fail(await replayGuard.consumeAsync(nonce) === true, 'provider_challenge_replay');
+  } catch { throw new ActivationFailure('provider_provenance_verification_failed'); }
 }
 
 const dependencyKeys = ['status','checkedAt','message'];
@@ -216,6 +221,9 @@ export async function runActivationPreflight({ operationalInventory, providerEvi
   // reachable only through the explicit fixture-v2-test-only lane.
   const inventory=verifyAuthenticatedProviderEvidence({operationalInventory,providerEvidenceLane,providerInventory,providerReceipt,nativeEvidence,expectedNonce,expectedIdentities,providerReceiptKey,liveChallenge,collectorPublicKey,replayGuard,expectedChallengeId,expectedRunId,expectedCollectorKeyId,now:startedAt});
   fail(publicAdapter&&typeof publicAdapter.get==='function'&&databaseAdapter&&typeof databaseAdapter.withReadOnlyTransaction==='function'&&typeof databaseAdapter.withReadOnlyObservation==='function','adapter_missing');
+  // Replay is the final gate after cryptographic verification, operational mapping,
+  // and adapter validation, and before the first database transaction/public probe.
+  await consumeProviderReplay(providerEvidenceLane,replayGuard,liveChallenge?.nonce);
   let proof, before;
   await databaseAdapter.withReadOnlyTransaction(async(query)=>{
     const allowed=new Set(Object.values(PREFLIGHT_SQL)); let statements=0;
@@ -272,13 +280,19 @@ export function verifyPreflightReceipt(preflight, now=Date.now()) {
 }
 export function parsePreflightArgs(args) {
   fail(!args.includes('--apply'),'apply_forbidden');
-  const names=['operational-inventory','provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
+  const commonNames=['provider-evidence-lane','operational-inventory'];
+  const fixtureNames=['provider-inventory','provider-receipt','native-evidence','expected-identities','expected-nonce','provider-receipt-key'];
+  const liveNames=['live-output-root','live-run-id','challenge-policy','collector-keyring','replay-root'];
   const optionalNames=['output'];
-  fail(args.length===names.length*2||args.length===(names.length+optionalNames.length)*2,'arguments_invalid');
   const parsed={};
-  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&[...names,...optionalNames].includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
-  fail(names.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
-  return {operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key'],outputPath:parsed.output};
+  const allowed=[...commonNames,...fixtureNames,...liveNames,...optionalNames];
+  fail(args.length%2===0,'arguments_invalid');
+  for(let i=0;i<args.length;i+=2){const flag=args[i],value=args[i+1],name=flag?.slice(2);fail(flag?.startsWith('--')&&allowed.includes(name)&&!Object.hasOwn(parsed,name)&&typeof value==='string'&&!value.startsWith('-'),'arguments_invalid');parsed[name]=value;}
+  fail(commonNames.every(name=>Object.hasOwn(parsed,name)),'arguments_invalid');
+  const providerEvidenceLane=parsed['provider-evidence-lane'];
+  const required=providerEvidenceLane==='fixture-v2-test-only'?[...commonNames,...fixtureNames]:providerEvidenceLane==='production-live-v3'?[...commonNames,...liveNames]:[];
+  fail(required.length>0&&required.every(name=>Object.hasOwn(parsed,name))&&Object.keys(parsed).every(name=>required.includes(name)||optionalNames.includes(name)),'arguments_invalid');
+  return {providerEvidenceLane,operationalInventoryPath:parsed['operational-inventory'],providerInventoryPath:parsed['provider-inventory'],providerReceiptPath:parsed['provider-receipt'],nativeEvidencePath:parsed['native-evidence'],expectedIdentitiesPath:parsed['expected-identities'],expectedNonce:parsed['expected-nonce'],providerReceiptKeyPath:parsed['provider-receipt-key'],liveOutputRoot:parsed['live-output-root'],liveRunId:parsed['live-run-id'],challengePolicyPath:parsed['challenge-policy'],collectorKeyringPath:parsed['collector-keyring'],replayRoot:parsed['replay-root'],outputPath:parsed.output};
 }
 
 export const ROLLBACK_ORDER = Object.freeze(['web-writes-off','registration-closed','sessions-revoked','zero-active-sessions-proven','api-durable-off','code-rollback']);

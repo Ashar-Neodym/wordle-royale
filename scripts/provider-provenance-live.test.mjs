@@ -82,11 +82,11 @@ test('rejects a physical PostgreSQL node shared only across preview and producti
   }, ['PREVIEW_PRODUCTION_OVERLAP']);
 });
 
-test('production G3 accepts verified live v3 and consumes only after operational mapping', () => {
-  const good = bundle(); const used = new Set(); const replayGuard = { consume: (nonce) => used.has(nonce) ? false : (used.add(nonce), true) };
+test('production G3 verification is non-consuming so composition can map before durable replay', () => {
+  const good = bundle(); let consumed = false; const replayGuard = { consume: () => { consumed = true; return true; }, consumeAsync: async () => { consumed = true; return true; } };
   const input = { operationalInventory: operationalInventory(good.inventory), providerEvidenceLane: 'production-live-v3', providerInventory: good.inventory, providerReceipt: good.receipt, nativeEvidence: good.evidence, liveChallenge: good.challenge, collectorPublicKey: publicKey, replayGuard, ...policy };
-  assert.equal(verifyAuthenticatedProviderEvidence(input).runId, good.challenge.runId); assert.equal(used.has(good.challenge.nonce), true);
-  let consumed = false; const hostile = operationalInventory(good.inventory); hostile.provider.databaseId = 'wrong-database';
+  assert.equal(verifyAuthenticatedProviderEvidence(input).runId, good.challenge.runId); assert.equal(consumed, false);
+  const hostile = operationalInventory(good.inventory); hostile.provider.databaseId = 'wrong-database';
   assert.throws(() => verifyAuthenticatedProviderEvidence({ ...input, operationalInventory: hostile, replayGuard: { consume: () => { consumed = true; return true; } } }), /provider_operational_resource_mismatch/); assert.equal(consumed, false);
 });
 
