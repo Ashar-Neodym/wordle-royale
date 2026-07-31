@@ -244,7 +244,7 @@
         "endpointId": "endpoint-production"
       },
       "windowStartedAt": "2026-07-31T12:00:20.000Z",
-      "windowCompletedAt": "2026-07-31T12:00:23.100Z",
+      "windowCompletedAt": "2026-07-31T12:00:23.200Z",
       "mutationCount": "0",
       "confirmed": true
     },
@@ -271,7 +271,7 @@
       "retainedUntil": "2026-08-02T12:00:21.100Z",
       "minimumRetentionMs": "172800000"
     },
-    "signature": "ed25519:NiNfqzxzry3p7IhpeN71tBzHbd5gXdmK4YHfwHZ0u8z6ykNkHXW9cAD3HNAn5oNgESvZSI/yqU0PJtk+lhC8Dg=="
+    "signature": "ed25519:sWAILj5MWeQIDWzsggfcD+z1EpWfg5OVNX/LrrFHqXXORjBHrw9sXBbNcuRtAwK+IKg9MqXbDg/3GLCaI/vtAQ=="
   },
   "inventory": {
     "schemaVersion": "wordle-royale-g2-backup-restore-inventory/v1",
@@ -412,7 +412,7 @@
         "endpointId": "endpoint-production"
       },
       "windowStartedAt": "2026-07-31T12:00:20.000Z",
-      "windowCompletedAt": "2026-07-31T12:00:23.100Z",
+      "windowCompletedAt": "2026-07-31T12:00:23.200Z",
       "mutationCount": "0",
       "confirmed": true
     },
@@ -447,8 +447,8 @@
     "collector": "wordle-royale/provider-provenance@3",
     "collectorKeyId": "key-ah1-synthetic",
     "challengeDigest": "sha256:814504dba92abc11d7868e9786adfb7d9590306381f1602930869676f35305f0",
-    "evidenceDigest": "sha256:2581590714b5f35e755e1d85f199c1ce78067677e06c5e9bc92e9918110201ac",
-    "inventoryDigest": "sha256:205a6b8ab8a741d918d7f0dec920e0426d15317cc8b0382e285d5261ed1a152e",
-    "signature": "ed25519:AGUUqKAEWTjUdXKzdhrZl6lPUpjPYw2utR0ohH+bk3aL+8xHEZ+A8+BU81sJfyqWCOL8of3Vx3Zl6GKxw41hDQ=="
+    "evidenceDigest": "sha256:99aaca5efbd47d1d256b705b9a358c605028eaa0542d425f5b8e2f6a0e1b5af8",
+    "inventoryDigest": "sha256:15348eba3fee5de75ba29a9226f05f56f2c75ad9ce7bec2c7fca6c14d8002539",
+    "signature": "ed25519:6RFSV1me16qu5ykVpwmca57guDXoCY2wZgUALyMKxQbcpa9Ur0+N/VciLR6ntSFcoDBgbjdYUYHazzUmCzqSBg=="
   }
 }

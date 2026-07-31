@@ -43,7 +43,7 @@ function classify(error) {
   const local = new Set([
     'DIRECTORY_UNAVAILABLE', 'DIRECTORY_POLICY', 'DIRECTORY_DESCRIPTOR_UNAVAILABLE', 'DIRECTORY_ALIAS',
     'OUTPUT_ALREADY_EXISTS', 'OUTPUT_FILE_POLICY', 'OUTPUT_CANDIDATE_CHANGED', 'OUTPUT_PUBLICATION_RACE',
-    'REPLAY_MARKER_POLICY', 'EACCES', 'EDQUOT', 'EEXIST', 'EFBIG', 'EINTR', 'EIO', 'ELOOP', 'EMFILE',
+    'REPLAY_MARKER_POLICY', 'REPLAY_MARKER_CHANGED', 'EACCES', 'EDQUOT', 'EEXIST', 'EFBIG', 'EINTR', 'EIO', 'ELOOP', 'EMFILE',
     'ENFILE', 'ENOENT', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS', 'EXDEV',
   ]);
   return { code: local.has(code) ? code : (code.startsWith('ERR_') ? 'LOCAL_IO_FAILURE' : code), status: local.has(code) || code.startsWith('ERR_') ? 4 : 2 };

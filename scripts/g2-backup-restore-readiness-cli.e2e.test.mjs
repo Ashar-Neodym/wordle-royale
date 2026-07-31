@@ -66,6 +66,13 @@ async function setup(options = {}) {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const suffix = `${process.pid}-${Math.random().toString(16).slice(2)}`; const bundle = dynamicBundle(privateKey, { challengeId: `challenge-ah2-${suffix}`, runId: `run-ah2-${suffix}`, nonce: `nonce-ah2-${suffix}`, collectorKeyId: `key-ah2-${suffix}` });
   options.mutate?.(bundle);
+  if (options.mutate) {
+    const signer = (value) => signWith(privateKey, value);
+    const unsignedEvidence = { ...bundle.evidence }; delete unsignedEvidence.signature; bundle.evidence.signature = signer(unsignedEvidence);
+    const inventory = deriveG2BackupRestoreInventory(bundle.evidence, bundle.challenge, bundle.policy);
+    const unsignedReceipt = { ...bundle.providerReceipt, challengeDigest:g2Sha256(g2CanonicalJson(bundle.challenge)), evidenceDigest:g2Sha256(g2CanonicalJson(bundle.evidence)), inventoryDigest:g2Sha256(g2CanonicalJson(inventory)) }; delete unsignedReceipt.signature;
+    bundle.providerReceipt = { ...unsignedReceipt, signature:signer(unsignedReceipt) };
+  }
   const keyring = { schemaVersion: 'wordle-provider-collector-keyring/v1', keys: [{ keyId: bundle.challenge.collectorKeyId, publicKeyPem: publicKey.export({ format: 'pem', type: 'spki' }).toString(), notBefore: new Date(Date.now() - 3600_000).toISOString(), notAfter: new Date(Date.now() + 3600_000).toISOString(), revokedAt: null }] };
   const values = { policy: bundle.policy, challenge: bundle.challenge, evidence: bundle.evidence, 'provider-receipt': bundle.providerReceipt, keyring };
   const files = {};
@@ -99,6 +106,13 @@ test('production CLI verifies dynamically externally signed evidence, publishes 
     for (const field of ['g2Authorized', 'backupExecutionAuthorized', 'restoreExecutionAuthorized', 'productionMutationAuthorized']) assert.equal(receipt[field], false);
     assert.equal((await readdir(s.output)).some((name) => name.includes('.candidate')), false); await absent(s.marker);
   } finally { await s.cleanup(); }
+});
+
+test('fully signed future evidence fails before marker/output with no CLI clock override', async () => {
+  const future = new Date(Date.now() + 30_000).toISOString();
+  const s = await setup({ mutate: (bundle) => { bundle.evidence.observedAt = future; bundle.evidence.cleanup.checkedAt = future; bundle.evidence.productionNoMutation.windowCompletedAt = future; } });
+  try { parseFailure(await s.run(), 2, 'FUTURE_EVIDENCE'); await assertNoSideEffects(s); }
+  finally { await s.cleanup(); }
 });
 
 test('strict protected inputs reject duplicate keys, trailing data, excessive depth, unknown and omitted fields with no side effects', async (t) => {
@@ -175,6 +189,48 @@ test('descriptor-anchored output and replay publication survive replacement of b
     assert.equal((await readdir(detachedReplay)).length, 1);
     assert.deepEqual(JSON.parse(await readFile(join(detachedOutput, 'run-root-replacement.eligibility.json'), 'utf8')), receipt);
   } finally { await outputRoot.handle.close(); await replayRoot.handle.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('publication detects candidate hardlinks through completion and rolls back owned names', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'g2-ah2-hardlink-race-')); const output = join(root, 'output'); const replay = join(root, 'replay');
+  await Promise.all([mkdir(output, { mode:0o700 }), mkdir(replay, { mode:0o700 })]);
+  const outputRoot = await openG2ProtectedDirectory(output); const replayRoot = await openG2ProtectedDirectory(replay); const attack = join(output, 'attacker-hardlink');
+  try {
+    await assert.rejects(publishG2Eligibility({ outputRoot, replayRoot, runId:'run-hardlink-race', nonce:'nonce-hardlink-race', receipt:{ ok:true }, canonicalJson:g2CanonicalJson, transactionHook:async(stage, paths)=>{ if(stage==='marker-ready') await link(paths.candidatePath, attack); } }), (error)=>error.code==='OUTPUT_CANDIDATE_CHANGED');
+    assert.deepEqual(await readdir(output), ['attacker-hardlink']); assert.deepEqual(await readdir(replay), []); assert.equal((await stat(attack)).nlink, 1);
+  } finally { await outputRoot.handle.close(); await replayRoot.handle.close(); await rm(root,{recursive:true,force:true}); }
+});
+
+test('publication detects replay marker removal and replacement without deleting attacker content', async (t) => {
+  for (const [name, stage, replace] of [['removal','marker-ready',false], ['replacement before link','marker-ready',true], ['replacement after link','final-linked',true]]) await t.test(name, async()=>{
+    const root=await mkdtemp(join(tmpdir(),'g2-ah2-marker-race-')); const output=join(root,'output'); const replay=join(root,'replay'); await Promise.all([mkdir(output,{mode:0o700}),mkdir(replay,{mode:0o700})]);
+    const outputRoot=await openG2ProtectedDirectory(output); const replayRoot=await openG2ProtectedDirectory(replay);
+    try {
+      await assert.rejects(publishG2Eligibility({ outputRoot,replayRoot,runId:`run-marker-${name.replaceAll(' ','-')}`,nonce:`nonce-marker-${name.replaceAll(' ','-')}`,receipt:{ok:true},canonicalJson:g2CanonicalJson,transactionHook:async(current,paths)=>{if(current===stage){await unlink(paths.markerPath);if(replace)await writeFile(paths.markerPath,'attacker-owned-replacement\n',{mode:0o600});}}}),error=>error.code==='REPLAY_MARKER_CHANGED');
+      assert.deepEqual(await readdir(output),[]);
+      if(replace){assert.equal((await readdir(replay)).length,1);assert.equal(await readFile(join(replay,(await readdir(replay))[0]),'utf8'),'attacker-owned-replacement\n');}else assert.deepEqual(await readdir(replay),[]);
+    } finally { await outputRoot.handle.close(); await replayRoot.handle.close(); await rm(root,{recursive:true,force:true}); }
+  });
+});
+
+test('late candidate failure rolls back owned marker and leaves nonce reusable', async () => {
+  const root=await mkdtemp(join(tmpdir(),'g2-ah2-late-rollback-')); const output=join(root,'output'); const replay=join(root,'replay'); await Promise.all([mkdir(output,{mode:0o700}),mkdir(replay,{mode:0o700})]);
+  const outputRoot=await openG2ProtectedDirectory(output); const replayRoot=await openG2ProtectedDirectory(replay);
+  try {
+    await assert.rejects(publishG2Eligibility({outputRoot,replayRoot,runId:'run-late-rollback',nonce:'nonce-late-rollback',receipt:{ok:true},canonicalJson:g2CanonicalJson,transactionHook:async(stage,paths)=>{if(stage==='marker-ready')await unlink(paths.candidatePath);}}),error=>error.code==='OUTPUT_CANDIDATE_CHANGED');
+    assert.deepEqual(await readdir(output),[]); assert.deepEqual(await readdir(replay),[]);
+    await publishG2Eligibility({outputRoot,replayRoot,runId:'run-late-rollback',nonce:'nonce-late-rollback',receipt:{ok:true},canonicalJson:g2CanonicalJson});
+    assert.deepEqual(await readdir(output),['run-late-rollback.eligibility.json']); assert.equal((await readdir(replay)).length,1);
+  } finally { await outputRoot.handle.close(); await replayRoot.handle.close(); await rm(root,{recursive:true,force:true}); }
+});
+
+test('a final hardlink added before completion prevents apparent success and rolls back owned names', async () => {
+  const root=await mkdtemp(join(tmpdir(),'g2-ah2-final-hardlink-')); const output=join(root,'output'); const replay=join(root,'replay'); await Promise.all([mkdir(output,{mode:0o700}),mkdir(replay,{mode:0o700})]); const attack=join(output,'attacker-final-hardlink');
+  const outputRoot=await openG2ProtectedDirectory(output); const replayRoot=await openG2ProtectedDirectory(replay);
+  try {
+    await assert.rejects(publishG2Eligibility({outputRoot,replayRoot,runId:'run-final-hardlink',nonce:'nonce-final-hardlink',receipt:{ok:true},canonicalJson:g2CanonicalJson,transactionHook:async(stage,paths)=>{if(stage==='candidate-unlinked')await link(paths.finalPath,attack);}}),error=>error.code==='OUTPUT_PUBLICATION_RACE');
+    assert.deepEqual(await readdir(output),['attacker-final-hardlink']); assert.deepEqual(await readdir(replay),[]); assert.equal((await stat(attack)).nlink,1);
+  } finally { await outputRoot.handle.close(); await replayRoot.handle.close(); await rm(root,{recursive:true,force:true}); }
 });
 
 test('G2 production modules statically contain no subprocess, transport, database or provider SDK imports', async () => {

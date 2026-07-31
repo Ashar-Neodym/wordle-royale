@@ -92,55 +92,95 @@ export function resolveG2CollectorKey(keyring, keyId, at) {
   if (key.asymmetricKeyType !== 'ed25519') fail('INVALID_COLLECTOR_KEY'); return key;
 }
 
+async function namedInode(root, name) {
+  return lstat(join(root.anchoredPath, name)).catch(() => undefined);
+}
+function isExpectedRegular(info, expected, nlink) {
+  return Boolean(info?.isFile() && !info.isSymbolicLink() && info.uid === process.getuid?.()
+    && (info.mode & 0o777) === 0o600 && info.dev === expected.dev && info.ino === expected.ino
+    && info.nlink === nlink);
+}
+async function verifyHandleAndNames(handle, expected, nlink, entries, code) {
+  const opened = await handle.stat().catch(() => undefined);
+  if (!isExpectedRegular(opened, expected, nlink)) fail(code);
+  for (const [root, name] of entries) {
+    if (!isExpectedRegular(await namedInode(root, name), expected, nlink)) fail(code);
+  }
+}
 async function ownInodeAt(root, name, expected) {
-  const current = await lstat(join(root.anchoredPath, name)).catch(() => undefined);
+  const current = await namedInode(root, name);
   return Boolean(current?.isFile() && !current.isSymbolicLink() && current.dev === expected.dev && current.ino === expected.ino);
 }
 async function removeOwn(root, name, expected) {
-  if (await ownInodeAt(root, name, expected)) await unlink(join(root.anchoredPath, name)).catch(() => {});
+  if (expected && await ownInodeAt(root, name, expected)) await unlink(join(root.anchoredPath, name)).catch(() => {});
 }
 
-// Candidate-first, marker-second, final-last transaction. Both roots are held by
-// descriptors, so path replacement cannot redirect any write.
-export async function publishG2Eligibility({ outputRoot, replayRoot, runId, nonce, receipt, canonicalJson }) {
+// Candidate-first, marker-second, final-last transaction. Both roots and both
+// created inodes stay descriptor-anchored and open until completion. Link-count,
+// ownership, mode, identity, and every owned name are rechecked across each
+// publication edge. A same-UID peer can create a new hardlink after this function
+// returns; callers therefore trust same-UID activity after completion, not a
+// perpetual confidentiality guarantee.
+export async function publishG2Eligibility({ outputRoot, replayRoot, runId, nonce, receipt, canonicalJson, transactionHook }) {
   safeG2Id(runId); safeG2Id(nonce);
+  if (transactionHook !== undefined && typeof transactionHook !== 'function') fail('INVALID_TRANSACTION_HOOK');
   if (outputRoot.info.dev === replayRoot.info.dev && outputRoot.info.ino === replayRoot.info.ino) fail('DIRECTORY_ALIAS');
   const finalName = `${runId}.eligibility.json`; const finalPath = join(outputRoot.anchoredPath, finalName);
   try { await lstat(finalPath); fail('OUTPUT_ALREADY_EXISTS'); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
   const candidateName = `.${runId}.${process.pid}.${randomBytes(16).toString('hex')}.candidate`;
-  const candidatePath = join(outputRoot.anchoredPath, candidateName); let candidate; let candidateInfo;
+  const candidatePath = join(outputRoot.anchoredPath, candidateName);
+  const markerName = `${createHash('sha256').update(nonce).digest('hex')}.used`;
+  const markerPath = join(replayRoot.anchoredPath, markerName);
+  const stage = async (name) => transactionHook?.(name, { outputRoot, replayRoot, candidateName, candidatePath, markerName, markerPath, finalName, finalPath });
+  let candidate; let candidateInfo; let marker; let markerInfo; let markerCreated = false;
   try {
     candidate = await open(candidatePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     candidateInfo = await candidate.stat();
-    if (!candidateInfo.isFile() || candidateInfo.uid !== process.getuid?.() || candidateInfo.nlink !== 1 || (candidateInfo.mode & 0o777) !== 0o600) fail('OUTPUT_FILE_POLICY');
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, candidateName]], 'OUTPUT_FILE_POLICY');
     await candidate.writeFile(Buffer.from(`${canonicalJson(receipt)}\n`)); await candidate.sync();
-  } catch (error) { await candidate?.close().catch(() => {}); if (candidateInfo) await removeOwn(outputRoot, candidateName, candidateInfo); throw error; }
-  await candidate.close(); candidate = undefined;
-  if (!await ownInodeAt(outputRoot, candidateName, candidateInfo)) { await removeOwn(outputRoot, candidateName, candidateInfo); fail('OUTPUT_CANDIDATE_CHANGED'); }
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, candidateName]], 'OUTPUT_CANDIDATE_CHANGED');
+    await stage('candidate-ready');
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, candidateName]], 'OUTPUT_CANDIDATE_CHANGED');
 
-  const markerName = `${createHash('sha256').update(nonce).digest('hex')}.used`; let marker;
-  try {
-    marker = await open(join(replayRoot.anchoredPath, markerName), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    const markerInfo = await marker.stat();
-    if (!markerInfo.isFile() || markerInfo.uid !== process.getuid?.() || markerInfo.nlink !== 1 || (markerInfo.mode & 0o777) !== 0o600) fail('REPLAY_MARKER_POLICY');
-    await marker.writeFile(`${createHash('sha256').update(nonce).digest('hex')}\n`); await marker.sync(); await marker.close(); marker = undefined; await replayRoot.handle.sync();
-  } catch (error) {
-    await marker?.close().catch(() => {}); await removeOwn(outputRoot, candidateName, candidateInfo);
-    if (error?.code === 'EEXIST') fail('CHALLENGE_REPLAY'); throw error;
-  }
+    try {
+      marker = await open(markerPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    } catch (error) {
+      if (error?.code === 'EEXIST') fail('CHALLENGE_REPLAY');
+      throw error;
+    }
+    markerCreated = true; markerInfo = await marker.stat();
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_POLICY');
+    await marker.writeFile(`${createHash('sha256').update(nonce).digest('hex')}\n`); await marker.sync();
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
+    await replayRoot.handle.sync(); await stage('marker-ready');
 
-  let finalOwned = false;
-  try {
-    if (!await ownInodeAt(outputRoot, candidateName, candidateInfo)) fail('OUTPUT_CANDIDATE_CHANGED');
-    await link(candidatePath, finalPath); finalOwned = await ownInodeAt(outputRoot, finalName, candidateInfo);
-    if (!finalOwned) fail('OUTPUT_PUBLICATION_RACE');
-    await unlink(candidatePath); await outputRoot.handle.sync();
-    if (!await ownInodeAt(outputRoot, finalName, candidateInfo)) fail('OUTPUT_PUBLICATION_RACE');
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, candidateName]], 'OUTPUT_CANDIDATE_CHANGED');
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
+    await link(candidatePath, finalPath);
+    await verifyHandleAndNames(candidate, candidateInfo, 2, [[outputRoot, candidateName], [outputRoot, finalName]], 'OUTPUT_PUBLICATION_RACE');
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
+    await stage('final-linked');
+    await verifyHandleAndNames(candidate, candidateInfo, 2, [[outputRoot, candidateName], [outputRoot, finalName]], 'OUTPUT_PUBLICATION_RACE');
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
+
+    await unlink(candidatePath);
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, finalName]], 'OUTPUT_PUBLICATION_RACE');
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
+    await outputRoot.handle.sync(); await stage('candidate-unlinked');
+    await verifyHandleAndNames(candidate, candidateInfo, 1, [[outputRoot, finalName]], 'OUTPUT_PUBLICATION_RACE');
+    await verifyHandleAndNames(marker, markerInfo, 1, [[replayRoot, markerName]], 'REPLAY_MARKER_CHANGED');
     return join(outputRoot.originalPath, finalName);
   } catch (error) {
-    if (finalOwned) await removeOwn(outputRoot, finalName, candidateInfo);
+    await removeOwn(outputRoot, finalName, candidateInfo);
     await removeOwn(outputRoot, candidateName, candidateInfo);
     await outputRoot.handle.sync().catch(() => {});
+    if (markerCreated) {
+      await removeOwn(replayRoot, markerName, markerInfo);
+      await replayRoot.handle.sync().catch(() => {});
+    }
     throw error;
+  } finally {
+    await marker?.close().catch(() => {});
+    await candidate?.close().catch(() => {});
   }
 }

@@ -55,6 +55,7 @@ const challengeCases=[
 ];
 for(const [name,expected,mutate]of challengeCases)test(name,()=>{const b=make();mutate(b);assert.throws(()=>evaluate(b),code(expected));});
 test('stale fully rebound signed challenge fails',()=>{const b=make();b.challenge.expiresAt='2026-07-31T12:01:00.000Z';b.evidence.expiresAt=b.challenge.expiresAt;b.evidence.challengeDigest=g2Sha256(g2CanonicalJson(b.challenge));resignEvidence(b);resignReceipt(b);assert.throws(()=>evaluate(b),code('EXPIRED_CHALLENGE'));});
+test('fully signed evidence observed after the evaluation clock fails',()=>{const b=make();assert.throws(()=>evaluateG2BackupRestoreReadiness({...b,collectorPublicKey:publicKey,now:Date.parse(b.evidence.observedAt)-1}),code('FUTURE_EVIDENCE'));});
 
 const evidenceCases=[
  ['unknown signed evidence field','UNKNOWN_FIELD',(e)=>{e.unexpected=true;}],
@@ -97,3 +98,5 @@ test('wrong collector key fails',()=>{const b=make();const other=generateKeyPair
 test('provider receipt digest mutation fails',()=>{const b=make();b.providerReceipt.inventoryDigest=`sha256:${'a'.repeat(64)}`;assert.throws(()=>evaluate(b),code('PROVIDER_RECEIPT_DIGEST_MISMATCH'));});
 test('provider receipt signature mutation fails',()=>{const b=make();b.providerReceipt.signature=b.providerReceipt.signature.replace(/.$/u,'A');assert.throws(()=>evaluate(b),code('INVALID_PROVIDER_RECEIPT_SIGNATURE'));});
 test('valid signed evidence mutation reaches source binding guard',()=>{const b=make();b.evidence.sourceGitSha='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';resignEvidence(b);assert.throws(()=>evaluate(b),code('EVIDENCE_SOURCE_BINDING_MISMATCH'));});
+test('cleanup is the exact aggregate observation and follows verification',()=>{for(const [value,expected] of [['2026-07-31T12:00:23.199Z','CLEANUP_NOT_AGGREGATE_OBSERVATION'],['2026-07-31T12:00:23.000Z','CLEANUP_TIME_ORDER_INVALID']]){const b=make();b.evidence.cleanup.checkedAt=value;assert.throws(()=>evaluate(b),code(expected));}});
+test('production no-mutation coverage spans through cleanup and aggregate observation',()=>{for(const mutate of [(e)=>{e.productionNoMutation.windowCompletedAt=e.rpoRtoMeasurement.verificationCompletedAt;},(e)=>{e.productionNoMutation.windowStartedAt=e.backupArtifact.completedAt;}]){const b=make();mutate(b.evidence);assert.throws(()=>evaluate(b),code('PRODUCTION_WINDOW_INADEQUATE'));}});
