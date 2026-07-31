@@ -13,7 +13,7 @@ function parse(argv) {
 }
 try {
   const result = await qualify(parse(process.argv.slice(2)));
-  process.stdout.write(`${JSON.stringify({ ok:true, targetSha:result.targetSha, sourceArtifactDigest:result.sourceArtifactDigest, manifestDigest:result.manifestDigest, receiptDigest:result.receiptDigest, hostedMutationAuthorized:false })}\n`);
+  process.stdout.write(`${JSON.stringify({ ok:true, targetSha:result.targetSha, sourceArtifactDigest:result.sourceArtifactDigest, manifestDigest:result.manifestDigest, providerDefaultPolicyDigest:result.providerDefaultPolicyDigest, receiptDigest:result.receiptDigest, retryGate:'closed', hostedMutationAuthorized:false })}\n`);
 } catch (error) {
   const code = typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]*$/u.test(error.code) ? error.code : 'LOCAL_QUALIFICATION_FAILED';
   process.stderr.write(`${JSON.stringify({ ok:false, code, hostedMutationAuthorized:false })}\n`); process.exitCode = 1;

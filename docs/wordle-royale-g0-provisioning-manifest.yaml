@@ -62,6 +62,47 @@ productionShells:
     newProjects: 0
   redis:
     services: 0
+providerDefaults:
+  policy: exact_unavoidable_inert_v1
+  observationOnly: true
+  mutationAuthorized: false
+  vercel:
+    reservedProjectDomainCount: 1
+    reservedProjectDomains:
+      - wordle-royale-production-web.vercel.app
+    servingTargets: 0
+    customDomains: []
+    authoredDomains: []
+  railway:
+    metadataNames:
+      - RAILWAY_ENVIRONMENT
+      - RAILWAY_ENVIRONMENT_ID
+      - RAILWAY_ENVIRONMENT_NAME
+      - RAILWAY_PROJECT_ID
+      - RAILWAY_PROJECT_NAME
+      - RAILWAY_SERVICE_ID
+      - RAILWAY_SERVICE_NAME
+    valuesInspectable: false
+    userAuthoredVariables: 0
+    serviceInstance:
+      numReplicas: null
+      regions: []
+    inertTemplate:
+      regions:
+        - region: sfo
+          replicas: 1
+      source: null
+      repository: null
+      image: null
+      branch: null
+      deployments: 0
+      latestDeployment: null
+      activeDeployments: 0
+      domains: 0
+      urls: 0
+      activeReplicas: 0
+      databases: 0
+      volumes: 0
 plannedTopology:
   railwayRegion: southeast-asia
   apiReplicasAtDormantDeploy: 1
@@ -85,7 +126,9 @@ cost:
   planUpgradeUnderThisManifest: false
 network:
   publicTrafficAllowed: false
-  generatedDomainsAllowed: false
+  domainMutationAllowed: false
+  providerGeneratedServingDomainsAllowed: false
+  servingTargets: 0
   customDomains: []
   dnsChanges: []
   tlsChanges: []
@@ -127,5 +170,12 @@ blockingPrerequisites:
     state: approval_required
     reason: Railway Hobby or any billing change is not authorized by this draft
 nextGate:
-  name: Wave AE exact-SHA local qualification
-  hostedMutationAllowed: false
+  name: future G0 retry eligibility after repaired local qualification
+  retryGate: closed
+  priorApprovalReusable: false
+  tombstoneAbsenceRequired: true
+  exactRollbackEvidenceRequired: true
+  newReceiptRequired: true
+  newCostObservationRequired: true
+  newHumanApprovalRequired: true
+  hostedMutationAuthorized: false
