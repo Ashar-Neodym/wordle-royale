@@ -1,0 +1,454 @@
+{
+  "policy": {
+    "schemaVersion": "wordle-royale-g2-backup-restore-policy/v1",
+    "repository": "Ashar-Neodym/wordle-royale",
+    "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+    "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "providerPolicy": {
+      "provider": "synthetic-postgres",
+      "backupMode": "completed_provider_snapshot",
+      "minimumRetentionMs": "86400000",
+      "maximumRpoMs": "300000",
+      "maximumRtoMs": "600000"
+    },
+    "identities": {
+      "sourceProduction": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "intendedRestore": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "restoreDestination": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      }
+    },
+    "expectedChallengeId": "challenge-ah1-synthetic",
+    "expectedRunId": "run-ah1-synthetic",
+    "expectedNonce": "nonce-ah1-synthetic",
+    "expectedCollectorKeyId": "key-ah1-synthetic"
+  },
+  "challenge": {
+    "schemaVersion": "wordle-royale-g2-backup-restore-challenge/v1",
+    "challengeId": "challenge-ah1-synthetic",
+    "runId": "run-ah1-synthetic",
+    "nonce": "nonce-ah1-synthetic",
+    "issuedAt": "2026-07-31T12:00:00.000Z",
+    "expiresAt": "2026-07-31T12:05:00.000Z",
+    "collectorKeyId": "key-ah1-synthetic",
+    "repository": "Ashar-Neodym/wordle-royale",
+    "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+    "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "providerPolicyDigest": "sha256:1ef60ddf624d27e0b08ebca47f5361b2a631bb8144c5426d2ba26a384f99f16b",
+    "identities": {
+      "sourceProduction": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "intendedRestore": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "restoreDestination": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      }
+    }
+  },
+  "evidence": {
+    "schemaVersion": "wordle-royale-g2-backup-restore-evidence/v1",
+    "collector": "wordle-royale/provider-provenance@3",
+    "collectorKeyId": "key-ah1-synthetic",
+    "challengeDigest": "sha256:814504dba92abc11d7868e9786adfb7d9590306381f1602930869676f35305f0",
+    "challengeId": "challenge-ah1-synthetic",
+    "runId": "run-ah1-synthetic",
+    "nonce": "nonce-ah1-synthetic",
+    "observedAt": "2026-07-31T12:00:23.200Z",
+    "expiresAt": "2026-07-31T12:05:00.000Z",
+    "repository": "Ashar-Neodym/wordle-royale",
+    "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+    "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "identities": {
+      "sourceProduction": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "intendedRestore": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "restoreDestination": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      }
+    },
+    "providerPolicyObservation": {
+      "provider": "synthetic-postgres",
+      "backupMode": "completed_provider_snapshot",
+      "retentionMs": "172800000",
+      "observedAt": "2026-07-31T12:00:10.000Z"
+    },
+    "rpoRtoMeasurement": {
+      "recoveryPointAt": "2026-07-31T12:00:20.000Z",
+      "sourceCutoffAt": "2026-07-31T12:00:21.000Z",
+      "restoreRequestedAt": "2026-07-31T12:00:21.100Z",
+      "verificationCompletedAt": "2026-07-31T12:00:23.100Z",
+      "claimedRpoMs": "1000",
+      "claimedRtoMs": "2000"
+    },
+    "backupArtifact": {
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "runId": "run-ah1-synthetic",
+      "status": "completed",
+      "sourceIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+      "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "startedAt": "2026-07-31T12:00:21.000Z",
+      "completedAt": "2026-07-31T12:00:21.100Z",
+      "sourceProof": {
+        "schemaDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "constraintsDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "dataDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "integrityDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "counts": {
+          "tables": "12",
+          "rows": "42000"
+        },
+        "integrityChecksComplete": true
+      }
+    },
+    "restoreDrill": {
+      "drillId": "restore-drill-ah1",
+      "runId": "run-ah1-synthetic",
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "status": "succeeded",
+      "isolated": true,
+      "destinationIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "startedAt": "2026-07-31T12:00:21.100Z",
+      "completedAt": "2026-07-31T12:00:21.200Z",
+      "restoredProof": {
+        "schemaDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "constraintsDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "dataDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "integrityDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "counts": {
+          "tables": "12",
+          "rows": "42000"
+        },
+        "integrityChecksComplete": true
+      }
+    },
+    "productionNoMutation": {
+      "identity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "windowStartedAt": "2026-07-31T12:00:20.000Z",
+      "windowCompletedAt": "2026-07-31T12:00:23.200Z",
+      "mutationCount": "0",
+      "confirmed": true
+    },
+    "cleanup": {
+      "destinationIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "checkedAt": "2026-07-31T12:00:23.200Z",
+      "resourceLookup": "absent",
+      "pendingDeletion": false,
+      "tombstone": false
+    },
+    "retention": {
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "retainedUntil": "2026-08-02T12:00:21.100Z",
+      "minimumRetentionMs": "172800000"
+    },
+    "signature": "ed25519:sWAILj5MWeQIDWzsggfcD+z1EpWfg5OVNX/LrrFHqXXORjBHrw9sXBbNcuRtAwK+IKg9MqXbDg/3GLCaI/vtAQ=="
+  },
+  "inventory": {
+    "schemaVersion": "wordle-royale-g2-backup-restore-inventory/v1",
+    "collector": "wordle-royale/provider-provenance@3",
+    "challengeId": "challenge-ah1-synthetic",
+    "runId": "run-ah1-synthetic",
+    "observedAt": "2026-07-31T12:00:23.200Z",
+    "repository": "Ashar-Neodym/wordle-royale",
+    "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+    "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "identities": {
+      "sourceProduction": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "intendedRestore": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "restoreDestination": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      }
+    },
+    "providerPolicy": {
+      "provider": "synthetic-postgres",
+      "backupMode": "completed_provider_snapshot",
+      "retentionMs": "172800000",
+      "observedAt": "2026-07-31T12:00:10.000Z"
+    },
+    "rpoRtoMeasurement": {
+      "recoveryPointAt": "2026-07-31T12:00:20.000Z",
+      "sourceCutoffAt": "2026-07-31T12:00:21.000Z",
+      "restoreRequestedAt": "2026-07-31T12:00:21.100Z",
+      "verificationCompletedAt": "2026-07-31T12:00:23.100Z",
+      "claimedRpoMs": "1000",
+      "claimedRtoMs": "2000"
+    },
+    "backupArtifact": {
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "runId": "run-ah1-synthetic",
+      "status": "completed",
+      "sourceIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "sourceGitSha": "5bc4aa438ae38515f4be406b38fff8db1e466ce1",
+      "sourceArtifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "startedAt": "2026-07-31T12:00:21.000Z",
+      "completedAt": "2026-07-31T12:00:21.100Z",
+      "sourceProof": {
+        "schemaDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "constraintsDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "dataDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "integrityDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "counts": {
+          "tables": "12",
+          "rows": "42000"
+        },
+        "integrityChecksComplete": true
+      }
+    },
+    "restoreDrill": {
+      "drillId": "restore-drill-ah1",
+      "runId": "run-ah1-synthetic",
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "status": "succeeded",
+      "isolated": true,
+      "destinationIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "startedAt": "2026-07-31T12:00:21.100Z",
+      "completedAt": "2026-07-31T12:00:21.200Z",
+      "restoredProof": {
+        "schemaDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "migrationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "constraintsDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "dataDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "integrityDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "counts": {
+          "tables": "12",
+          "rows": "42000"
+        },
+        "integrityChecksComplete": true
+      }
+    },
+    "productionNoMutation": {
+      "identity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic",
+        "projectId": "project-production",
+        "environmentId": "env-production",
+        "serviceId": "service-production",
+        "databaseId": "db-production",
+        "databaseName": "wordle_production",
+        "schemaName": "public",
+        "endpointId": "endpoint-production"
+      },
+      "windowStartedAt": "2026-07-31T12:00:20.000Z",
+      "windowCompletedAt": "2026-07-31T12:00:23.200Z",
+      "mutationCount": "0",
+      "confirmed": true
+    },
+    "cleanup": {
+      "destinationIdentity": {
+        "provider": "synthetic-postgres",
+        "accountId": "acct-synthetic-isolated",
+        "projectId": "project-preview",
+        "environmentId": "env-restore-isolated",
+        "serviceId": "service-restore-isolated",
+        "databaseId": "db-restore-isolated",
+        "databaseName": "wordle_restore",
+        "schemaName": "public",
+        "endpointId": "endpoint-restore-isolated"
+      },
+      "checkedAt": "2026-07-31T12:00:23.200Z",
+      "resourceLookup": "absent",
+      "pendingDeletion": false,
+      "tombstone": false
+    },
+    "retention": {
+      "artifactId": "backup-artifact-ah1",
+      "artifactDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "retainedUntil": "2026-08-02T12:00:21.100Z",
+      "minimumRetentionMs": "172800000"
+    },
+    "recomputedRpoMs": "1000",
+    "recomputedRtoMs": "2000"
+  },
+  "providerReceipt": {
+    "schemaVersion": "wordle-provider-receipt/v3",
+    "collector": "wordle-royale/provider-provenance@3",
+    "collectorKeyId": "key-ah1-synthetic",
+    "challengeDigest": "sha256:814504dba92abc11d7868e9786adfb7d9590306381f1602930869676f35305f0",
+    "evidenceDigest": "sha256:99aaca5efbd47d1d256b705b9a358c605028eaa0542d425f5b8e2f6a0e1b5af8",
+    "inventoryDigest": "sha256:15348eba3fee5de75ba29a9226f05f56f2c75ad9ce7bec2c7fca6c14d8002539",
+    "signature": "ed25519:6RFSV1me16qu5ykVpwmca57guDXoCY2wZgUALyMKxQbcpa9Ur0+N/VciLR6ntSFcoDBgbjdYUYHazzUmCzqSBg=="
+  }
+}
