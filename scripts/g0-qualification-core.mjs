@@ -67,7 +67,7 @@ const same = (actual, expected, code) => fail(actual === expected, code);
 function decimalParts(value, code) { const match = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,4}))?$/u.exec(value ?? ''); fail(match, code); return BigInt(match[1]) * 10000n + BigInt((match[2] ?? '').padEnd(4, '0')); }
 
 export function validateManifest(m) {
-  exactKeys(m, ['schema','status','repository','sourceSha','approval','operator','accounts','previewPreservation','productionShells','plannedTopology','cost','network','forbidden','rollback','blockingPrerequisites','nextGate'], 'MANIFEST_TOP_LEVEL_SCHEMA_INVALID');
+  exactKeys(m, ['schema','status','repository','sourceSha','approval','operator','accounts','previewPreservation','productionShells','providerDefaults','plannedTopology','cost','network','forbidden','rollback','blockingPrerequisites','nextGate'], 'MANIFEST_TOP_LEVEL_SCHEMA_INVALID');
   same(m.schema, 'wordle-royale-g0-provisioning/v1', 'MANIFEST_SCHEMA_INVALID'); same(m.status, 'local_qualification_required', 'MANIFEST_STATUS_INVALID'); same(m.repository, EXPECTED_REPOSITORY, 'REPOSITORY_IDENTITY_INVALID'); same(m.sourceSha, null, 'MANIFEST_SOURCE_MUST_BE_UNQUALIFIED');
   exactKeys(m.approval, ['singleUse','executeWithinMinutes','partialAttemptConsumesApproval','approvalId','approvedBy','approvedAt','executeBefore'], 'APPROVAL_SCHEMA_INVALID');
   fail(m.approval.singleUse === true && m.approval.executeWithinMinutes === '60' && m.approval.partialAttemptConsumesApproval === true && ['approvalId','approvedBy','approvedAt','executeBefore'].every((key) => m.approval[key] === null), 'APPROVAL_NOT_NULL');
@@ -90,13 +90,30 @@ export function validateManifest(m) {
   };
   fail(canonicalJson(m.productionShells) === canonicalJson(expectedShells), 'ZERO_ACTION_POLICY_INVALID');
   fail(m.productionShells.vercel.projectName !== m.previewPreservation.vercel.projectName && m.productionShells.railway.projectName !== m.previewPreservation.railway.projectName, 'PREVIEW_PRODUCTION_OVERLAP');
+  exactKeys(m.providerDefaults, ['policy','observationOnly','mutationAuthorized','vercel','railway'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  exactKeys(m.providerDefaults.vercel, ['reservedProjectDomainCount','reservedProjectDomains','servingTargets','customDomains','authoredDomains'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  exactKeys(m.providerDefaults.railway, ['metadataNames','valuesInspectable','userAuthoredVariables','serviceInstance','inertTemplate'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  exactKeys(m.providerDefaults.railway.serviceInstance, ['numReplicas','regions'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  exactKeys(m.providerDefaults.railway.inertTemplate, ['regions','source','repository','image','branch','deployments','latestDeployment','activeDeployments','domains','urls','activeReplicas','databases','volumes'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  fail(Array.isArray(m.providerDefaults.railway.inertTemplate.regions) && m.providerDefaults.railway.inertTemplate.regions.length === 1, 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  exactKeys(m.providerDefaults.railway.inertTemplate.regions[0], ['region','replicas'], 'PROVIDER_DEFAULT_SCHEMA_INVALID');
+  const expectedProviderDefaults = {
+    policy:'exact_unavoidable_inert_v1', observationOnly:true, mutationAuthorized:false,
+    vercel:{ reservedProjectDomainCount:'1', reservedProjectDomains:['wordle-royale-production-web.vercel.app'], servingTargets:'0', customDomains:[], authoredDomains:[] },
+    railway:{
+      metadataNames:['RAILWAY_ENVIRONMENT','RAILWAY_ENVIRONMENT_ID','RAILWAY_ENVIRONMENT_NAME','RAILWAY_PROJECT_ID','RAILWAY_PROJECT_NAME','RAILWAY_SERVICE_ID','RAILWAY_SERVICE_NAME'],
+      valuesInspectable:false, userAuthoredVariables:'0', serviceInstance:{ numReplicas:null, regions:[] },
+      inertTemplate:{ regions:[{ region:'sfo', replicas:'1' }], source:null, repository:null, image:null, branch:null, deployments:'0', latestDeployment:null, activeDeployments:'0', domains:'0', urls:'0', activeReplicas:'0', databases:'0', volumes:'0' },
+    },
+  };
+  fail(canonicalJson(m.providerDefaults) === canonicalJson(expectedProviderDefaults), 'PROVIDER_DEFAULT_POLICY_INVALID');
   exactKeys(m.plannedTopology, ['railwayRegion','apiReplicasAtDormantDeploy','apiAndPostgresPrivateNetwork','vercelRuntimeRegionPreference','plannedWebOrigin','plannedApiOrigin'], 'TOPOLOGY_SCHEMA_INVALID');
   fail(canonicalJson(m.plannedTopology) === canonicalJson({ railwayRegion:'southeast-asia', apiReplicasAtDormantDeploy:'1', apiAndPostgresPrivateNetwork:true, vercelRuntimeRegionPreference:'sin1', plannedWebOrigin:null, plannedApiOrigin:null }), 'TOPOLOGY_POLICY_INVALID');
   exactKeys(m.cost, ['currency','observedAt','railwayCurrentBillingPeriodUsageApprox','railwayTargetPlan','railwayMonthlyMinimumIncludingCredits','railwayWholeWorkspaceInvoiceCapPreTax','overageApproved','paidAddonsApproved','vercelTargetPlan','vercelApprovedMonthlyCharge','vercelEligibilityMustBeReconfirmed','supabaseApprovedMonthlyCharge','planUpgradeUnderThisManifest'], 'COST_SCHEMA_INVALID');
   const usage = decimalParts(m.cost.railwayCurrentBillingPeriodUsageApprox, 'COST_INVALID'), minimum = decimalParts(m.cost.railwayMonthlyMinimumIncludingCredits, 'COST_INVALID'), cap = decimalParts(m.cost.railwayWholeWorkspaceInvoiceCapPreTax, 'COST_INVALID');
   fail(usage <= cap && minimum === 50000n && cap === 50000n && decimalParts(m.cost.vercelApprovedMonthlyCharge, 'COST_INVALID') === 0n && decimalParts(m.cost.supabaseApprovedMonthlyCharge, 'COST_INVALID') === 0n, 'COST_POLICY_INVALID');
   fail(canonicalJson(m.cost) === canonicalJson({ currency:'USD', observedAt:'2026-07-30', railwayCurrentBillingPeriodUsageApprox:'1.3531', railwayTargetPlan:'Hobby', railwayMonthlyMinimumIncludingCredits:'5.00', railwayWholeWorkspaceInvoiceCapPreTax:'5.00', overageApproved:false, paidAddonsApproved:false, vercelTargetPlan:'Hobby', vercelApprovedMonthlyCharge:'0.00', vercelEligibilityMustBeReconfirmed:true, supabaseApprovedMonthlyCharge:'0.00', planUpgradeUnderThisManifest:false }), 'COST_POLICY_INVALID');
-  exactKeys(m.network, ['publicTrafficAllowed','generatedDomainsAllowed','customDomains','dnsChanges','tlsChanges'], 'NETWORK_SCHEMA_INVALID'); fail(m.network.publicTrafficAllowed === false && m.network.generatedDomainsAllowed === false && ['customDomains','dnsChanges','tlsChanges'].every((key) => Array.isArray(m.network[key]) && m.network[key].length === 0), 'NETWORK_POLICY_INVALID');
+  exactKeys(m.network, ['publicTrafficAllowed','domainMutationAllowed','providerGeneratedServingDomainsAllowed','servingTargets','customDomains','dnsChanges','tlsChanges'], 'NETWORK_SCHEMA_INVALID'); fail(m.network.publicTrafficAllowed === false && m.network.domainMutationAllowed === false && m.network.providerGeneratedServingDomainsAllowed === false && m.network.servingTargets === '0' && ['customDomains','dnsChanges','tlsChanges'].every((key) => Array.isArray(m.network[key]) && m.network[key].length === 0), 'NETWORK_POLICY_INVALID');
   const expectedForbidden = ['preview mutation or reuse','git repository linkage','source image or branch assignment','build, deployment, promotion, restart, or replica start','PostgreSQL creation or provider-generated credential access','variables, secrets, references, tokens, or credential inspection','migrations, SQL, schema access, seeds, or account writes','domains, DNS, certificates, aliases, or public traffic','paid upgrade, overage, add-on, invitation, or payment-method change','Supabase or Redis changes'];
   fail(canonicalJson(m.forbidden) === canonicalJson(expectedForbidden), 'FORBIDDEN_POLICY_INVALID');
   exactKeys(m.rollback, ['authorizedOnlyForNewUnambiguousIds','triggers','order'], 'ROLLBACK_SCHEMA_INVALID');
@@ -111,7 +128,10 @@ export function validateManifest(m) {
   };
   const expectedBlockerOrder = Object.keys(expected);
   for (const [index,blocker] of m.blockingPrerequisites.entries()) { exactKeys(blocker, ['id','state','reason'], 'BLOCKER_SCHEMA_INVALID'); const policy=expected[blocker.id]; fail(blocker.id === expectedBlockerOrder[index] && policy && blocker.state === policy.state && blocker.reason === policy.reason, 'BLOCKER_CLASSIFICATION_INVALID'); delete expected[blocker.id]; }
-  fail(Object.keys(expected).length === 0, 'BLOCKER_CLASSIFICATION_INVALID'); exactKeys(m.nextGate, ['name','hostedMutationAllowed'], 'NEXT_GATE_SCHEMA_INVALID'); fail(m.nextGate.name === 'Wave AE exact-SHA local qualification' && m.nextGate.hostedMutationAllowed === false, 'HOSTED_MUTATION_FORBIDDEN');
+  fail(Object.keys(expected).length === 0, 'BLOCKER_CLASSIFICATION_INVALID');
+  exactKeys(m.nextGate, ['name','retryGate','priorApprovalReusable','tombstoneAbsenceRequired','exactRollbackEvidenceRequired','newReceiptRequired','newCostObservationRequired','newHumanApprovalRequired','hostedMutationAuthorized'], 'NEXT_GATE_SCHEMA_INVALID');
+  const expectedNextGate = { name:'future G0 retry eligibility after repaired local qualification', retryGate:'closed', priorApprovalReusable:false, tombstoneAbsenceRequired:true, exactRollbackEvidenceRequired:true, newReceiptRequired:true, newCostObservationRequired:true, newHumanApprovalRequired:true, hostedMutationAuthorized:false };
+  fail(canonicalJson(m.nextGate) === canonicalJson(expectedNextGate), 'HOSTED_MUTATION_FORBIDDEN');
   return m;
 }
 
@@ -141,10 +161,10 @@ export async function qualify({ repo, manifest, targetSha, receipt }) {
   same(git(repo,['rev-parse','--show-toplevel']).trim(), repo, 'REPOSITORY_ROOT_INVALID'); same(git(repo,['rev-parse','HEAD']).trim(), targetSha, 'TARGET_SHA_STALE');
   fail(git(repo,['cat-file','-t',targetSha]).trim() === 'commit', 'TARGET_NOT_COMMIT'); fail(EXPECTED_REMOTE.test(git(repo,['config','--get','remote.origin.url']).trim()), 'REPOSITORY_IDENTITY_INVALID');
   fail(git(repo,['status','--porcelain=v1','--untracked-files=all']).length === 0, 'RELEVANT_TREE_DIRTY');
-  const manifestBytes = await readFile(manifest); const committedManifest = targetFile(repo,targetSha,MANIFEST_PATH); fail(manifestBytes.equals(Buffer.from(committedManifest)), 'MANIFEST_TARGET_MISMATCH'); validateManifest(parseManifest(manifestBytes.toString('utf8'))); validateWaveAd(repo,targetSha);
+  const manifestBytes = await readFile(manifest); const committedManifest = targetFile(repo,targetSha,MANIFEST_PATH); fail(manifestBytes.equals(Buffer.from(committedManifest)), 'MANIFEST_TARGET_MISMATCH'); const parsedManifest = validateManifest(parseManifest(manifestBytes.toString('utf8'))); validateWaveAd(repo,targetSha);
   const tree = git(repo,['ls-tree','-rz','--full-tree',targetSha], { encoding:'buffer' });
   for (const entry of tree.toString('utf8').split('\0').filter(Boolean)) fail(/^(100644|100755) blob [0-9a-f]{40}\t[^\n\0]+$/u.test(entry), 'UNSUPPORTED_GIT_ENTRY');
-  const body = { schema:'wordle-royale-g0-local-qualification-receipt/v1', repository:EXPECTED_REPOSITORY, targetSha, sourceArtifactDigest:`sha256:${digest(tree)}`, manifestDigest:`sha256:${digest(manifestBytes)}`, waveAdToolingEvidence:{ providerProvenance:'production-live-v3', singleNodePostgresObservation:'observedReplicaId', packageWiringVerified:true }, blockers:{ railwayBackupRestore:'G2_deferred', planAndCost:'human_approval_required' }, hostedMutationAuthorized:false };
+  const body = { schema:'wordle-royale-g0-local-qualification-receipt/v1', repository:EXPECTED_REPOSITORY, targetSha, sourceArtifactDigest:`sha256:${digest(tree)}`, manifestDigest:`sha256:${digest(manifestBytes)}`, providerDefaultPolicyDigest:`sha256:${digest(canonicalJson(parsedManifest.providerDefaults))}`, waveAdToolingEvidence:{ providerProvenance:'production-live-v3', singleNodePostgresObservation:'observedReplicaId', packageWiringVerified:true }, blockers:{ railwayBackupRestore:'G2_deferred', planAndCost:'human_approval_required' }, retryGate:'closed', hostedMutationAuthorized:false };
   const complete = { ...body, receiptDigest:`sha256:${digest(canonicalJson(body))}` };
   const temporary = `${receipt}.tmp-${process.pid}-${createHash('sha256').update(receipt).update(targetSha).digest('hex').slice(0,12)}`;
   let handle;
