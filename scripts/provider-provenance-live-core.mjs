@@ -44,11 +44,45 @@ export function liveCanonicalJson(value) {
   fail('NON_JSON_VALUE', typeof value);
 }
 export const liveSha256 = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
-function assertWindow(issuedAt, expiresAt, now, maxLifetimeMs = 5 * 60_000, futureSkewMs = 30_000) {
+// Shared by narrowed, sanitized v3-envelope policy verifiers so key parsing
+// and Ed25519 verification have one implementation.
+export function verifyLiveEd25519Signature(unsigned, signature, publicKey, code = 'INVALID_COLLECTOR_SIGNATURE') {
+  if (typeof signature !== 'string' || !SIGNATURE.test(signature)) fail(code, 'signature');
+  let key; try { key = publicKey?.type === 'public' ? publicKey : createPublicKey(publicKey); } catch { fail('INVALID_COLLECTOR_KEY', 'publicKey'); }
+  if (key.asymmetricKeyType !== 'ed25519' || !verifySignature(null, Buffer.from(liveCanonicalJson(unsigned)), key, Buffer.from(signature.slice(8), 'base64'))) fail(code, 'signature');
+  return true;
+}
+export function assertLiveChallengeWindow(issuedAt, expiresAt, now, maxLifetimeMs = 5 * 60_000, futureSkewMs = 30_000) {
   const issued = Date.parse(timestamp(issuedAt, 'challenge.issuedAt')); const expires = Date.parse(timestamp(expiresAt, 'challenge.expiresAt'));
   if (!Number.isFinite(now) || expires <= issued || expires - issued > maxLifetimeMs) fail('INVALID_CHALLENGE_WINDOW', 'issuedAt/expiresAt');
   if (now < issued - futureSkewMs) fail('FUTURE_CHALLENGE', issuedAt);
   if (now >= expires) fail('EXPIRED_CHALLENGE', expiresAt);
+}
+
+// Shared v3 cryptographic-envelope primitive for policy-specific, sanitized
+// evidence formats. Domain validators retain their own exact schemas, while
+// freshness, protected ambient bindings, digest chaining, and both signatures
+// use the same implementation as the full live-v3 verifier.
+export function verifyNarrowedLiveV3Envelope({ challenge, evidence, receipt, collectorPublicKey, policy = {}, observedAtField = 'observedAt' }) {
+  const now = policy.now instanceof Date ? policy.now.getTime() : (policy.now ?? Date.now());
+  assertLiveChallengeWindow(challenge.issuedAt, challenge.expiresAt, now, policy.maxLifetimeMs, policy.futureSkewMs);
+  for (const [name, value] of [['expectedChallengeId', challenge.challengeId], ['expectedRunId', challenge.runId], ['expectedNonce', challenge.nonce], ['expectedCollectorKeyId', challenge.collectorKeyId]]) {
+    if (typeof policy[name] !== 'string') fail('PROTECTED_CHALLENGE_POLICY_REQUIRED', name);
+    if (policy[name] !== value) fail('PROTECTED_CHALLENGE_MISMATCH', name);
+  }
+  const challengeDigest = liveSha256(liveCanonicalJson(challenge));
+  if (evidence.collector !== LIVE_COLLECTOR_ID || evidence.collectorKeyId !== challenge.collectorKeyId) fail('COLLECTOR_KEY_MISMATCH', 'evidence');
+  for (const [field, value] of [['challengeDigest', challengeDigest], ['challengeId', challenge.challengeId], ['runId', challenge.runId], ['nonce', challenge.nonce], ['expiresAt', challenge.expiresAt]]) if (evidence[field] !== value) fail('CHALLENGE_BINDING_MISMATCH', field);
+  const observed = Date.parse(timestamp(evidence[observedAtField], `evidence.${observedAtField}`));
+  if (observed < Date.parse(challenge.issuedAt) || observed >= Date.parse(challenge.expiresAt)) fail('EVIDENCE_TIME_OUTSIDE_CHALLENGE', observedAtField);
+  const evidenceUnsigned = { ...evidence }; delete evidenceUnsigned.signature;
+  verifyLiveEd25519Signature(evidenceUnsigned, evidence.signature, collectorPublicKey, 'INVALID_COLLECTOR_SIGNATURE');
+  const evidenceDigest = liveSha256(liveCanonicalJson(evidence));
+  if (receipt.collector !== LIVE_COLLECTOR_ID || receipt.collectorKeyId !== challenge.collectorKeyId) fail('COLLECTOR_KEY_MISMATCH', 'receipt');
+  if (receipt.challengeDigest !== challengeDigest || receipt.evidenceDigest !== evidenceDigest) fail('RECEIPT_DIGEST_MISMATCH', 'receipt');
+  const receiptUnsigned = { ...receipt }; delete receiptUnsigned.signature;
+  verifyLiveEd25519Signature(receiptUnsigned, receipt.signature, collectorPublicKey, 'INVALID_RECEIPT_SIGNATURE');
+  return { challengeDigest, evidenceDigest, now };
 }
 function identity(raw, provider, path) {
   const fields = provider === 'vercel' ? ['projectId', 'environmentId', 'deploymentId'] : ['projectId', 'environmentId', 'serviceId', 'deploymentId'];
@@ -71,7 +105,7 @@ export function validateLiveChallenge(challenge, options = {}) {
   exact(challenge, ['schemaVersion', 'challengeId', 'runId', 'nonce', 'issuedAt', 'expiresAt', 'collectorKeyId', 'expectedIdentities', 'expectedArtifacts', 'postgresqlSubjects', 'operations'], 'challenge');
   if (challenge.schemaVersion !== CHALLENGE_VERSION) fail('UNSUPPORTED_CHALLENGE', String(challenge.schemaVersion));
   for (const field of ['challengeId', 'runId', 'nonce', 'collectorKeyId']) id(challenge[field], `challenge.${field}`);
-  const now = options.now instanceof Date ? options.now.getTime() : (options.now ?? Date.now()); assertWindow(challenge.issuedAt, challenge.expiresAt, now, options.maxLifetimeMs, options.futureSkewMs);
+  const now = options.now instanceof Date ? options.now.getTime() : (options.now ?? Date.now()); assertLiveChallengeWindow(challenge.issuedAt, challenge.expiresAt, now, options.maxLifetimeMs, options.futureSkewMs);
   for (const [name, expected] of [['expectedChallengeId', challenge.challengeId], ['expectedRunId', challenge.runId], ['expectedNonce', challenge.nonce], ['expectedCollectorKeyId', challenge.collectorKeyId]]) {
     if (typeof options[name] !== 'string') fail('PROTECTED_CHALLENGE_POLICY_REQUIRED', name);
     if (options[name] !== expected) fail('PROTECTED_CHALLENGE_MISMATCH', name);
@@ -146,10 +180,8 @@ function parseEvidence(evidence, challenge, publicKey) {
   if (evidence.collector !== LIVE_COLLECTOR_ID || evidence.collectorKeyId !== challenge.collectorKeyId) fail('COLLECTOR_KEY_MISMATCH', 'evidence');
   if (evidence.challengeDigest !== liveSha256(liveCanonicalJson(challenge)) || evidence.challengeId !== challenge.challengeId || evidence.runId !== challenge.runId || evidence.nonce !== challenge.nonce || evidence.expiresAt !== challenge.expiresAt) fail('CHALLENGE_BINDING_MISMATCH', 'evidence');
   const observed = Date.parse(timestamp(evidence.collectedAt, 'evidence.collectedAt')); if (observed < Date.parse(challenge.issuedAt) || observed >= Date.parse(challenge.expiresAt)) fail('EVIDENCE_TIME_OUTSIDE_CHALLENGE', 'evidence.collectedAt');
-  if (typeof evidence.signature !== 'string' || !SIGNATURE.test(evidence.signature)) fail('INVALID_COLLECTOR_SIGNATURE', 'evidence.signature');
   const unsigned = { ...evidence }; delete unsigned.signature;
-  let key; try { key = publicKey?.type === 'public' ? publicKey : createPublicKey(publicKey); } catch { fail('INVALID_COLLECTOR_KEY', 'publicKey'); }
-  if (key.asymmetricKeyType !== 'ed25519' || !verifySignature(null, Buffer.from(liveCanonicalJson(unsigned)), key, Buffer.from(evidence.signature.slice(8), 'base64'))) fail('INVALID_COLLECTOR_SIGNATURE', 'evidence.signature');
+  verifyLiveEd25519Signature(unsigned, evidence.signature, publicKey, 'INVALID_COLLECTOR_SIGNATURE');
   exact(evidence.environments, ENVS, 'evidence.environments'); const environments = {}; const seenDigests = new Set(); const seenObservationIds = new Set();
   for (const env of ENVS) {
     exact(evidence.environments[env], PROVIDERS, `evidence.environments.${env}`); environments[env] = {};
@@ -226,9 +258,7 @@ export function verifyLiveBundle({ challenge, evidence, inventory, receipt, coll
   if (receipt.schemaVersion !== LIVE_RECEIPT_VERSION || receipt.collector !== LIVE_COLLECTOR_ID || receipt.collectorKeyId !== challenge.collectorKeyId) fail('UNSUPPORTED_RECEIPT', String(receipt.schemaVersion));
   const unsigned = { schemaVersion: receipt.schemaVersion, collector: receipt.collector, collectorKeyId: receipt.collectorKeyId, challengeDigest: digest(receipt.challengeDigest, 'receipt.challengeDigest'), evidenceDigest: digest(receipt.evidenceDigest, 'receipt.evidenceDigest'), inventoryDigest: digest(receipt.inventoryDigest, 'receipt.inventoryDigest') };
   if (unsigned.challengeDigest !== liveSha256(liveCanonicalJson(challenge)) || unsigned.evidenceDigest !== liveSha256(liveCanonicalJson(evidence)) || unsigned.inventoryDigest !== liveSha256(liveCanonicalJson(inventory))) fail('RECEIPT_DIGEST_MISMATCH', 'receipt');
-  if (typeof receipt.signature !== 'string' || !SIGNATURE.test(receipt.signature)) fail('INVALID_RECEIPT_SIGNATURE', 'receipt.signature');
-  let key; try { key = collectorPublicKey?.type === 'public' ? collectorPublicKey : createPublicKey(collectorPublicKey); } catch { fail('INVALID_COLLECTOR_KEY', 'publicKey'); }
-  if (!verifySignature(null, Buffer.from(liveCanonicalJson(unsigned)), key, Buffer.from(receipt.signature.slice(8), 'base64'))) fail('INVALID_RECEIPT_SIGNATURE', 'receipt.signature');
+  verifyLiveEd25519Signature(unsigned, receipt.signature, collectorPublicKey, 'INVALID_RECEIPT_SIGNATURE');
   if (consumeReplay) consumeLiveNonce(replayGuard, challenge.nonce);
   return structuredClone(derived);
 }

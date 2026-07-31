@@ -1,0 +1,58 @@
+{
+  "schema": "wordle-royale-g0-attempt-evidence/v1",
+  "approvalId": "6898479e-22b1-4fc8-82ec-ea18a78f760f",
+  "sourceSha": "32f8610b86346ab64b7cf39a51a7e73b8f5e6921",
+  "result": "rollback_required",
+  "newResources": {
+    "vercelProjectId": "prj_kTyT8PDyNuBsAs3qCPQBvrRTEb1U",
+    "vercelProjectName": "wordle-royale-production-web",
+    "railwayProjectId": "9d69f66f-a3a1-4c83-8280-e2ac204292b0",
+    "railwayEnvironmentId": "d746a3d5-3c8f-4a76-ad58-62a1b8acc0f0",
+    "railwayServiceId": "4b24c070-12d2-45b1-83c1-2a101cc75fa8",
+    "railwayServiceInstanceId": "6ea19602-5f0d-42f8-ad9a-83ac12533ee1"
+  },
+  "verifiedBeforeRollback": {
+    "vercelDeployments": 0,
+    "vercelEnvironmentVariables": 0,
+    "vercelSourceLinked": false,
+    "vercelGeneratedDomains": ["wordle-royale-production-web.vercel.app"],
+    "railwayDeployments": 0,
+    "railwayActiveReplicas": 0,
+    "railwaySourceLinked": false,
+    "railwayDomains": 0,
+    "railwayUserAuthoredVariables": 0,
+    "railwayReservedMetadataVariableNames": [
+      "RAILWAY_ENVIRONMENT",
+      "RAILWAY_ENVIRONMENT_ID",
+      "RAILWAY_ENVIRONMENT_NAME",
+      "RAILWAY_PROJECT_ID",
+      "RAILWAY_PROJECT_NAME",
+      "RAILWAY_SERVICE_ID",
+      "RAILWAY_SERVICE_NAME"
+    ],
+    "databases": 0,
+    "volumes": 0
+  },
+  "rollbackTrigger": "automatic generated Vercel domain violates domains=0 and generatedDomainsAllowed=false",
+  "rollback": {
+    "completedAt": "2026-07-31T05:05:59+00:00",
+    "vercelProjectAbsent": true,
+    "railwayServiceAbsent": true,
+    "railwayProjectDeletionAccepted": true,
+    "railwayProjectDeletedAt": "2026-08-02T05:04:19.806Z",
+    "railwayProviderTombstonePendingPurge": true,
+    "previewVercelExact": true,
+    "previewRailwayExact": true,
+    "publicPreviewHealthy": true
+  },
+  "verificationIncident": {
+    "recordedAt": "2026-07-31T05:12:52+00:00",
+    "actor": "independent Jasmine verifier",
+    "operation": "POST /auth/preview-demo/start",
+    "result": "HTTP 201; may have created one preview demo identity/session",
+    "authorized": false,
+    "cleanupAttempted": false,
+    "reasonNoCleanup": "cleanup is a separate database/account mutation and was not authorized"
+  },
+  "secretsRecorded": false
+}
