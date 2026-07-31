@@ -29,7 +29,7 @@ The challenge repeats and digest-binds that policy. Evidence is a sanitized Ed25
 6. **Cleanup:** exact destination lookup must be `absent`, not pending, and have no tombstone.
 7. **Retention:** same artifact, declared policy agreement, and a recomputed retained-until interval.
 
-All timestamps are canonical UTC with milliseconds. Counts and durations are strict unsigned decimal strings, parsed with `BigInt`, bounded at 31,536,000,000, and never accepted with exponent, sign, leading zero, fraction, or unit suffix. RPO is recomputed as backup completion minus backup start; RTO as restore completion minus restore start. Inclusive policy boundaries pass; overflow and one-millisecond-over cases fail.
+All timestamps are canonical UTC with milliseconds. Signed operational timestamps must fall from challenge issuance through evidence observation (which itself cannot exceed challenge expiry), and causal ordering binds the recovery point and source cutoff to backup, restore request through successful restore to completed verification, production no-mutation coverage, and cleanup. Counts and durations are strict unsigned decimal strings, parsed with `BigInt`, bounded at 31,536,000,000, and never accepted with exponent, sign, leading zero, fraction, or unit suffix. Data-loss RPO is recomputed as source cutoff minus recovery point; end-to-end RTO as verification completion minus restore request. Signed claimed durations must exactly match those recomputations. Inclusive policy boundaries pass; overflow and one-millisecond-over cases fail.
 
 ## Cryptography and derived records
 
