@@ -200,6 +200,8 @@ test('strict protected inputs and operation plans reject ambiguity and unsafe fi
   const root = await mkdtemp(join(tmpdir(), 'ticket273-protected-')); const protectedFile = join(root, 'input.json'); const link = join(root, 'link.json');
   try {
     await writeFile(protectedFile, '{}', { mode: 0o600 }); assert.equal((await readProtectedFile(protectedFile)).toString(), '{}');
+    const replacement = join(root, 'replacement.json'); await writeFile(replacement, '{}', { mode: 0o600 });
+    await assert.rejects(() => readProtectedFile(protectedFile, { beforeOpen: () => rename(replacement, protectedFile) }), (error) => error.code === 'PROTECTED_FILE_CHANGED');
     await symlink(protectedFile, link); await assert.rejects(() => readProtectedFile(link), (error) => error.code === 'PROTECTED_FILE_POLICY');
     await chmod(protectedFile, 0o640); await assert.rejects(() => readProtectedFile(protectedFile), (error) => error.code === 'PROTECTED_FILE_POLICY');
     await assert.rejects(() => readProtectedFile('relative.json'), (error) => error.code === 'PROTECTED_PATH_NOT_ABSOLUTE');

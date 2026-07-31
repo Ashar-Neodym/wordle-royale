@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, stat, access, readdir, unlink } from 'node:fs/promises';
+import { chmod, copyFile, mkdtemp, mkdir, writeFile, readFile, stat, access, readdir, rm, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,14 +56,15 @@ function rebindReceipt(input) {
   const unsigned={schemaVersion:PROVIDER_RECEIPT_SCHEMA,collector:COLLECTOR,collectorKeyId:input.challenge.collectorKeyId,challengeDigest:sha256(canonicalJson(input.challenge)),evidenceDigest:sha256(canonicalJson(input.evidence)),inventoryDigest:sha256(canonicalJson(inventory))};
   input.providerReceipt={...unsigned,signature:signed(unsigned,input.privateKey)};
 }
-async function cliInvocation(input, { outputExists = false, policy = {} } = {}) {
+async function cliInvocation(input, { outputExists = false, policy = {}, raw = {}, env = {}, prepare } = {}) {
   const directory = await mkdtemp(join(tmpdir(),'g0-retry-hostile-')); const files = {};
-  for (const key of ['qualification','priorApproval','priorAttempt','challenge','evidence','providerReceipt']) { files[key]=join(directory,`${key}.json`); await writeFile(files[key],`${JSON.stringify(input[key])}\n`,{mode:0o600}); }
+  for (const key of ['qualification','priorApproval','priorAttempt','challenge','evidence','providerReceipt']) { files[key]=join(directory,`${key}.json`); await writeFile(files[key],raw[key] ?? `${JSON.stringify(input[key])}\n`,{mode:0o600}); }
   files.publicKey=join(directory,'collector.pem'); await writeFile(files.publicKey,input.collectorPublicKey.export({type:'spki',format:'pem'}),{mode:0o600});
   const replay=join(directory,'replay'); await mkdir(replay,{mode:0o700}); const output=join(directory,'receipt.json'); if(outputExists)await writeFile(output,'occupied\n',{mode:0o600});
   const expected={challengeId:input.challenge.challengeId,runId:input.challenge.runId,nonce:input.challenge.nonce,collectorKeyId:input.challenge.collectorKeyId,...policy};
   const args=['--qualification',files.qualification,'--prior-approval',files.priorApproval,'--prior-attempt',files.priorAttempt,'--challenge',files.challenge,'--evidence',files.evidence,'--provider-receipt',files.providerReceipt,'--collector-public-key',files.publicKey,'--expected-challenge-id',expected.challengeId,'--expected-run-id',expected.runId,'--expected-nonce',expected.nonce,'--expected-collector-key-id',expected.collectorKeyId,'--replay-dir',replay,'--output',output];
-  const run=(customArgs=args)=>spawnSync(process.execPath,['scripts/g0-retry-eligibility.mjs',...customArgs],{cwd:process.cwd(),encoding:'utf8'});
+  const run=(customArgs=args)=>spawnSync(process.execPath,['scripts/g0-retry-eligibility.mjs',...customArgs],{cwd:process.cwd(),encoding:'utf8',env:{...process.env,...env}});
+  if (prepare) await prepare({directory,files,replay,output,args});
   return {directory,files,replay,output,args,run,result:run()};
 }
 
@@ -90,15 +91,39 @@ test('provider mutation, stale observations, costs, preview drift, and signature
 test('CLI writes 0600 receipt, consumes nonce, and rejects replay', async () => {
   const b = await base(); const now = Date.now(); const input = fixture({...b,now}); const directory = await mkdtemp(join(tmpdir(),'g0-retry-test-'));
   const files = {};
+  for (const key of ['qualification','priorApproval','priorAttempt']) { files[key] = join(directory,`${key}.json`); await copyFile(artifactPaths[key],files[key]); await chmod(files[key],0o600); }
   for (const key of ['challenge','evidence','providerReceipt']) { files[key] = join(directory,`${key}.json`); await writeFile(files[key],`${JSON.stringify(input[key])}\n`,{mode:0o600}); }
   files.publicKey = join(directory,'collector-public.pem'); await writeFile(files.publicKey,input.collectorPublicKey.export({type:'spki',format:'pem'}),{mode:0o600});
   const canaries=join(directory,'canaries'), marker=join(directory,'provider-command-ran'); await mkdir(canaries,{mode:0o700});
   for(const command of ['curl','wget','vercel','railway','supabase']) await writeFile(join(canaries,command),`#!/bin/sh\n: > "${marker}"\nexit 99\n`,{mode:0o700});
   const output = join(directory,'eligibility.json'); const replay = join(directory,'replay'); await mkdir(replay,{mode:0o700});
-  const args = ['--qualification',artifactPaths.qualification,'--prior-approval',artifactPaths.priorApproval,'--prior-attempt',artifactPaths.priorAttempt,'--challenge',files.challenge,'--evidence',files.evidence,'--provider-receipt',files.providerReceipt,'--collector-public-key',files.publicKey,'--expected-challenge-id',input.challenge.challengeId,'--expected-run-id',input.challenge.runId,'--expected-nonce',input.challenge.nonce,'--expected-collector-key-id',input.challenge.collectorKeyId,'--replay-dir',replay,'--output',output];
+  const args = ['--qualification',files.qualification,'--prior-approval',files.priorApproval,'--prior-attempt',files.priorAttempt,'--challenge',files.challenge,'--evidence',files.evidence,'--provider-receipt',files.providerReceipt,'--collector-public-key',files.publicKey,'--expected-challenge-id',input.challenge.challengeId,'--expected-run-id',input.challenge.runId,'--expected-nonce',input.challenge.nonce,'--expected-collector-key-id',input.challenge.collectorKeyId,'--replay-dir',replay,'--output',output];
   const first = spawnSync(process.execPath,['scripts/g0-retry-eligibility.mjs',...args],{cwd:process.cwd(),encoding:'utf8',env:{...process.env,PATH:canaries}}); assert.equal(first.status,0,first.stderr); assert.equal((await stat(output)).mode & 0o777,0o600); assert.equal(JSON.parse(await readFile(output,'utf8')).decision,'eligible_to_request_fresh_approval'); await assert.rejects(access(marker));
   const replayOutput = join(directory,'replay-output.json'); const secondArgs = [...args]; secondArgs[secondArgs.indexOf(output)] = replayOutput;
   const second = spawnSync(process.execPath,['scripts/g0-retry-eligibility.mjs',...secondArgs],{cwd:process.cwd(),encoding:'utf8'}); assert.equal(second.status,3); assert.equal(JSON.parse(second.stderr).code,'CHALLENGE_REPLAY');
+});
+
+test('subprocess rejects duplicate JSON exploit and unsafe protected files without side effects', async (t) => {
+  const checkedFailure = async (name, options, expected) => t.test(name, async () => {
+    const input=fixture({...await base(),now:Date.now()}); const canaries=await mkdtemp(join(tmpdir(),'g0-retry-canary-')); const marker=join(canaries,'provider-command-ran');
+    for(const command of ['curl','wget','vercel','railway','supabase']) await writeFile(join(canaries,command),`#!/bin/sh\n: > "${marker}"\nexit 99\n`,{mode:0o700});
+    const invocation=await cliInvocation(input,{...options(input),env:{PATH:canaries}});
+    assert.equal(invocation.result.status,2,invocation.result.stderr); assert.equal(JSON.parse(invocation.result.stderr).code,expected);
+    await assert.rejects(access(invocation.output)); assert.deepEqual(await readdir(invocation.replay),[]); await assert.rejects(access(marker));
+    assert.equal((await readdir(invocation.directory)).some(name=>name.includes('.tmp-')),false); await rm(canaries,{recursive:true,force:true});
+  });
+  await checkedFailure('replays top-level providerMutationObserved true then false exploit', (input) => {
+    const serialized=JSON.stringify(input.evidence); const raw=serialized.replace('"providerMutationObserved":false','"providerMutationObserved":true,"providerMutationObserved":false');
+    assert.notEqual(raw,serialized); return {raw:{evidence:raw}};
+  }, 'DUPLICATE_JSON_KEY');
+  await checkedFailure('rejects a nested duplicate key', (input) => {
+    const serialized=JSON.stringify(input.evidence); const raw=serialized.replace('"plan":"Hobby"','"plan":"Pro","plan":"Hobby"');
+    assert.notEqual(raw,serialized); return {raw:{evidence:raw}};
+  }, 'DUPLICATE_JSON_KEY');
+  await checkedFailure('rejects a symlink input', () => ({prepare:async ({files,directory})=>{
+    const target=join(directory,'evidence-target.json'); await copyFile(files.evidence,target); await chmod(target,0o600); await rm(files.evidence); await symlink(target,files.evidence);
+  }}), 'UNSAFE_INPUT_FILE');
+  await checkedFailure('rejects a permissive input mode', () => ({prepare:({files})=>chmod(files.evidence,0o640)}), 'UNSAFE_INPUT_FILE');
 });
 
 test('subprocess hostile matrix fails closed with no receipt', async () => {
