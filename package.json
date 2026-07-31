@@ -41,6 +41,8 @@
     "g0:retry-eligibility": "node scripts/g0-retry-eligibility.mjs",
     "test:g0:retry-eligibility": "node --test scripts/g0-retry-eligibility.test.mjs",
     "typecheck:g0:retry-eligibility": "node --check scripts/g0-retry-eligibility-core.mjs && node --check scripts/g0-retry-eligibility.mjs && node --check scripts/g0-retry-eligibility.test.mjs",
+    "test:g2:backup-restore-readiness": "node --test scripts/g2-backup-restore-readiness.test.mjs",
+    "typecheck:g2:backup-restore-readiness": "node --check scripts/g2-backup-restore-readiness-core.mjs && node --check scripts/g2-backup-restore-synthetic-fixture.mjs && node --check scripts/g2-backup-restore-readiness.test.mjs",
     "typecheck:provider-provenance": "node --check scripts/provider-provenance-core.mjs && node --check scripts/provider-provenance-live-core.mjs && node --check scripts/provider-provenance-live-collector-core.mjs && node --check scripts/provider-provenance-live.mjs && node --check scripts/provider-provenance.mjs && node --check scripts/provider-provenance-fixture.mjs && node --check scripts/provider-provenance.test.mjs && node --check scripts/provider-provenance-live.test.mjs && node --check scripts/provider-provenance-live-collector.test.mjs && node --check scripts/provider-provenance-live-cli.e2e.test.mjs && node --check apps/api/scripts/run-auth-activation-preflight-live-v3-cli-e2e.mjs",
     "provider-provenance": "node scripts/provider-provenance.mjs",
     "provider-provenance:live": "node scripts/provider-provenance-live.mjs",
