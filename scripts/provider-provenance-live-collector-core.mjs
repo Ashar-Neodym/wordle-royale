@@ -214,12 +214,13 @@ export function verifyCommittedLiveBundle({ bundle, keyring, policy, clock = Dat
   };
 }
 
-export async function readProtectedFile(path, { maxBytes = MAX_JSON_BYTES, uid = process.getuid?.() } = {}) {
+export async function readProtectedFile(path, { maxBytes = MAX_JSON_BYTES, uid = process.getuid?.(), beforeOpen } = {}) {
   if (typeof path !== 'string' || !isAbsolute(path)) fail('PROTECTED_PATH_NOT_ABSOLUTE', 'path');
-  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_JSON_BYTES || !Number.isInteger(uid) || uid < 0) fail('INVALID_PROTECTED_FILE_POLICY', 'path');
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_JSON_BYTES || !Number.isInteger(uid) || uid < 0 || (beforeOpen !== undefined && typeof beforeOpen !== 'function')) fail('INVALID_PROTECTED_FILE_POLICY', 'path');
   const before = await lstat(path).catch(() => fail('PROTECTED_FILE_UNAVAILABLE', 'path'));
   if (!before.isFile() || before.isSymbolicLink() || before.uid !== uid || (before.mode & 0o777) !== 0o600 || before.size > maxBytes) fail('PROTECTED_FILE_POLICY', 'path');
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  if (beforeOpen) await beforeOpen();
+  let handle; try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { fail('PROTECTED_FILE_CHANGED', 'path'); }
   try {
     const opened = await handle.stat();
     if (!opened.isFile() || opened.uid !== uid || (opened.mode & 0o777) !== 0o600 || opened.dev !== before.dev || opened.ino !== before.ino || opened.size > maxBytes) fail('PROTECTED_FILE_CHANGED', 'path');

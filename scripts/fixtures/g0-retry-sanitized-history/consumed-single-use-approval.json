@@ -1,0 +1,40 @@
+{
+  "schema": "wordle-royale-g0-single-use-approval/v1",
+  "approvalId": "6898479e-22b1-4fc8-82ec-ea18a78f760f",
+  "approvedBy": "ashar",
+  "approvedAt": "2026-07-31T04:28:26+00:00",
+  "executeBefore": "2026-07-31T05:28:26+00:00",
+  "partialAttemptConsumesApproval": true,
+  "sourceSha": "32f8610b86346ab64b7cf39a51a7e73b8f5e6921",
+  "sourceArtifactDigest": "sha256:ef549f9e5cb3f307c2fc3ab92e2863ae19909ac7a5e890a38e4533865121000b",
+  "manifestDigest": "sha256:94f1b873b1b360e0c8b16cb5a72e7591a77758ee008f68e71d1106e569057f69",
+  "scope": {
+    "vercelProjectShell": "wordle-royale-production-web",
+    "railwayProjectShell": "wordle-royale-production",
+    "railwayEnvironmentShell": "production",
+    "railwayApiServiceShell": "wordle-royale-production-api",
+    "railwayRegion": "southeast-asia",
+    "deployments": 0,
+    "replicas": 0,
+    "variables": 0,
+    "domains": 0,
+    "databases": 0,
+    "sourceLinkageAllowed": false
+  },
+  "cost": {
+    "currency": "USD",
+    "railwayWholeWorkspaceInvoiceCapPreTax": "5.00",
+    "vercelApprovedIncrementalCharge": "0.00",
+    "supabaseApprovedIncrementalCharge": "0.00",
+    "overageApproved": false,
+    "paidAddonsApproved": false,
+    "planUpgradeApproved": false
+  },
+  "consumed": true,
+  "consumedAt": "2026-07-31T04:58:52+00:00",
+  "executionState": "rolled_back_provider_tombstone_pending_purge",
+  "completedAt": "2026-07-31T05:05:59+00:00",
+  "hostedMutationAuthorized": false,
+  "g1Authorized": false,
+  "g2Authorized": false
+}

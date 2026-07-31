@@ -1,0 +1,20 @@
+{
+  "schema": "wordle-royale-g0-local-qualification-receipt/v1",
+  "repository": "Ashar-Neodym/wordle-royale",
+  "targetSha": "c1a17f98e555cbf2b291c5a87a6f6311cb8881bb",
+  "sourceArtifactDigest": "sha256:f5bff020a1de79205bf3b71bf3ae0f7c83f86da43d3457b833edafffba01cf79",
+  "manifestDigest": "sha256:e69d3757ec29176d9c0f22b7d4552bf979376b0363605a642ac339c41501d137",
+  "providerDefaultPolicyDigest": "sha256:d97ebf644ebc033f982e3ba284b0692ce173222fee42207e8beb14ff76b74e40",
+  "waveAdToolingEvidence": {
+    "providerProvenance": "production-live-v3",
+    "singleNodePostgresObservation": "observedReplicaId",
+    "packageWiringVerified": true
+  },
+  "blockers": {
+    "railwayBackupRestore": "G2_deferred",
+    "planAndCost": "human_approval_required"
+  },
+  "retryGate": "closed",
+  "hostedMutationAuthorized": false,
+  "receiptDigest": "sha256:4a40fe2bba1d2c20bf15b8b33da1aeccaafff1fe0f34a5d63acea20859e23302"
+}
