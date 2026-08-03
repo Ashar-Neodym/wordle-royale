@@ -5,6 +5,7 @@ import {
   deriveG2BackupRestoreInventory, evaluateG2BackupRestoreReadiness,
   g2CanonicalJson, g2Sha256,
 } from './g2-backup-restore-readiness-core.mjs';
+import { parseG2StrictJson } from './g2-backup-restore-readiness-offline-core.mjs';
 
 export const G2_OPERATION_PLAN_SCHEMA = 'wordle-royale-g2-backup-restore-operation-plan/v1';
 export const G2_ADAPTER_ENVELOPE_SCHEMA = 'wordle-royale-g2-backup-restore-adapter-envelope/v1';
@@ -136,7 +137,10 @@ function argvFor(operation, challenge, plan) {
 function parseAdapterBytes(bytes, path) {
   fail(bytes instanceof Uint8Array && bytes.byteLength > 0 && bytes.byteLength <= MAX_JSON_BYTES, 'ADAPTER_OUTPUT_SIZE', path);
   let decoded; try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new G2EvidenceCollectorError('ADAPTER_OUTPUT_ENCODING', path); }
-  let value; try { value = JSON.parse(decoded); } catch { throw new G2EvidenceCollectorError('ADAPTER_OUTPUT_JSON', path); }
+  let value; try { value = parseG2StrictJson(Buffer.from(decoded)); } catch (error) {
+    if (error?.code === 'DUPLICATE_JSON_KEY' || error?.code === 'JSON_DEPTH') throw new G2EvidenceCollectorError(error.code, path);
+    throw new G2EvidenceCollectorError('ADAPTER_OUTPUT_JSON', path);
+  }
   return plain(value, path);
 }
 function adapterEnvelope(raw, semanticOperation, challenge, plan, productionNow) {
@@ -165,8 +169,9 @@ function privateAndPublic(signingKey, collectorPublicKey) {
 const signature = (unsigned, key) => `ed25519:${sign(null, Buffer.from(g2CanonicalJson(unsigned)), key).toString('base64')}`;
 
 /**
- * Pure semantic collector composition seam. There is intentionally no production
- * entry point: callers inject a pinned shell-free runner, Ed25519 key, and clock.
+ * Semantic collector composition seam shared by the production CLI and unit tests.
+ * Production supplies the hardened runner and Date.now; injection remains confined
+ * to this pure seam for deterministic semantic tests.
  */
 export async function collectG2BackupRestoreEvidence({ challenge, policy, operationPlan, signingKey, collectorPublicKey, childRunner, clock = Date.now }) {
   fail(challenge && policy, 'PROTECTED_INPUT_REQUIRED');
