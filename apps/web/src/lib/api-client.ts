@@ -3,9 +3,11 @@ import {
   apiReadinessPayloadSchema,
   errorEnvelopeSchema,
   rankedModesPayloadSchema,
+  runtimeCompatibilityPayloadSchema,
   unknownSuccessEnvelopeSchema,
   type ApiHealthPayload,
   type ApiReadinessPayload,
+  type RuntimeCompatibilityPayload,
   type RankedModesPayload,
   type CreateLobbyRequest,
   type CurrentUserDto,
@@ -39,7 +41,7 @@ import {
 } from './api-authority';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
-export type { ApiHealthPayload, ApiReadinessPayload, RankedModesPayload };
+export type { ApiHealthPayload, ApiReadinessPayload, RankedModesPayload, RuntimeCompatibilityPayload };
 
 export type ApiClientStatus = 'connected' | 'unavailable';
 
@@ -132,6 +134,7 @@ export type CreateStandard1v1TicketRequest = {
 export type WebApiCoreSnapshot = {
   health: ApiClientResult<ApiHealthPayload>;
   readiness: ApiClientResult<ApiReadinessPayload>;
+  runtimeCompatibility: ApiClientResult<RuntimeCompatibilityPayload>;
   currentUser: ApiClientResult<CurrentUserDto>;
   profile: ApiClientResult<PublicProfileDto>;
   lobbies: ApiClientResult<LobbyListPayload>;
@@ -338,6 +341,13 @@ export async function getReadiness(): Promise<ApiClientResult<ApiReadinessPayloa
   return requestReadEnvelope<ApiReadinessPayload>('/readyz', { responseSchema: apiReadinessPayloadSchema, authorityRead: true });
 }
 
+export async function getRuntimeCompatibility(): Promise<ApiClientResult<RuntimeCompatibilityPayload>> {
+  return requestReadEnvelope<RuntimeCompatibilityPayload>('/.well-known/wordle-runtime-compatibility', {
+    responseSchema: runtimeCompatibilityPayloadSchema,
+    authorityRead: true,
+  });
+}
+
 export async function getCurrentUser(): Promise<ApiClientResult<CurrentUserDto>> {
   return requestReadEnvelope<CurrentUserDto>('/auth/me');
 }
@@ -483,9 +493,10 @@ export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiC
 }
 
 export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
-  const [health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes] = await Promise.all([
+  const [health, readiness, runtimeCompatibility, currentUser, profile, lobbies, leaderboard, rankedModes] = await Promise.all([
     getHealth(),
     getReadiness(),
+    getRuntimeCompatibility(),
     getCurrentUser(),
     getProfile(),
     listLobbies(),
@@ -493,6 +504,6 @@ export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
     getRankedModes(),
   ]);
 
-  const core: WebApiCoreSnapshot = { health, readiness, currentUser, profile, lobbies, leaderboard, rankedModes };
+  const core: WebApiCoreSnapshot = { health, readiness, runtimeCompatibility, currentUser, profile, lobbies, leaderboard, rankedModes };
   return { ...core, authority: assessWebApiAuthority(core, webDeploymentRevision()) };
 }

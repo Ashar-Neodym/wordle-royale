@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { WEB_REQUIRED_API_AUTHORITY_ID } from '@wordle-royale/contracts';
 
 import type {
   ApiClientResult,
   ApiHealthPayload,
   ApiReadinessPayload,
   RankedModesPayload,
+  RuntimeCompatibilityPayload,
   WebApiCoreSnapshot,
 } from './api-client.ts';
-import { getHealth, getRankedModes } from './api-client.ts';
+import { getHealth, getRankedModes, getRuntimeCompatibility } from './api-client.ts';
 import {
   assessWebApiAuthority,
   resolveApiOriginConfiguration,
@@ -16,6 +18,7 @@ import {
 } from './api-authority.ts';
 
 const REVISION = '2262262262262262262262262262262262262262';
+const WEB_REVISION = '3333333333333333333333333333333333333333';
 const ORIGIN = 'https://api.example.test';
 
 function connected<T>(data: T, apiUrl = ORIGIN): ApiClientResult<T> {
@@ -41,6 +44,19 @@ function readiness(revision = REVISION, runtimeStatus: 'ok' | 'degraded' | 'unav
       database: { status: 'ok' }, applicationSchema: { status: 'ok' }, durableAuth: { status: 'not_checked_stub' }, standardDictionary: { status: 'ok' },
       speedRuntime: { status: runtimeStatus }, speedLifecycleActivation: { status: 'ok' }, redis: { status: 'ok' },
     },
+  };
+}
+
+function compatibility(
+  revision = REVISION,
+  supportedWebAuthorityIds: string[] = [WEB_REQUIRED_API_AUTHORITY_ID],
+): RuntimeCompatibilityPayload {
+  return {
+    schemaVersion: 'wordle-royale-runtime-compatibility/v1',
+    service: 'wordle-royale-api',
+    environment: 'test',
+    revision,
+    supportedWebAuthorityIds,
   };
 }
 
@@ -71,13 +87,14 @@ function modes(speed = speedMode()): RankedModesPayload {
 
 function core(overrides: Partial<WebApiCoreSnapshot> = {}): WebApiCoreSnapshot {
   return {
-    health: connected(health()), readiness: connected(readiness()), currentUser: unavailable(), profile: unavailable(),
+    health: connected(health()), readiness: connected(readiness()), runtimeCompatibility: connected(compatibility()),
+    currentUser: unavailable(), profile: unavailable(),
     lobbies: unavailable(), leaderboard: unavailable(), rankedModes: connected(modes()), ...overrides,
   };
 }
 
 function assess(snapshot: WebApiCoreSnapshot): ReturnType<typeof assessWebApiAuthority> {
-  return assessWebApiAuthority(snapshot, REVISION, ORIGIN);
+  return assessWebApiAuthority(snapshot, WEB_REVISION, ORIGIN);
 }
 
 function response(body: unknown, url = ORIGIN, status = 200): Response {
@@ -111,8 +128,26 @@ describe('web/API authority contract', () => {
   });
 
   it('proves enabled and only a coherent explicit configuration-disabled Speed identity', () => {
-    assert.equal(assess(core()).status, 'enabled');
+    const authority = assess(core());
+    assert.equal(authority.status, 'enabled');
+    assert.equal(authority.webRevision, WEB_REVISION);
+    assert.equal(authority.apiRevision, REVISION);
+    assert.equal(authority.requiredCompatibilityId, WEB_REQUIRED_API_AUTHORITY_ID);
+    assert.deepEqual(authority.apiSupportedCompatibilityIds, [WEB_REQUIRED_API_AUTHORITY_ID]);
     assert.equal(assess(core({ rankedModes: connected(modes(speedMode(false, false))) })).status, 'disabled');
+  });
+
+  it('implements the rolling compatibility matrix and permits distinct valid deployment revisions', () => {
+    assert.equal(assess(core({ runtimeCompatibility: unavailable() })).status, 'unavailable', 'old API without endpoint');
+    assert.equal(assess(core({ runtimeCompatibility: connected(compatibility('4444444444444444444444444444444444444444')) })).status, 'unavailable', 'mixed API revisions');
+    assert.equal(assess(core()).status, 'enabled', 'converged API reads with a separately deployed web');
+
+    const staged = compatibility(REVISION, [
+      'wordle-royale/web-api-authority/2',
+      WEB_REQUIRED_API_AUTHORITY_ID,
+    ]);
+    assert.equal(assess(core({ runtimeCompatibility: connected(staged) })).status, 'enabled', 'staged v1/v2 API supports this v1 web');
+    assert.equal(assess(core({ runtimeCompatibility: connected(compatibility(REVISION, ['wordle-royale/web-api-authority/2'])) })).status, 'unavailable', 'v1 membership is required');
   });
 
   it('keeps configured temporary closure, reasons, contradictory booleans, and runtime/lifecycle non-OK unavailable', () => {
@@ -133,8 +168,18 @@ describe('web/API authority contract', () => {
     assert.equal(assess(core({ rankedModes: connected(duplicate) })).status, 'unavailable');
     assert.equal(assess(core({ readiness: connected(partialReadiness) })).status, 'unavailable');
     assert.equal(assess(core({ health: connected(wrongService) })).status, 'unavailable');
-    assert.equal(assessWebApiAuthority(core(), REVISION, 'https://other.example.test').status, 'unavailable');
-    assert.equal(assessWebApiAuthority(core(), '3333333333333333333333333333333333333333', ORIGIN).status, 'unavailable');
+    assert.equal(assessWebApiAuthority(core(), WEB_REVISION, 'https://other.example.test').status, 'unavailable');
+  });
+
+  it('rejects malformed compatibility, duplicate IDs, and service/environment disagreement', () => {
+    const duplicate = compatibility(REVISION, [WEB_REQUIRED_API_AUTHORITY_ID, WEB_REQUIRED_API_AUTHORITY_ID]);
+    const wrongSchema = { ...compatibility(), schemaVersion: 'wordle-royale-runtime-compatibility/v2' } as unknown as RuntimeCompatibilityPayload;
+    const wrongEnvironment = { ...compatibility(), environment: 'production' };
+    const wrongService = { ...compatibility(), service: 'wordle-royale-web' } as unknown as RuntimeCompatibilityPayload;
+    assert.equal(assess(core({ runtimeCompatibility: connected(duplicate) })).status, 'unavailable');
+    assert.equal(assess(core({ runtimeCompatibility: connected(wrongSchema) })).status, 'unavailable');
+    assert.equal(assess(core({ runtimeCompatibility: connected(wrongEnvironment) })).status, 'unavailable');
+    assert.equal(assess(core({ runtimeCompatibility: connected(wrongService) })).status, 'unavailable');
   });
 
   it('rejects redirects and actual cross-origin authority responses without forwarding a second request', async () => {
@@ -168,6 +213,24 @@ describe('web/API authority contract', () => {
         const result = await getHealth();
         assert.equal(result.status, 'connected');
         assert.equal(result.apiUrl, ORIGIN);
+        assert.equal(calls, 2);
+      } finally { globalThis.fetch = originalFetch; }
+    });
+  });
+
+  it('strictly fetches compatibility from the canonical origin and rejects malformed payloads', async () => {
+    await withApiEnvironment(async () => {
+      const originalFetch = globalThis.fetch;
+      let calls = 0;
+      globalThis.fetch = async (input, init) => {
+        calls += 1;
+        assert.equal(String(input), `${ORIGIN}/.well-known/wordle-runtime-compatibility`);
+        assert.equal(init?.redirect, 'manual');
+        return response(envelope(calls === 1 ? { ...compatibility(), extra: true } : compatibility()));
+      };
+      try {
+        const result = await getRuntimeCompatibility();
+        assert.equal(result.status, 'connected');
         assert.equal(calls, 2);
       } finally { globalThis.fetch = originalFetch; }
     });
