@@ -1,6 +1,6 @@
 # Wave AJ — local-only G0 retry evidence collector architecture
 
-Date: 2026-08-03  
+Date: 2026-08-03
 Status: AJ-1 semantic core implemented. Current live provider facts remain blocked. Nothing in this wave grants hosted mutation or reuses the consumed approval.
 
 ## Decision and authority boundary
