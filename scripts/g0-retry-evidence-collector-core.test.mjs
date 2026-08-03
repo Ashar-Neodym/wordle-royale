@@ -244,6 +244,52 @@ test("unknown, null, and omitted cost components fail specifically; cap is stric
   );
 });
 
+test("every Railway quote is complete and canonical before interval selection", () => {
+  const matching = {
+    currency: "USD",
+    interval: { ...interval },
+    subtotalUsd: "1",
+    taxesUsd: "0",
+    feesUsd: "0",
+    appliedCreditsUsd: "0",
+    unappliedBalanceUsd: "0",
+  };
+  const nonmatching = {
+    ...matching,
+    interval: {
+      start: "2026-07-01T00:00:00.000Z",
+      end: "2026-08-01T00:00:00.000Z",
+    },
+  };
+  for (const [field, value, expected] of [
+    ["taxesUsd", null, "TAXES_UNKNOWN"],
+    ["feesUsd", "unknown", "FEES_UNKNOWN"],
+    ["subtotalUsd", "not-a-decimal", "DECIMAL_FORMAT_INVALID"],
+    ["subtotalUsd", "-1", "DECIMAL_FORMAT_INVALID"],
+    ["subtotalUsd", "1e2", "DECIMAL_FORMAT_INVALID"],
+    ["appliedCreditsUsd", "not-a-decimal", "DECIMAL_FORMAT_INVALID"],
+    ["appliedCreditsUsd", "-1", "DECIMAL_FORMAT_INVALID"],
+    ["appliedCreditsUsd", "1e2", "DECIMAL_FORMAT_INVALID"],
+  ])
+    code(
+      () =>
+        normalizeRailwayCost(
+          [{ ...nonmatching, [field]: value }, matching],
+          interval,
+        ),
+      expected,
+    );
+
+  assert.deepEqual(normalizeRailwayCost([nonmatching, matching], interval), {
+    currency: "USD",
+    subtotalUsd: "1.0000",
+    taxesUsd: "0.0000",
+    feesUsd: "0.0000",
+    creditsUsd: "0.0000",
+    allInUsd: "1.0000",
+  });
+});
+
 test("composes exact unsigned retry evidence and deterministic inventory", () => {
   const input = fixture();
   const first = collectG0RetryEvidence(input),

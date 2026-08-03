@@ -200,7 +200,7 @@ export function normalizeRailwayCost(quotes, expectedInterval) {
       path,
     );
     same(quote.currency, "USD", "COST_CURRENCY_INVALID", path);
-    if (interval(quote.interval, `${path}.interval`) !== wanted) continue;
+    const quoteInterval = interval(quote.interval, `${path}.interval`);
     const subtotal = ceilDecimalToFour(
       known(quote.subtotalUsd, "SUBTOTAL_UNKNOWN", path),
       `${path}.subtotalUsd`,
@@ -224,6 +224,7 @@ export function normalizeRailwayCost(quotes, expectedInterval) {
     );
     const allIn = units(subtotal) + units(taxes) + units(fees) - units(credits);
     fail(allIn >= 0n, "COST_ARITHMETIC_INVALID", path);
+    if (quoteInterval !== wanted) continue;
     const candidate = {
       currency: "USD",
       subtotalUsd: subtotal,
