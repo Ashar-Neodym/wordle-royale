@@ -11,7 +11,7 @@ const INPUTS=Object.freeze(['challenge','policy','operation-plan','signing-key',
 const fail=(code)=>{const error=new Error(code);error.code=code;throw error;};
 function parse(argv){if(argv.length!==OPTIONS.length*2)fail('CLI_ARGUMENT_INVALID');const values={};for(let i=0;i<argv.length;i+=2){const flag=argv[i],value=argv[i+1],key=flag?.startsWith('--')?flag.slice(2):'';if(!OPTIONS.includes(key)||value===undefined||Object.hasOwn(values,key))fail('CLI_ARGUMENT_INVALID');if(!isAbsolute(value)||resolve(value)!==value||value.includes('\0'))fail('PATH_NOT_ABSOLUTE');values[key]=value;}return values;}
 function classify(error){const code=typeof error?.code==='string'&&/^[A-Z][A-Z0-9_]*$/u.test(error.code)?error.code:'COLLECTOR_FAILED';if(code==='CHALLENGE_REPLAY')return{code,status:3};const io=new Set(['DIRECTORY_UNAVAILABLE','DIRECTORY_POLICY','DIRECTORY_DESCRIPTOR_UNAVAILABLE','DIRECTORY_ALIAS','DIRECTORY_CHANGED','OUTPUT_ALREADY_EXISTS','OUTPUT_FILE_POLICY','OUTPUT_CANDIDATE_CHANGED','OUTPUT_PUBLICATION_RACE','REPLAY_MARKER_POLICY','REPLAY_MARKER_CHANGED','EACCES','EDQUOT','EEXIST','EIO','EMFILE','ENFILE','ENOENT','ENOSPC','EPERM','EROFS']);return{code,status:io.has(code)||code.startsWith('ERR_')?4:2};}
-let outputRoot,replayRoot;
+let outputRoot,replayRoot,runner;
 try{
   const options=parse(process.argv.slice(2));
   const parentRoots=[];try{for(const parent of new Set(INPUTS.map(x=>dirname(options[x]))))parentRoots.push(await openG2ProtectedDirectory(parent));}finally{await Promise.all(parentRoots.map(x=>x.handle.close()));}
@@ -27,8 +27,8 @@ try{
   outputRoot=await openG2ProtectedDirectory(options['output-dir']);replayRoot=await openG2ProtectedDirectory(options['collector-replay-dir']);
   if(outputRoot.info.dev===replayRoot.info.dev&&outputRoot.info.ino===replayRoot.info.ino)fail('DIRECTORY_ALIAS');
   await reserveG2CollectorOutput(outputRoot,challenge.runId);
-  const runner=createG2SecureChildRunner();
+  runner=createG2SecureChildRunner();
   const bundle=await collectG2BackupRestoreEvidence({challenge,policy,operationPlan,signingKey,collectorPublicKey,childRunner:runner});await runner.finish();
   const published=await publishG2CollectorBundle({outputRoot,replayRoot,bundle});
   process.stdout.write(`${JSON.stringify({ok:true,decision:'eligible_to_request_G2_approval',runId:challenge.runId,commit:published.commit,files:published.files})}\n`);
-}catch(error){const reported=classify(error);process.stderr.write(`${JSON.stringify({ok:false,code:reported.code})}\n`);process.exitCode=reported.status;}finally{await replayRoot?.handle.close().catch(()=>{});await outputRoot?.handle.close().catch(()=>{});}
+}catch(error){const reported=classify(error);process.stderr.write(`${JSON.stringify({ok:false,code:reported.code})}\n`);process.exitCode=reported.status;}finally{await runner?.close().catch(()=>{});await replayRoot?.handle.close().catch(()=>{});await outputRoot?.handle.close().catch(()=>{});}
