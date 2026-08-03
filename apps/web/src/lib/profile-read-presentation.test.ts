@@ -23,6 +23,7 @@ describe('generic profile and leaderboard identity presentation', () => {
     try {
       const snapshot = await getWebApiSnapshot();
       assert.deepEqual(paths.sort(), [
+        '/.well-known/wordle-runtime-compatibility',
         '/auth/me',
         '/healthz',
         '/leaderboard',

@@ -23,6 +23,8 @@ export default async function ServerPage(): Promise<ReactElement> {
             <div><strong>Authority</strong><span>{api.authority.availability}</span></div>
             <div><strong>Web revision</strong><span>{api.authority.webRevision}</span></div>
             <div><strong>API revision</strong><span>{api.authority.apiRevision}</span></div>
+            <div><strong>Required compatibility</strong><span>{api.authority.requiredCompatibilityId}</span></div>
+            <div><strong>API-supported compatibility</strong><span>{api.authority.apiSupportedCompatibilityIds.join(', ') || 'unavailable'}</span></div>
             <div><strong>Health</strong><span>{api.health.status}</span></div>
             <div><strong>Readiness</strong><span>{api.readiness.data?.status ?? api.readiness.status}</span></div>
             <div><strong>Lobbies</strong><span>{api.lobbies.status}</span></div>
