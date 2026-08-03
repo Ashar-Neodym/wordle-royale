@@ -290,6 +290,38 @@ test("every Railway quote is complete and canonical before interval selection", 
   });
 });
 
+test("every Vercel quote is complete and canonical before interval selection", () => {
+  const input = fixture();
+  const matching = input.vercel.payload.chargeQuotes[0];
+  const nonmatching = {
+    ...matching,
+    interval: {
+      start: "2026-07-01T00:00:00.000Z",
+      end: "2026-08-01T00:00:00.000Z",
+    },
+  };
+  for (const [name, value, expected] of [
+    ["omitted", undefined, "OMITTED_FIELD"],
+    ["null", null, "VERCEL_CHARGE_UNKNOWN"],
+    ["unknown", "unknown", "VERCEL_CHARGE_UNKNOWN"],
+    ["malformed", "not-a-decimal", "DECIMAL_FORMAT_INVALID"],
+    ["exponent", "1e2", "DECIMAL_FORMAT_INVALID"],
+    ["negative", "-1", "DECIMAL_FORMAT_INVALID"],
+  ]) {
+    const quote = { ...nonmatching, chargeUsd: value };
+    if (name === "omitted") delete quote.chargeUsd;
+    const candidate = fixture();
+    candidate.vercel.payload.chargeQuotes = [quote, matching];
+    code(() => collectG0RetryEvidence(candidate), expected);
+  }
+
+  input.vercel.payload.chargeQuotes = [nonmatching, matching];
+  assert.equal(
+    collectG0RetryEvidence(input).evidence.accounts.vercel.chargeUsd,
+    "0.0000",
+  );
+});
+
 test("composes exact unsigned retry evidence and deterministic inventory", () => {
   const input = fixture();
   const first = collectG0RetryEvidence(input),

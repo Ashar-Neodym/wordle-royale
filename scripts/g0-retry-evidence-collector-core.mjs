@@ -256,11 +256,12 @@ function normalizeVercelCharge(quotes, expectedInterval) {
       path = `vercel.chargeQuotes[${index}]`;
     exact(quote, ["currency", "interval", "chargeUsd"], path);
     same(quote.currency, "USD", "COST_CURRENCY_INVALID", path);
-    if (interval(quote.interval, `${path}.interval`) !== wanted) continue;
+    const quoteInterval = interval(quote.interval, `${path}.interval`);
     const charge = ceilDecimalToFour(
       known(quote.chargeUsd, "VERCEL_CHARGE_UNKNOWN", path),
       `${path}.chargeUsd`,
     );
+    if (quoteInterval !== wanted) continue;
     if (greatest === null || units(charge) > units(greatest)) greatest = charge;
   }
   fail(greatest !== null, "NO_SAME_INTERVAL_CHARGE_QUOTE");
