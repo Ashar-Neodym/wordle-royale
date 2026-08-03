@@ -35,6 +35,7 @@ export type WebApiAuthority = Readonly<{
 }>;
 
 const developmentApiOrigin = 'http://127.0.0.1:3001';
+const canonicalAuditableRevision = /^[a-f0-9]{40}$/u;
 
 function normalizeOrigin(raw: string | undefined): string | null {
   const candidate = raw?.trim();
@@ -167,10 +168,13 @@ export function assessWebApiAuthority(
   if (!canonicalConfiguredOrigin || origins.some((origin) => origin === null || origin !== canonicalConfiguredOrigin)) {
     return unavailable(diagnostics, 'Authoritative reads did not come from the configured canonical API origin.');
   }
-  if (health.data.revision === 'unavailable'
+  if (!canonicalAuditableRevision.test(webRevision)) {
+    return unavailable(diagnostics, 'The serving web deployment did not provide one canonical auditable revision.');
+  }
+  if (!canonicalAuditableRevision.test(health.data.revision)
     || health.data.revision !== readiness.data.revision
     || health.data.revision !== compatibility.data.revision) {
-    return unavailable(diagnostics, 'Health, readiness, and compatibility did not prove one API deployment revision.');
+    return unavailable(diagnostics, 'Health, readiness, and compatibility did not prove one canonical auditable API deployment revision.');
   }
   if (health.data.service !== compatibility.data.service
     || readiness.data.service !== compatibility.data.service

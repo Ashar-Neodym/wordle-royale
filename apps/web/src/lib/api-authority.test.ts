@@ -97,6 +97,14 @@ function assess(snapshot: WebApiCoreSnapshot): ReturnType<typeof assessWebApiAut
   return assessWebApiAuthority(snapshot, WEB_REVISION, ORIGIN);
 }
 
+function coreAtRevision(revision: string): WebApiCoreSnapshot {
+  return core({
+    health: connected(health(revision)),
+    readiness: connected(readiness(revision)),
+    runtimeCompatibility: connected(compatibility(revision)),
+  });
+}
+
 function response(body: unknown, url = ORIGIN, status = 200): Response {
   const value = new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   Object.defineProperty(value, 'url', { value: `${url}/authority`, configurable: true });
@@ -148,6 +156,32 @@ describe('web/API authority contract', () => {
     ]);
     assert.equal(assess(core({ runtimeCompatibility: connected(staged) })).status, 'enabled', 'staged v1/v2 API supports this v1 web');
     assert.equal(assess(core({ runtimeCompatibility: connected(compatibility(REVISION, ['wordle-royale/web-api-authority/2'])) })).status, 'unavailable', 'v1 membership is required');
+  });
+
+  it('rejects unavailable, development, short, and malformed serving web revisions', () => {
+    const invalidWebRevisions = {
+      unavailable: 'unavailable',
+      development: 'development',
+      short: 'abcdef1',
+      malformed: 'A'.repeat(40),
+    };
+    for (const [label, revision] of Object.entries(invalidWebRevisions)) {
+      const authority = assessWebApiAuthority(core(), revision, ORIGIN);
+      assert.equal(authority.status, 'unavailable', label);
+      assert.match(authority.reason ?? '', /serving web deployment.*canonical auditable revision/u, label);
+    }
+  });
+
+  it('rejects unavailable, development, short, and malformed converged API revisions', () => {
+    const invalidApiRevisions = {
+      unavailable: 'unavailable',
+      development: 'development',
+      short: 'abcdef1',
+      malformed: 'A'.repeat(40),
+    };
+    for (const [label, revision] of Object.entries(invalidApiRevisions)) {
+      assert.equal(assess(coreAtRevision(revision)).status, 'unavailable', label);
+    }
   });
 
   it('keeps configured temporary closure, reasons, contradictory booleans, and runtime/lifecycle non-OK unavailable', () => {
