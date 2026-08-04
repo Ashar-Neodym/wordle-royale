@@ -8,6 +8,7 @@ import { commitReceiptNoReplaceForTests, createProviderBundleReproducibilityForT
 
 const REVISION = 'a'.repeat(40);
 const H = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
+const RAILWAY_HELPER_PATH = new URL('./g0-railway-native-acquisition-helper.py', import.meta.url).pathname;
 const CONTRACT = Object.freeze({
   canonicalSourceSnapshotSha256: H('snapshot'),
   packageJsonSha256: 'sha256:58fffb1ef8b6b6ff51cba0d9f752ea29dac6830cfaed4c763c7a3bd0f2d9dcde',
@@ -16,9 +17,13 @@ const CONTRACT = Object.freeze({
     node: { path: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', sha256: 'sha256:5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926', version: 'v26.3.0' },
     npm: { path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: 'sha256:8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0' },
     tracer: { path: '/usr/bin/strace', realpath: '/usr/bin/strace', sha256: 'sha256:28f957c227012de0b18d1bd7fff2d396cb693ea60ed8013be68de071e84b5001', version: 'strace -- version 6.8' },
+    python: { path: '/usr/bin/python3.12', realpath: '/usr/bin/python3.12', sha256: 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118', version: 'Python 3.12.3' },
+    railwayHelper: { path: RAILWAY_HELPER_PATH, realpath: RAILWAY_HELPER_PATH, sha256: 'sha256:90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16', version: 'wordle-railway-native-acquisition/1' },
+    caBundle: { path: '/etc/ssl/certs/ca-certificates.crt', realpath: '/etc/ssl/certs/ca-certificates.crt', sha256: 'sha256:6602a85a36afc2e51c66a0df5ae3d383c5b7c2fed93339ccef7d37e01faf09e8', version: 'sha256-bound-system-ca/1' },
   },
 });
-const NETWORK = Object.freeze({ allowedObservedHttpOrigin: 'https://registry.npmjs.org/', dnsRequestCount: 2, httpRequestCount: 3, networkSyscallCount: 12, tlsConnectionCount: 4 });
+const NETWORK = Object.freeze({ npmRegistry: { allowedObservedHttpOrigin: 'https://registry.npmjs.org/', dnsRequestCount: 2, httpRequestCount: 3, networkSyscallCount: 12, tlsConnectionCount: 4 }, railwayNativeAsset: { dnsRequestCount: 2, networkSyscallCount: 54, observedHttpOrigins: ['https://github.com', 'https://release-assets.githubusercontent.com'], tlsConnectionCount: 6 } });
+const RAILWAY_NATIVE = Object.freeze({ archiveBytes: 7141267, binaryBytes: 16529032, binaryMode: 0o700, binarySha256: 'sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2', httpOrigins: ['https://github.com', 'https://release-assets.githubusercontent.com'], initialUrl: 'https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz', redirectCount: 1 });
 const MEMBERS = Object.freeze({
   COMMIT: H('commit'), 'acquisition-record.json': H('acq'), 'bundle.tree-manifest.json': H('manifest'),
   'descriptor.json': H('descriptor'), 'install-plan.json': H('plan'), 'publication-index.json': H('index'),
@@ -42,7 +47,7 @@ async function setup() {
 function acquisition(input, mutate = {}) {
   return async ({ workspaceRoot, label }) => ({
     status: 'FRESH_ACQUISITION_VALID', label, sourceRoot: join(workspaceRoot, `acquisition-${label}/source`),
-    ...CONTRACT, networkSummary: NETWORK, lifecycleScriptsExecuted: false, credentialsForwarded: false, providerExecuted: false,
+    ...CONTRACT, networkSummary: NETWORK, railwayNativeAcquisition: RAILWAY_NATIVE, lifecycleScriptsExecuted: false, credentialsForwarded: false, providerExecuted: false,
     ...(mutate[label] ?? {}),
   });
 }

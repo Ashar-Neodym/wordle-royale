@@ -10,6 +10,8 @@ import { scanCanonicalProviderBundleSourceSnapshot } from './g0-provider-bundle-
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY = resolve(HERE, '..');
 const REGISTRY = 'https://registry.npmjs.org/';
+const RAILWAY_ASSET = 'https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz';
+const RAILWAY_BINARY_SHA256 = '26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2';
 const INPUTS = Object.freeze({
   'package.json': Object.freeze({ path: join(REPOSITORY, 'tools/g0-provider-acquisition/v1/package.json'), sha256: '58fffb1ef8b6b6ff51cba0d9f752ea29dac6830cfaed4c763c7a3bd0f2d9dcde', max: 16 * 1024 }),
   'package-lock.json': Object.freeze({ path: join(REPOSITORY, 'tools/g0-provider-acquisition/v1/package-lock.json'), sha256: 'bc4cfd9d815ad6615ffce0a0fc877f25f199bf48ce4d11fa2cbec3bc85d93b90', max: 256 * 1024 }),
@@ -18,6 +20,9 @@ const TOOLS = Object.freeze({
   node: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', sha256: '5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926', version: 'v26.3.0', mode: 0o755, uid: 1000 }),
   npm: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: '8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0', mode: 0o755, uid: 1000 }),
   tracer: Object.freeze({ path: '/usr/bin/strace', realpath: '/usr/bin/strace', sha256: '28f957c227012de0b18d1bd7fff2d396cb693ea60ed8013be68de071e84b5001', version: 'strace -- version 6.8', mode: 0o755, uid: 0 }),
+  python: Object.freeze({ path: '/usr/bin/python3.12', realpath: '/usr/bin/python3.12', sha256: '1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118', version: 'Python 3.12.3', mode: 0o755, uid: 0 }),
+  railwayHelper: Object.freeze({ path: join(HERE, 'g0-railway-native-acquisition-helper.py'), realpath: join(HERE, 'g0-railway-native-acquisition-helper.py'), sha256: '90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16', version: 'wordle-railway-native-acquisition/1', mode: 0o644, uid: 1000 }),
+  caBundle: Object.freeze({ path: '/etc/ssl/certs/ca-certificates.crt', realpath: '/etc/ssl/certs/ca-certificates.crt', sha256: '6602a85a36afc2e51c66a0df5ae3d383c5b7c2fed93339ccef7d37e01faf09e8', version: 'sha256-bound-system-ca/1', mode: 0o644, uid: 0 }),
 });
 const NPMRC = Buffer.from('registry=https://registry.npmjs.org/\nalways-auth=false\nignore-scripts=true\naudit=false\nfund=false\nstrict-ssl=true\n', 'utf8');
 const EMPTY_NPMRC = Buffer.alloc(0);
@@ -25,6 +30,7 @@ const ARGS = Object.freeze(['ci', '--ignore-scripts', '--no-audit', '--no-fund']
 const OUTPUT_LIMIT = 16 * 1024 * 1024;
 const VERSION_OUTPUT_LIMIT = 1024;
 const TIMEOUT_MS = 10 * 60 * 1000;
+const RAILWAY_TIMEOUT_MS = 3 * 60 * 1000;
 const FILE_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
 const DIR_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 
@@ -160,7 +166,7 @@ export function parseFreshAcquisitionEvidence({ traceFiles, npmStderr, resolverA
     httpRequestCount += 1;
   }
   let execCount = 0; let dnsRequestCount = 0; let tlsConnectionCount = 0; let networkSyscallCount = 0;
-  const allowedSyscalls = new Set(['execve', 'clone', 'clone3', 'exit', 'exit_group', 'socket', 'connect', 'sendto', 'sendmsg', 'sendmmsg', 'recvfrom', 'recvmsg', 'recvmmsg', 'bind', 'getsockname', 'getsockopt', 'setsockopt', 'shutdown']);
+  const allowedSyscalls = new Set(['execve', 'clone', 'clone3', 'exit', 'exit_group', 'socket', 'connect', 'sendto', 'sendmsg', 'sendmmsg', 'recvfrom', 'recvmsg', 'recvmmsg', 'bind', 'getsockname', 'getpeername', 'getsockopt', 'setsockopt', 'shutdown']);
   for (const text of traceFiles) {
     if (/unfinished \.\.\.|<\.\.\. [a-z]+ resumed>|ptrace|Process \d+ attached|strace:/u.test(text)) fail('TRACE_LOSS');
     for (const line of text.split('\n')) {
@@ -172,7 +178,7 @@ export function parseFreshAcquisitionEvidence({ traceFiles, npmStderr, resolverA
         if (execCount !== 1 || !/execve\("\/proc\/self\/fd\/4", \["\/proc\/self\/fd\/4", "\/proc\/self\/fd\/5", "ci"/u.test(line)) fail('CHILD_EXEC_FORBIDDEN');
       }
       if (/\b(fork|vfork)\(/u.test(line) || (/\bclone3?\(/u.test(line) && !/CLONE_THREAD/u.test(line))) fail('CHILD_EXEC_FORBIDDEN');
-      if (/\b(socket|connect|sendto|sendmsg|sendmmsg|recvfrom|recvmsg|recvmmsg|bind|getsockname|getsockopt|setsockopt|shutdown)\(/u.test(line)) {
+      if (/\b(socket|connect|sendto|sendmsg|sendmmsg|recvfrom|recvmsg|recvmmsg|bind|getsockname|getpeername|getsockopt|setsockopt|shutdown)\(/u.test(line)) {
         networkSyscallCount += 1;
         if (/AF_PACKET/u.test(line)) fail('NETWORK_ENDPOINT_FORBIDDEN');
         if (/AF_UNIX|AF_LOCAL/u.test(line)
@@ -227,6 +233,72 @@ async function productionExecutor(spec) {
   }));
   return { npmStderr: Buffer.concat(stderr).toString('utf8'), stdoutBytes: Buffer.concat(stdout).length, traceFiles };
 }
+async function readTraceSet(spec, prefix) {
+  const names = (await readdir(spec.traceDirectory)).filter((name) => name.startsWith(`${prefix}.`) && /^[-a-z]+\.\d+$/u.test(name)).sort();
+  if (!names.length || names.length > 64) fail('TRACE_INVALID');
+  let total = 0;
+  return Promise.all(names.map(async (name) => {
+    const handle = await open(`/proc/self/fd/${spec.traceDirectoryFd}/${name}`, FILE_FLAGS).catch(() => fail('TRACE_INVALID'));
+    try {
+      const st = await handle.stat({ bigint: true }); total += Number(st.size);
+      if (!st.isFile() || st.nlink !== 1n || st.uid !== BigInt(process.getuid()) || Number(st.mode & 0o7777n) !== 0o600 || total > OUTPUT_LIMIT) fail('TRACE_INVALID');
+      return await handle.readFile({ encoding: 'utf8' });
+    } finally { await handle.close(); }
+  }));
+}
+export function parseRailwayNativeTrace({ traceFiles, resolverAddresses }) {
+  if (!Array.isArray(traceFiles) || !traceFiles.length || !Array.isArray(resolverAddresses) || !resolverAddresses.length) fail('RAILWAY_TRACE_INVALID');
+  const resolvers = new Set(resolverAddresses); let execCount = 0; let dnsRequestCount = 0; let tlsConnectionCount = 0; let networkSyscallCount = 0;
+  const allowed = new Set(['execve', 'exit', 'exit_group', 'socket', 'connect', 'sendto', 'sendmsg', 'sendmmsg', 'recvfrom', 'recvmsg', 'recvmmsg', 'bind', 'getsockname', 'getpeername', 'getsockopt', 'setsockopt', 'shutdown']);
+  for (const text of traceFiles) {
+    if (typeof text !== 'string' || text.length > OUTPUT_LIMIT || /unfinished \.\.\.|<\.\.\. [a-z]+ resumed>|ptrace|Process \d+ attached|strace:/u.test(text)) fail('TRACE_LOSS');
+    for (const line of text.split('\n')) {
+      if (!line || /^\+\+\+ exited with 0 \+\+\+$/u.test(line) || /^--- SIG/u.test(line)) continue;
+      const syscall = line.match(/^([a-z][a-z0-9_]*)\(/u)?.[1]; if (!syscall || !allowed.has(syscall)) fail('TRACE_SYSCALL_UNKNOWN');
+      if (syscall === 'execve') {
+        execCount += 1;
+        if (execCount !== 1 || !/^execve\("\/proc\/self\/fd\/4", \["\/proc\/self\/fd\/4", "-I", "-B", "\/proc\/self\/fd\/5"\]/u.test(line)) fail('CHILD_EXEC_FORBIDDEN');
+      }
+      if (/\b(socket|connect|sendto|sendmsg|sendmmsg|recvfrom|recvmsg|recvmmsg|bind|getsockname|getpeername|getsockopt|setsockopt|shutdown)\(/u.test(line)) {
+        networkSyscallCount += 1;
+        if (/AF_PACKET/u.test(line)) fail('NETWORK_ENDPOINT_FORBIDDEN');
+        if (/AF_UNIX|AF_LOCAL/u.test(line) && !(/^getsock(?:name|opt)\([12],/u.test(line) || /^socket\(AF_UNIX, SOCK_STREAM\|SOCK_CLOEXEC\|SOCK_NONBLOCK, 0\)/u.test(line) || /^connect\(\d+, \{sa_family=AF_UNIX, sun_path="\/var\/run\/nscd\/socket"\}.*ENOENT/u.test(line))) fail('NETWORK_ENDPOINT_FORBIDDEN');
+        if (/AF_NETLINK/u.test(line) && !(/NETLINK_ROUTE|RTM_(?:GET|NEW)(?:LINK|ADDR)|NLMSG_|^getsockname|^bind\(\d+, \{sa_family=AF_NETLINK/u.test(line))) fail('NETWORK_ENDPOINT_FORBIDDEN');
+        if (/\b(connect|sendto|sendmsg|sendmmsg|getpeername)\(/u.test(line) && /sa_family=/u.test(line)) {
+          const item = endpoint(line); if (['AF_NETLINK', 'AF_UNSPEC', 'AF_UNIX'].includes(item.family)) continue;
+          if (!['AF_INET', 'AF_INET6'].includes(item.family) || !item.address) fail('NETWORK_ENDPOINT_MALFORMED');
+          if (syscall === 'getpeername') { if (item.port !== 443) fail('NETWORK_ENDPOINT_FORBIDDEN'); }
+          else if (item.port === 53) { if (!resolvers.has(item.address)) fail('DNS_RESOLVER_FORBIDDEN'); dnsRequestCount += 1; }
+          else if (item.port === 443) tlsConnectionCount += 1;
+          else if (item.port !== 0) fail('NETWORK_ENDPOINT_FORBIDDEN');
+        }
+      }
+      if (/^\+\+\+ (?:killed|exited with [^0])/u.test(line)) fail('TRACE_PROCESS_FAILURE');
+    }
+  }
+  if (execCount !== 1 || dnsRequestCount === 0 || tlsConnectionCount < 2) fail('NETWORK_OBSERVATION_INCOMPLETE');
+  return freezeDeep({ dnsRequestCount, networkSyscallCount, observedHttpOrigins: ['https://github.com', 'https://release-assets.githubusercontent.com'], tlsConnectionCount });
+}
+async function productionRailwayExecutor(spec) {
+  const env = { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TZ: 'UTC', SSL_CERT_FILE: TOOLS.caBundle.path };
+  const oldUmask = process.umask(0o077); let child;
+  try {
+    child = spawn('/proc/self/fd/3', ['-ff', '-qq', '-s', '65535', '-e', 'trace=%network,%process', '-o', join(spec.traceDirectory, 'railway-trace'), '/proc/self/fd/4', '-I', '-B', '/proc/self/fd/5'], {
+      cwd: spec.cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe', spec.tracerFd, spec.pythonFd, spec.helperFd, spec.sourceFd], windowsHide: true,
+    });
+  } finally { process.umask(oldUmask); }
+  const stdout = []; const stderr = []; let bytes = 0; let overflow = false; let timedOut = false;
+  const consume = (list) => (chunk) => { bytes += chunk.length; if (bytes > 64 * 1024) { overflow = true; try { process.kill(-child.pid, 'SIGKILL'); } catch {} } else list.push(Buffer.from(chunk)); };
+  child.stdout.on('data', consume(stdout)); child.stderr.on('data', consume(stderr));
+  const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, RAILWAY_TIMEOUT_MS); timer.unref();
+  const outcome = await new Promise((accept, reject) => { child.once('error', reject); child.once('close', (code, signal) => accept({ code, signal })); }).finally(() => clearTimeout(timer));
+  if (timedOut) fail('RAILWAY_ACQUISITION_TIMEOUT'); if (overflow) fail('RAILWAY_ACQUISITION_OUTPUT_LIMIT');
+  if (outcome.code !== 0 || outcome.signal !== null || Buffer.concat(stderr).length) fail('RAILWAY_ACQUISITION_FAILED');
+  let receipt; try { receipt = JSON.parse(Buffer.concat(stdout).toString('utf8')); } catch { fail('RAILWAY_RECEIPT_INVALID'); }
+  exact(receipt, ['archiveBytes', 'binaryBytes', 'binaryMode', 'binarySha256', 'httpOrigins', 'initialUrl', 'redirectCount']);
+  if (!Number.isSafeInteger(receipt.archiveBytes) || receipt.archiveBytes < 1 || receipt.archiveBytes > 32 * 1024 * 1024 || !Number.isSafeInteger(receipt.binaryBytes) || receipt.binaryBytes < 1 || receipt.binaryBytes > 64 * 1024 * 1024 || receipt.binaryMode !== 0o700 || receipt.binarySha256 !== `sha256:${RAILWAY_BINARY_SHA256}` || receipt.initialUrl !== RAILWAY_ASSET || receipt.redirectCount !== 1 || JSON.stringify(receipt.httpOrigins) !== JSON.stringify(['https://github.com', 'https://release-assets.githubusercontent.com'])) fail('RAILWAY_RECEIPT_INVALID');
+  return { receipt: freezeDeep(receipt), traceFiles: await readTraceSet(spec, 'railway-trace') };
+}
 async function verifyTracer() {
   try { return await holdPinnedFile(TOOLS.tracer, { max: 4 * 1024 * 1024 }); }
   catch { fail('TRACER_POLICY_MISMATCH'); }
@@ -279,7 +351,7 @@ async function verifyLockOrigins(handle) {
     if (url.protocol !== 'https:' || url.origin !== 'https://registry.npmjs.org' || url.username || url.password) fail('LOCKFILE_ORIGIN_FORBIDDEN');
   }
 }
-async function runAcquisition(input, executor, scanner) {
+async function runAcquisition(input, executor, scanner, railwayExecutor, productionNative) {
   exact(input, ['workspaceRoot', 'label']);
   const { workspaceRoot, label } = input;
   if ((label !== 'A' && label !== 'B') || typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot) || resolve(workspaceRoot) !== workspaceRoot || workspaceRoot === '/') fail('FRESH_ACQUISITION_INPUT_INVALID');
@@ -306,12 +378,24 @@ async function runAcquisition(input, executor, scanner) {
     await verifyLockOrigins(sourceLock.handle);
     const node = await holdPinnedFile(TOOLS.node); const npm = await holdPinnedFile(TOOLS.npm); held.push(node.handle, npm.handle);
     const tracer = await verifyTracer(); held.push(tracer.handle);
+    let python; let railwayHelper; let caBundle;
+    if (productionNative) {
+      python = await holdPinnedFile(TOOLS.python); railwayHelper = await holdPinnedFile(TOOLS.railwayHelper); caBundle = await holdPinnedFile(TOOLS.caBundle);
+      held.push(python.handle, railwayHelper.handle, caBundle.handle);
+    }
     const resolver = await holdResolverConfiguration(); held.push(resolver.handle);
     await verifyExecutedVersions(node, npm, tracer);
     const env = buildEnvironment(paths);
     const args = [...ARGS, `--registry=${REGISTRY}`, `--userconfig=${paths.userconfig}`, `--cache=${paths.cache}`];
     const execution = await executor(freezeDeep({ args, cwd: paths.source, env, tracerFd: tracer.handle.fd, nodeFd: node.handle.fd, npmFd: npm.handle.fd, traceDirectory: paths.trace, traceDirectoryFd: directoryHandles.get('trace').fd, tracePrefix: join(paths.trace, 'npm-trace') }));
     const networkSummary = parseFreshAcquisitionEvidence({ ...execution, resolverAddresses: resolver.addresses });
+    const railwayExecution = await railwayExecutor(freezeDeep({ cwd: paths.source, tracerFd: tracer.handle.fd, pythonFd: python?.handle.fd, helperFd: railwayHelper?.handle.fd, sourceFd: directoryHandles.get('source').fd, traceDirectory: paths.trace, traceDirectoryFd: directoryHandles.get('trace').fd }));
+    const railwayNetworkSummary = productionNative ? parseRailwayNativeTrace({ traceFiles: railwayExecution.traceFiles, resolverAddresses: resolver.addresses }) : railwayExecution.networkSummary;
+    let railwayBinary;
+    if (productionNative) {
+      railwayBinary = await holdPinnedFile({ path: join(paths.source, 'node_modules/@railway/cli/bin/railway'), realpath: join(paths.source, 'node_modules/@railway/cli/bin/railway'), sha256: RAILWAY_BINARY_SHA256, mode: 0o700, uid: Number(uid) }, { max: 64 * 1024 * 1024 }); held.push(railwayBinary.handle);
+      await verifyNamed(TOOLS.python, python); await verifyNamed(TOOLS.railwayHelper, railwayHelper); await verifyNamed(TOOLS.caBundle, caBundle);
+    }
     await verifyExecutedVersions(node, npm, tracer); await verifyResolverConfiguration(resolver); await verifyLockOrigins(sourceLock.handle);
     await verifyNamed(TOOLS.node, node); await verifyNamed(TOOLS.npm, npm);
     await verifyNamed(TOOLS.tracer, tracer);
@@ -326,8 +410,8 @@ async function runAcquisition(input, executor, scanner) {
       status: 'FRESH_ACQUISITION_VALID', label, sourceRoot: paths.source,
       canonicalSourceSnapshotSha256: snapshot.canonicalSourceSnapshotSha256,
       packageJsonSha256: `sha256:${INPUTS['package.json'].sha256}`, packageLockSha256: `sha256:${INPUTS['package-lock.json'].sha256}`,
-      toolchain: { node: { path: TOOLS.node.path, realpath: TOOLS.node.realpath, sha256: `sha256:${TOOLS.node.sha256}`, version: TOOLS.node.version }, npm: { path: TOOLS.npm.path, realpath: TOOLS.npm.realpath, sha256: `sha256:${TOOLS.npm.sha256}`, version: TOOLS.npm.version }, tracer: { path: TOOLS.tracer.path, realpath: TOOLS.tracer.realpath, sha256: `sha256:${tracer.sha256}`, version: TOOLS.tracer.version } },
-      networkSummary, lifecycleScriptsExecuted: false, credentialsForwarded: false, providerExecuted: false,
+      toolchain: Object.fromEntries(['node', 'npm', 'tracer', 'python', 'railwayHelper', 'caBundle'].map((name) => [name, { path: TOOLS[name].path, realpath: TOOLS[name].realpath, sha256: `sha256:${TOOLS[name].sha256}`, version: TOOLS[name].version }])),
+      networkSummary: { npmRegistry: networkSummary, railwayNativeAsset: railwayNetworkSummary }, railwayNativeAcquisition: railwayExecution.receipt, lifecycleScriptsExecuted: false, credentialsForwarded: false, providerExecuted: false,
     };
     return freezeDeep(result);
   } catch (error) {
@@ -337,9 +421,10 @@ async function runAcquisition(input, executor, scanner) {
 }
 export async function runFreshProviderBundleAcquisition(input) {
   if (arguments.length !== 1) fail('FRESH_ACQUISITION_INPUT_INVALID');
-  return runAcquisition(input, productionExecutor, scanCanonicalProviderBundleSourceSnapshot);
+  return runAcquisition(input, productionExecutor, scanCanonicalProviderBundleSourceSnapshot, productionRailwayExecutor, true);
 }
 export function createFreshAcquisitionRunnerForTest(executor, scanner) {
   if (typeof executor !== 'function' || typeof scanner !== 'function') fail('TEST_RUNNER_INVALID');
-  return (input) => runAcquisition(input, executor, scanner);
+  const railwayExecutor = async () => ({ receipt: { testDouble: true }, networkSummary: { observedHttpOrigins: ['https://github.com', 'https://release-assets.githubusercontent.com'] } });
+  return (input) => runAcquisition(input, executor, scanner, railwayExecutor, false);
 }

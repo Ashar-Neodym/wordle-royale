@@ -26,6 +26,7 @@ const TOOLCHAIN = Object.freeze({
   npm: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: 'sha256:8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0' }),
 });
 const TARGET = Object.freeze({ cpu: 'x64', libc: 'glibc', os: 'linux' });
+const RAILWAY_ASSET_URL = 'https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz';
 
 const fail = (code) => { const error = new Error(code); error.code = code; throw error; };
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
@@ -132,10 +133,11 @@ function acquisitionDocument(canonicalSourceSnapshotSha256) {
   return {
     acquisitionInputs: { lockfile: { ...INPUTS.lockfile }, packageJson: { ...INPUTS.packageJson } },
     canonicalSourceSnapshotSha256,
-    networkPolicy: { allowedDnsOnly: true, allowedRegistryOrigin: 'https://registry.npmjs.org/', ambientCredentialsAllowed: false, ambientProxyAllowed: false, registryTlsOnly: true },
+    networkPolicy: { allowedDnsOnly: true, allowedHttpOrigins: ['https://registry.npmjs.org', 'https://github.com', 'https://release-assets.githubusercontent.com'], ambientCredentialsAllowed: false, ambientProxyAllowed: false, registryTlsOnly: true, railwayAssetUrl: RAILWAY_ASSET_URL },
     npmPolicy: { audit: false, fund: false, ignoreScripts: true, installOperation: 'ci' },
+    railwayNativePolicy: { archiveEntry: 'railway', archiveMaxBytes: 32 * 1024 * 1024, binaryMaxBytes: 64 * 1024 * 1024, binaryMode: 0o700, binarySha256: 'sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2', lifecycleScriptsExecuted: false, providerExecuted: false },
     schemaVersion: ACQUISITION_RECORD_SCHEMA, target: { ...TARGET },
-    toolchain: { node: { ...TOOLCHAIN.node }, npm: { ...TOOLCHAIN.npm } },
+    toolchain: { node: { ...TOOLCHAIN.node }, npm: { ...TOOLCHAIN.npm }, python: { path: '/usr/bin/python3.12', realpath: '/usr/bin/python3.12', sha256: 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118', version: 'Python 3.12.3' }, railwayNativeHelper: { path: 'scripts/g0-railway-native-acquisition-helper.py', sha256: 'sha256:90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16' } },
   };
 }
 function validateAcquisitionRecord(value) {

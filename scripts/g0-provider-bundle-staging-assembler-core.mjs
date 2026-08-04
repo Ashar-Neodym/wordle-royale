@@ -9,6 +9,7 @@ import {
   PROVIDER_LIMITS, resolveProviderLockClosure,
 } from './g0-provider-bundle-assembler-core.mjs';
 import { generateProviderBundleProfile } from './g0-provider-bundle-profile.mjs';
+import { getProviderToolArtifactPolicy } from './g0-provider-tool-bundle.mjs';
 
 export const STAGING_COPY_SCHEMA = 'wordle-g0-bundle-copy/v2';
 const HELPER_PATH = new URL('./g0-bundle-copy-helper.py', import.meta.url).pathname;
@@ -16,7 +17,7 @@ const PYTHON_PATH = '/usr/bin/python3';
 const PYTHON_REALPATH = '/usr/bin/python3.12';
 const PYTHON_VERSION = 'Python 3.12.3';
 // Updated only when the reviewed helper source changes.
-const HELPER_SHA256 = 'sha256:5e0ed359645445379948c911592291451a515f9fcf99f2c17ac64a377dfae75d';
+const HELPER_SHA256 = 'sha256:06212eb32c0bf2f1a03c6e74590299bcaeb3990002da436b1d2f267b40004d35';
 const PYTHON_SHA256 = 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118';
 const MAX_HELPER_OUTPUT = 2 * 1024 * 1024;
 const HELPER_TIMEOUT_MS = 120_000;
@@ -212,13 +213,14 @@ async function assembleProviderBundleStaging({ provider, sourceRoot, destination
     const profile = generateProviderBundleProfile(provider);
     if (profile.sha256 !== sha256(profile.bytes) || profile.bytes.length > 256 * 1024) fail('PROFILE_POLICY_MISMATCH');
     const nativeExecutablePaths = [...NATIVE[provider]];
+    const sourceExecutablePaths = [...new Set([getProviderToolArtifactPolicy(provider).entrypoint, ...nativeExecutablePaths])].sort(rawCompare);
     if (nativeExecutablePaths.some((path) => !closure.paths.some((pkg) => path.startsWith(`${pkg}/`)))) fail('NATIVE_POLICY_MISMATCH');
     const generatedFiles = [
       { path: 'package-lock.json', bytesBase64: lockfile.bytes.toString('base64'), mode: 0o444 },
       { path: profile.relativePath, bytesBase64: profile.bytes.toString('base64'), mode: 0o444 },
     ].sort((a, b) => rawCompare(a.path, b.path));
     const policy = deps.declaration.providerLimits[provider];
-    const frame = { schemaVersion: STAGING_COPY_SCHEMA, sourceRoot, destinationRoot, selectedPackagePaths: closure.paths, installedPackagePaths: layout.map((x) => x.path).sort(rawCompare), nativeExecutablePaths, generatedFiles, limits: { maxPackages: policy.maxPackages, maxNodes: policy.maxNodes, maxSourceNodes: 12_000, maxPayloadBytes: policy.maxPayloadBytes, maxFileBytes: 224 * 1024 * 1024, maxPathBytes: 1024, maxComponentBytes: 255, maxFrameBytes: 1024 * 1024 } };
+    const frame = { schemaVersion: STAGING_COPY_SCHEMA, sourceRoot, destinationRoot, selectedPackagePaths: closure.paths, installedPackagePaths: layout.map((x) => x.path).sort(rawCompare), nativeExecutablePaths, sourceExecutablePaths, generatedFiles, limits: { maxPackages: policy.maxPackages, maxNodes: policy.maxNodes, maxSourceNodes: 12_000, maxPayloadBytes: policy.maxPayloadBytes, maxFileBytes: 224 * 1024 * 1024, maxPathBytes: 1024, maxComponentBytes: 255, maxFrameBytes: 1024 * 1024 } };
     const frameBytes = canonical(frame); if (frameBytes.length > frame.limits.maxFrameBytes) fail('FRAME_LIMIT');
     const helper = await openVerifiedHelper(deps.helperPath, deps.helperSha256, owner);
     let child;

@@ -39,6 +39,34 @@ The exact package and lock bytes are copied in first; no existing `node_modules`
 
 This pinning is integrity, not provenance or safety proof. Lock `integrity` binds downloaded tarball bytes; it does not prove publisher identity, absence of malicious package code, registry correctness, npm correctness, or safety when the CLI later executes. `--ignore-scripts` prevents lifecycle scripts during acquisition, but does not make shipped JavaScript or native binaries trustworthy. Node, npm, registry/cache, the reviewed lock, platform selection, assembler, and later privileged installer remain trust inputs. The current 414 MiB user-owned tree at `/home/ashar/.hermes/profiles/athena/tools/wordle-g0-provider-tools` is an inventory/measurement source only, never a production trust root.
 
+Railway is the one fixed exception to npm-only payload acquisition. The official
+`@railway/cli@5.30.1` npm package is acquired by the lifecycle-disabled `npm ci`,
+then a separate pinned Python helper downloads only Railway's official GitHub
+release asset
+`https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz`.
+It permits exactly one HTTPS redirect, only to
+`https://release-assets.githubusercontent.com`, and closes the release-asset
+repository id, path shape, signed-query key set, attachment filename, and
+`application/octet-stream` response declaration. Proxy inheritance, ambient
+credentials, additional redirects, and every other origin are forbidden. The
+archive must contain exactly one regular `railway` member at mode `0755`, with
+no directory, link, special node, traversal, extra member, or oversized
+payload. The extracted bytes must hash exactly to
+`sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2`.
+The helper source itself is mode `0644` and pinned as
+`sha256:90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16`.
+It creates the native destination exclusively through held, no-follow
+directory descriptors and installs it as mode `0700`; collision is failure,
+never overwrite.
+
+This native download is an acquisition boundary, not assembler network access.
+It runs under the same lossless process/network trace and empty credential
+environment as npm acquisition, but in a separate process after npm exits. It
+does not run an npm lifecycle hook, the downloaded Railway binary, any provider
+CLI, shell, credential/session helper, deployment operation, or production
+validator. Once the exact binary is installed into the private source, all
+assembly/publication remains local and socket-free as stated above.
+
 ## Lockfile closure
 
 Parse JSON with duplicate-key rejection, bounded depth/string/count/bytes, and a closed lockfile-v3 shape sufficient for resolution. Never execute package metadata. The lock `packages` map and the installed physical layout are authoritative; the legacy dependency summary is not.
@@ -65,7 +93,7 @@ Destination creation is also descriptor-relative with exclusive create, no-follo
 
 ## Canonical contents, modes, profile, manifest, and descriptor
 
-Normalize names/order by raw UTF-8 bytes. Set every directory to `0555` and ordinary file to `0444`. Only the exact pinned Railway native `node_modules/@railway/cli/bin/railway` and Supabase native `node_modules/@supabase/cli-linux-x64/bin/supabase` are `0555`; Vercel's JS entrypoint remains `0444` because the pinned runtime opens it. Reject setuid/setgid/sticky bits and xattrs/capabilities in staging. Timestamps are excluded from the contract and set to a fixed epoch where the filesystem supports it; bytes and manifest remain the authority.
+Normalize names/order by raw UTF-8 bytes. Acquisition-source regular files are admitted only at exact mode `0600`, `0644`, `0700`, or `0755`; these input modes do not enter canonical output. Source directories must likewise have no group/world write or special bits (the fresh harness creates private roots as `0700`, while npm payload directories are normally `0755`). In particular, mode `0664` and every group/world-writable, setuid, setgid, or sticky source node fail closed rather than being silently normalized. Set every output directory to `0555` and ordinary output file to `0444`. Only the exact pinned Railway native `node_modules/@railway/cli/bin/railway` and Supabase native `node_modules/@supabase/cli-linux-x64/bin/supabase` are `0555`; Vercel's JS entrypoint remains `0444` because the pinned runtime opens it. The private Railway acquisition destination is `0700` before this output normalization. Reject xattrs/capabilities in staging. Timestamps are excluded from the contract and set to a fixed epoch where the filesystem supports it; bytes and manifest remain the authority.
 
 Generate, do not hand-copy, `invocation-profiles/<provider>-g0-readonly/1.json` by importing the named compiled record from `scripts/g0-readonly-provider-profiles.mjs` and applying the same `canonicalInvocationProfileDocument` implementation used by the runtime. Its bytes are canonical recursively key-sorted JSON plus one LF. Cross-check `hashInvocationProfile` over the compiled operations, hash the written bytes, and require equality. This binds exact runtime selectors, argv, schemas, and result policies—not only the profile name. Environment-dependent imports, extra provider records, or a profile hash supplied by CLI input fail.
 

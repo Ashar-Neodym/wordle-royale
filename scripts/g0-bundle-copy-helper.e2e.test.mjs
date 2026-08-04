@@ -32,7 +32,7 @@ async function pkg(root, relative, files = { 'package.json': '{}\n' }) {
   await mkdir(dir, { recursive: true });
   for (const [name, bytes] of Object.entries(files)) {
     await mkdir(join(dir, name, '..'), { recursive: true });
-    await writeFile(join(dir, name), bytes);
+    await writeFile(join(dir, name), bytes, { mode: 0o644 });
   }
 }
 function frame(f, selected, installed = selected, natives = [], overrides = {}) {
@@ -40,7 +40,7 @@ function frame(f, selected, installed = selected, natives = [], overrides = {}) 
     { path: 'invocation-profiles/test/1.json', bytesBase64: Buffer.from('{}\n').toString('base64'), mode: 0o444 },
     { path: 'package-lock.json', bytesBase64: Buffer.from('lock\n').toString('base64'), mode: 0o444 },
   ];
-  return { schemaVersion, sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, overrides.destination ?? 'bundle'), selectedPackagePaths: selected, installedPackagePaths: installed, nativeExecutablePaths: natives, generatedFiles, limits: { ...limits, ...(overrides.limits ?? {}) } };
+  return { schemaVersion, sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, overrides.destination ?? 'bundle'), selectedPackagePaths: selected, installedPackagePaths: installed, nativeExecutablePaths: natives, sourceExecutablePaths: overrides.sourceExecutablePaths ?? natives, generatedFiles, limits: { ...limits, ...(overrides.limits ?? {}) } };
 }
 function run(input) {
   const result = spawnSync('/usr/bin/python3', [HELPER], { input: typeof input === 'string' ? input : canonical(input), encoding: 'utf8', env: {} });
@@ -78,6 +78,18 @@ test('copies complete hoisted, nested, and scoped payloads with canonical hashes
   assert.equal((await lstat(join(f.outputParent, 'bundle/node_modules/a'))).mode & 0o7777, 0o555);
   assert.equal((await lstat(join(f.outputParent, `bundle/${native}`))).mode & 0o7777, 0o555);
   assert.equal(await readFile(join(f.outputParent, 'bundle/node_modules/a/node_modules/c/index.js'), 'utf8'), 'c\n');
+});
+
+test('accepts owner-only fresh npm 0700 regular files, normalizes output, and still rejects 0664', async () => {
+  const accepted = await fixture(); await pkg(accepted.sourceRoot, 'node_modules/a', { 'package.json': '{}\n', 'bin/tool': 'tool\n' });
+  const executable = 'node_modules/a/bin/tool'; await chmod(join(accepted.sourceRoot, executable), 0o700);
+  assert.equal(run(frame(accepted, ['node_modules/a'], ['node_modules/a'], [], { sourceExecutablePaths: [executable] })).status, 0);
+  const undeclared = await fixture(); await pkg(undeclared.sourceRoot, 'node_modules/a', { 'package.json': '{}\n', 'bin/tool': 'tool\n' });
+  await chmod(join(undeclared.sourceRoot, executable), 0o700);
+  assert.equal(run(frame(undeclared, ['node_modules/a'], ['node_modules/a'])).status, 0);
+  const writable = await fixture(); await pkg(writable.sourceRoot, 'node_modules/a', { 'package.json': '{}\n', 'bin/tool': 'tool\n' });
+  await chmod(join(writable.sourceRoot, executable), 0o664);
+  rejects(frame(writable, ['node_modules/a'], ['node_modules/a'], [], { sourceExecutablePaths: [executable] }), 'SOURCE_MODE');
 });
 
 test('rejects an installed unselected nested package and an untracked nested package', async () => {

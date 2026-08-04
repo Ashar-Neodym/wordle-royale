@@ -14,6 +14,7 @@ export const MAX_REPRODUCIBILITY_RECEIPT_BYTES = 256 * 1024;
 const PROVIDERS = Object.freeze(['vercel', 'railway', 'supabase']);
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 const REVISION = /^[a-f0-9]{40}$/u;
+const RAILWAY_HELPER_PATH = new URL('./g0-railway-native-acquisition-helper.py', import.meta.url).pathname;
 const PINNED_ACQUISITION = Object.freeze({
   packageJsonSha256: 'sha256:58fffb1ef8b6b6ff51cba0d9f752ea29dac6830cfaed4c763c7a3bd0f2d9dcde',
   packageLockSha256: 'sha256:bc4cfd9d815ad6615ffce0a0fc877f25f199bf48ce4d11fa2cbec3bc85d93b90',
@@ -21,6 +22,9 @@ const PINNED_ACQUISITION = Object.freeze({
     node: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', sha256: 'sha256:5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926', version: 'v26.3.0' }),
     npm: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: 'sha256:8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0' }),
     tracer: Object.freeze({ path: '/usr/bin/strace', realpath: '/usr/bin/strace', sha256: 'sha256:28f957c227012de0b18d1bd7fff2d396cb693ea60ed8013be68de071e84b5001', version: 'strace -- version 6.8' }),
+    python: Object.freeze({ path: '/usr/bin/python3.12', realpath: '/usr/bin/python3.12', sha256: 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118', version: 'Python 3.12.3' }),
+    railwayHelper: Object.freeze({ path: RAILWAY_HELPER_PATH, realpath: RAILWAY_HELPER_PATH, sha256: 'sha256:90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16', version: 'wordle-railway-native-acquisition/1' }),
+    caBundle: Object.freeze({ path: '/etc/ssl/certs/ca-certificates.crt', realpath: '/etc/ssl/certs/ca-certificates.crt', sha256: 'sha256:6602a85a36afc2e51c66a0df5ae3d383c5b7c2fed93339ccef7d37e01faf09e8', version: 'sha256-bound-system-ca/1' }),
   }),
 });
 const DIR_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
@@ -151,21 +155,32 @@ function validateTool(name, value) {
   return { path: value.path, realpath: value.realpath, sha256: value.sha256, version: value.version };
 }
 function sanitizeAcquisition(value, label, expectedSource) {
-  exact(value, ['canonicalSourceSnapshotSha256', 'credentialsForwarded', 'label', 'lifecycleScriptsExecuted', 'networkSummary', 'packageJsonSha256', 'packageLockSha256', 'providerExecuted', 'sourceRoot', 'status', 'toolchain'], 'ACQUISITION_RESULT_INVALID');
+  exact(value, ['canonicalSourceSnapshotSha256', 'credentialsForwarded', 'label', 'lifecycleScriptsExecuted', 'networkSummary', 'packageJsonSha256', 'packageLockSha256', 'providerExecuted', 'railwayNativeAcquisition', 'sourceRoot', 'status', 'toolchain'], 'ACQUISITION_RESULT_INVALID');
   if (value.status !== 'FRESH_ACQUISITION_VALID' || value.label !== label || value.sourceRoot !== expectedSource
       || !SHA256.test(value.canonicalSourceSnapshotSha256) || !SHA256.test(value.packageJsonSha256) || !SHA256.test(value.packageLockSha256)
       || value.lifecycleScriptsExecuted !== false || value.credentialsForwarded !== false || value.providerExecuted !== false) fail('ACQUISITION_RESULT_INVALID');
-  exact(value.toolchain, ['node', 'npm', 'tracer'], 'ACQUISITION_TOOLCHAIN_INVALID');
-  const operationalToolchain = { node: validateTool('node', value.toolchain.node), npm: validateTool('npm', value.toolchain.npm), tracer: validateTool('tracer', value.toolchain.tracer) };
+  exact(value.toolchain, ['caBundle', 'node', 'npm', 'python', 'railwayHelper', 'tracer'], 'ACQUISITION_TOOLCHAIN_INVALID');
+  const operationalToolchain = Object.fromEntries(Object.keys(PINNED_ACQUISITION.toolchain).map((name) => [name, validateTool(name, value.toolchain[name])]));
   if (value.packageJsonSha256 !== PINNED_ACQUISITION.packageJsonSha256 || value.packageLockSha256 !== PINNED_ACQUISITION.packageLockSha256
       || !equalCanonical(operationalToolchain, PINNED_ACQUISITION.toolchain)) fail('ACQUISITION_PIN_MISMATCH');
-  exact(value.networkSummary, ['allowedObservedHttpOrigin', 'dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
-  if (value.networkSummary.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/'
-      || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'].some((key) => !Number.isSafeInteger(value.networkSummary[key]) || value.networkSummary[key] < 1)) fail('ACQUISITION_NETWORK_SUMMARY_INVALID');
+  exact(value.networkSummary, ['npmRegistry', 'railwayNativeAsset'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
+  const npmNetwork = value.networkSummary.npmRegistry; const railwayNetwork = value.networkSummary.railwayNativeAsset;
+  exact(npmNetwork, ['allowedObservedHttpOrigin', 'dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
+  exact(railwayNetwork, ['dnsRequestCount', 'networkSyscallCount', 'observedHttpOrigins', 'tlsConnectionCount'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
+  if (npmNetwork.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/' || !Array.isArray(railwayNetwork.observedHttpOrigins)
+      || railwayNetwork.observedHttpOrigins.join('\0') !== 'https://github.com\0https://release-assets.githubusercontent.com'
+      || [npmNetwork.dnsRequestCount, npmNetwork.httpRequestCount, npmNetwork.networkSyscallCount, npmNetwork.tlsConnectionCount, railwayNetwork.dnsRequestCount, railwayNetwork.networkSyscallCount, railwayNetwork.tlsConnectionCount].some((item) => !Number.isSafeInteger(item) || item < 1)) fail('ACQUISITION_NETWORK_SUMMARY_INVALID');
+  exact(value.railwayNativeAcquisition, ['archiveBytes', 'binaryBytes', 'binaryMode', 'binarySha256', 'httpOrigins', 'initialUrl', 'redirectCount'], 'ACQUISITION_RAILWAY_NATIVE_INVALID');
+  const railwayNative = { ...value.railwayNativeAcquisition };
+  if (!Number.isSafeInteger(railwayNative.archiveBytes) || railwayNative.archiveBytes < 1 || railwayNative.archiveBytes > 32 * 1024 * 1024
+      || !Number.isSafeInteger(railwayNative.binaryBytes) || railwayNative.binaryBytes < 1 || railwayNative.binaryBytes > 64 * 1024 * 1024
+      || railwayNative.binaryMode !== 0o700 || railwayNative.binarySha256 !== 'sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2'
+      || railwayNative.initialUrl !== 'https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz'
+      || railwayNative.redirectCount !== 1 || !Array.isArray(railwayNative.httpOrigins) || railwayNative.httpOrigins.join('\0') !== 'https://github.com\0https://release-assets.githubusercontent.com') fail('ACQUISITION_RAILWAY_NATIVE_INVALID');
   const toolchain = Object.fromEntries(Object.entries(operationalToolchain).map(([name, tool]) => [name, { sha256: tool.sha256, version: tool.version }]));
   return freezeDeep({
-    contract: { canonicalSourceSnapshotSha256: value.canonicalSourceSnapshotSha256, packageJsonSha256: value.packageJsonSha256, packageLockSha256: value.packageLockSha256, toolchain },
-    network: { allowedObservedHttpOrigin: value.networkSummary.allowedObservedHttpOrigin, credentialsForwarded: false, dnsRequestCount: value.networkSummary.dnsRequestCount, httpRequestCount: value.networkSummary.httpRequestCount, lifecycleScriptsExecuted: false, networkSyscallCount: value.networkSummary.networkSyscallCount, tlsConnectionCount: value.networkSummary.tlsConnectionCount },
+    contract: { canonicalSourceSnapshotSha256: value.canonicalSourceSnapshotSha256, packageJsonSha256: value.packageJsonSha256, packageLockSha256: value.packageLockSha256, railwayNative, toolchain },
+    network: { credentialsForwarded: false, lifecycleScriptsExecuted: false, npmRegistry: { ...npmNetwork }, railwayNativeAsset: { ...railwayNetwork } },
   });
 }
 
@@ -221,15 +236,23 @@ function validateReceipt(value) {
       || value.independentScannerCount !== 3 || value.allBytesAndModesReproduced !== true || value.allSixRegularFileInodeSetsDisjoint !== true || value.hostedMutationAuthorized !== false
       || value.privilegedInstallationAuthorized !== false || value.providerExecutionAuthorized !== false || value.rootInstallationPerformed !== false || value.retryGate !== 'closed') fail('RECEIPT_INVALID');
   if (!Array.isArray(value.independentScanners) || value.independentScanners.join('\0') !== 'staging-validator\0publication-validator\0standalone-repro-scanner') fail('RECEIPT_INVALID');
-  exact(value.acquisitionContract, ['canonicalSourceSnapshotSha256', 'packageJsonSha256', 'packageLockSha256', 'toolchain'], 'RECEIPT_INVALID');
+  exact(value.acquisitionContract, ['canonicalSourceSnapshotSha256', 'packageJsonSha256', 'packageLockSha256', 'railwayNative', 'toolchain'], 'RECEIPT_INVALID');
   if (![value.acquisitionContract.canonicalSourceSnapshotSha256, value.acquisitionContract.packageJsonSha256, value.acquisitionContract.packageLockSha256].every((x) => typeof x === 'string' && SHA256.test(x))) fail('RECEIPT_INVALID');
-  exact(value.acquisitionContract.toolchain, ['node', 'npm', 'tracer'], 'RECEIPT_INVALID');
-  validateCanonicalTool(value.acquisitionContract.toolchain.node); validateCanonicalTool(value.acquisitionContract.toolchain.npm); validateCanonicalTool(value.acquisitionContract.toolchain.tracer);
+  exact(value.acquisitionContract.toolchain, ['caBundle', 'node', 'npm', 'python', 'railwayHelper', 'tracer'], 'RECEIPT_INVALID');
+  for (const tool of Object.values(value.acquisitionContract.toolchain)) validateCanonicalTool(tool);
+  exact(value.acquisitionContract.railwayNative, ['archiveBytes', 'binaryBytes', 'binaryMode', 'binarySha256', 'httpOrigins', 'initialUrl', 'redirectCount'], 'RECEIPT_INVALID');
+  if (value.acquisitionContract.railwayNative.binarySha256 !== 'sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2'
+      || value.acquisitionContract.railwayNative.binaryMode !== 0o700 || value.acquisitionContract.railwayNative.redirectCount !== 1
+      || value.acquisitionContract.railwayNative.initialUrl !== 'https://github.com/railwayapp/cli/releases/download/v5.30.1/railway-v5.30.1-x86_64-unknown-linux-gnu.tar.gz'
+      || value.acquisitionContract.railwayNative.httpOrigins?.join('\0') !== 'https://github.com\0https://release-assets.githubusercontent.com') fail('RECEIPT_INVALID');
   exact(value.networkSummaries, ['A', 'B'], 'RECEIPT_INVALID');
   for (const summary of Object.values(value.networkSummaries)) {
-    exact(summary, ['allowedObservedHttpOrigin', 'credentialsForwarded', 'dnsRequestCount', 'httpRequestCount', 'lifecycleScriptsExecuted', 'networkSyscallCount', 'tlsConnectionCount'], 'RECEIPT_INVALID');
-    if (summary.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/' || summary.credentialsForwarded !== false || summary.lifecycleScriptsExecuted !== false
-        || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'].some((key) => !Number.isSafeInteger(summary[key]) || summary[key] < 1)) fail('RECEIPT_INVALID');
+    exact(summary, ['credentialsForwarded', 'lifecycleScriptsExecuted', 'npmRegistry', 'railwayNativeAsset'], 'RECEIPT_INVALID');
+    exact(summary.npmRegistry, ['allowedObservedHttpOrigin', 'dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'], 'RECEIPT_INVALID');
+    exact(summary.railwayNativeAsset, ['dnsRequestCount', 'networkSyscallCount', 'observedHttpOrigins', 'tlsConnectionCount'], 'RECEIPT_INVALID');
+    if (summary.credentialsForwarded !== false || summary.lifecycleScriptsExecuted !== false || summary.npmRegistry.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/'
+        || summary.railwayNativeAsset.observedHttpOrigins?.join('\0') !== 'https://github.com\0https://release-assets.githubusercontent.com'
+        || [summary.npmRegistry.dnsRequestCount, summary.npmRegistry.httpRequestCount, summary.npmRegistry.networkSyscallCount, summary.npmRegistry.tlsConnectionCount, summary.railwayNativeAsset.dnsRequestCount, summary.railwayNativeAsset.networkSyscallCount, summary.railwayNativeAsset.tlsConnectionCount].some((item) => !Number.isSafeInteger(item) || item < 1)) fail('RECEIPT_INVALID');
   }
   if (!Array.isArray(value.providers) || value.providers.length !== 3 || value.providers.some((p, i) => p?.provider !== PROVIDERS[i])) fail('RECEIPT_INVALID');
   for (const provider of value.providers) {

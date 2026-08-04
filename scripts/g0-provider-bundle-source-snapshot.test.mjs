@@ -44,6 +44,17 @@ async function fixture() {
   }
   await mkdir(join(sourceRoot, 'node_modules/.bin'), { recursive: true });
   await symlink('../vercel/package.json', join(sourceRoot, 'node_modules/.bin/ignored-link'));
+  const normalize = async (path, relative = '') => {
+    const st = await lstat(path); if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) {
+      await chmod(path, relative ? 0o755 : 0o700);
+      for (const name of await readdir(path)) await normalize(join(path, name), relative ? `${relative}/${name}` : name);
+      return;
+    }
+    const executable = relative === 'node_modules/@railway/cli/bin/railway' || relative === 'node_modules/@supabase/cli-linux-x64/bin/supabase';
+    await chmod(path, executable ? 0o700 : 0o644);
+  };
+  await normalize(sourceRoot);
   return sourceRoot;
 }
 async function requiredFixture(t) {
@@ -104,7 +115,7 @@ test('symlink, hardlink, missing, extra and package-json drift fixtures fail clo
   const mutations = [
     ['SOURCE_SYMLINK_FORBIDDEN', async (root) => { await symlink('package.json', join(root, 'node_modules/vercel/evil')); }],
     ['SOURCE_HARDLINK_FORBIDDEN', async (root) => { const fs = await import('node:fs/promises'); await fs.link(join(root, 'node_modules/vercel/package.json'), join(root, 'node_modules/vercel/hard')); }],
-    ['LAYOUT_EXTRANEOUS', async (root) => { await mkdir(join(root, 'node_modules/extra')); await writeFile(join(root, 'node_modules/extra/package.json'), '{"name":"extra","version":"1.0.0"}'); }],
+    ['LAYOUT_EXTRANEOUS', async (root) => { await mkdir(join(root, 'node_modules/extra'), { mode: 0o755 }); await writeFile(join(root, 'node_modules/extra/package.json'), '{"name":"extra","version":"1.0.0"}', { mode: 0o644 }); }],
     ['LAYOUT_PACKAGE_JSON_MISMATCH', async (root) => { const path = join(root, 'node_modules/vercel/package.json'); const value = JSON.parse(await readFile(path)); value.version = '0.0.0'; await writeFile(path, JSON.stringify(value)); }],
   ];
   for (const [wanted, mutate] of mutations) {
@@ -131,7 +142,7 @@ test('case-colliding payload names are rejected', async (t) => {
 
 test('sparse payload is rejected when the fixture filesystem supports holes', async (t) => {
   const sourceRoot = await requiredFixture(t); if (!sourceRoot) return;
-  const sparse = join(sourceRoot, 'node_modules/vercel/sparse'); await writeFile(sparse, 'x'); await truncate(sparse, 8 * 1024 * 1024);
+  const sparse = join(sourceRoot, 'node_modules/vercel/sparse'); await writeFile(sparse, 'x', { mode: 0o644 }); await truncate(sparse, 8 * 1024 * 1024);
   const st = await lstat(sparse, { bigint: true });
   if (st.blocks * 512n >= st.size) return t.skip('fixture filesystem does not support sparse files');
   await code('SOURCE_SPARSE_FORBIDDEN', () => scanCanonicalProviderBundleSourceSnapshot({ sourceRoot }));

@@ -14,7 +14,7 @@ import sys
 
 SCHEMA = "wordle-g0-bundle-copy/v2"
 FRAME_HARD_MAX = 1024 * 1024
-ROOT_FIELDS = {"schemaVersion", "sourceRoot", "destinationRoot", "selectedPackagePaths", "installedPackagePaths", "nativeExecutablePaths", "generatedFiles", "limits"}
+ROOT_FIELDS = {"schemaVersion", "sourceRoot", "destinationRoot", "selectedPackagePaths", "installedPackagePaths", "nativeExecutablePaths", "sourceExecutablePaths", "generatedFiles", "limits"}
 GENERATED_FIELDS = {"path", "bytesBase64", "mode"}
 LIMIT_FIELDS = {"maxPackages", "maxNodes", "maxSourceNodes", "maxPayloadBytes", "maxFileBytes", "maxPathBytes", "maxComponentBytes", "maxFrameBytes"}
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
@@ -175,6 +175,7 @@ class Copier:
         self.installed = set(frame["installedPackagePaths"])
         self.selected = set(frame["selectedPackagePaths"])
         self.native = set(frame["nativeExecutablePaths"])
+        self.source_executable = set(frame["sourceExecutablePaths"])
         self.nodes = 1                 # the destination root entry
         self.payload = 0
         self.file_inodes = set()
@@ -300,6 +301,10 @@ class Copier:
             if ident(st_l) != ident(st0):
                 fail("SOURCE_CHANGED")
             validate_meta(st0, self.root_dev, True)
+            source_mode = stat.S_IMODE(st0.st_mode)
+            allowed_modes = (0o600, 0o644, 0o700, 0o755)
+            if source_mode not in allowed_modes:
+                fail("SOURCE_MODE")
             xattr_free(sfd)
             parent, leaf = rel.rsplit("/", 1) if "/" in rel else (".", rel)
             self.ensure_dest_dir(parent)
@@ -470,6 +475,9 @@ class Copier:
         try:
             if ident(st_l) != ident(st0): fail("SOURCE_CHANGED")
             validate_meta(st0, self.root_dev, True); xattr_free(fd)
+            source_mode = stat.S_IMODE(st0.st_mode)
+            allowed_modes = (0o600, 0o644, 0o700, 0o755)
+            if source_mode not in allowed_modes: fail("SOURCE_MODE")
             h = hashlib.sha256(); total = 0
             while True:
                 data = os.read(fd, 64 * 1024)
@@ -560,6 +568,7 @@ def parse_frame():
     selected = sorted_unique(frame["selectedPackagePaths"], limits, True)
     installed = sorted_unique(frame["installedPackagePaths"], limits, True)
     natives = sorted_unique(frame["nativeExecutablePaths"], limits, False)
+    source_executables = sorted_unique(frame["sourceExecutablePaths"], limits, False)
     generated = frame["generatedFiles"]
     if type(generated) is not list or len(generated) != 2:
         fail("GENERATED_INVALID")
@@ -586,6 +595,8 @@ def parse_frame():
     # every listed path is strictly below that package.
     if any(not any(n.startswith(p + "/") for p in selected) for n in natives):
         fail("NATIVE_SET_INVALID")
+    if any(not any(n.startswith(p + "/") for p in selected) for n in source_executables) or not set(natives) <= set(source_executables):
+        fail("SOURCE_EXECUTABLE_SET_INVALID")
     return frame, dest_parts
 
 

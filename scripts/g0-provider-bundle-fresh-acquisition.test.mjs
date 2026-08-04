@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   createFreshAcquisitionRunnerForTest, parseFreshAcquisitionEvidence,
-  runFreshProviderBundleAcquisition,
+  parseRailwayNativeTrace, runFreshProviderBundleAcquisition,
 } from './g0-provider-bundle-fresh-acquisition.mjs';
 
 const VALID_TRACE = 'execve("/proc/self/fd/4", ["/proc/self/fd/4", "/proc/self/fd/5", "ci", "--ignore-scripts"], 0x1234 /* 16 vars */) = 0\nsocket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 6\nsendto(6, "dns", 3, MSG_NOSIGNAL, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.53")}, 16) = 3\nsocket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 7\nconnect(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("104.16.24.34")}, 16) = -1 EINPROGRESS\n+++ exited with 0 +++\n';
 const VALID_HTTP = 'npm http fetch GET 200 https://registry.npmjs.org/vercel 42ms (cache miss)\n';
+const VALID_RAILWAY_TRACE = 'execve("/proc/self/fd/4", ["/proc/self/fd/4", "-I", "-B", "/proc/self/fd/5"], 0x1234 /* 4 vars */) = 0\nsocket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 6\nsendto(6, "dns", 3, MSG_NOSIGNAL, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.53")}, 16) = 3\nsocket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_TCP) = 7\nconnect(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("140.82.114.3")}, 16) = -1 EINPROGRESS\ngetpeername(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("140.82.114.3")}, [128 => 16]) = 0\nsocket(AF_INET6, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_TCP) = 8\nconnect(8, {sa_family=AF_INET6, sin6_port=htons(443), inet_pton(AF_INET6, "2606:50c0:8000::154")}, 28) = -1 EINPROGRESS\ngetpeername(8, {sa_family=AF_INET6, sin6_port=htons(443), inet_pton(AF_INET6, "2606:50c0:8000::154")}, [128 => 28]) = 0\n+++ exited with 0 +++\n';
 const SNAPSHOT = Object.freeze({ canonicalSourceSnapshotSha256: `sha256:${'a'.repeat(64)}` });
 
 async function workspace() {
@@ -92,6 +93,25 @@ test('process/network parser rejects child exec, non-thread clone, trace loss, o
   assert.throws(() => parse(replace('+++ exited', '<... connect resumed>) = 0\n+++ exited')), { code: 'TRACE_LOSS' });
   assert.throws(() => parse(replace('htons(443)', 'htons(80)')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
   assert.throws(() => parse(replace('AF_INET, SOCK_STREAM', 'AF_UNIX, SOCK_STREAM')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
+});
+
+test('Railway native trace accepts real getpeername classes and reports complete observations', () => {
+  const result = parseRailwayNativeTrace({ traceFiles: [VALID_RAILWAY_TRACE], resolverAddresses: ['127.0.0.53'] });
+  assert.deepEqual(result.observedHttpOrigins, ['https://github.com', 'https://release-assets.githubusercontent.com']);
+  assert.equal(result.dnsRequestCount, 1);
+  assert.equal(result.tlsConnectionCount, 2);
+  assert.equal(result.networkSyscallCount, 8);
+  assert.equal(Object.isFrozen(result), true);
+});
+
+test('Railway native trace rejects unknown syscall, child exec, odd port, and resolver mismatch', () => {
+  const parseRailway = (traceFiles, resolverAddresses = ['127.0.0.53']) => parseRailwayNativeTrace({ traceFiles, resolverAddresses });
+  const replace = (from, to) => [VALID_RAILWAY_TRACE.replace(from, to)];
+  assert.throws(() => parseRailway(replace('+++ exited', 'openat(AT_FDCWD, "/tmp/x", O_RDONLY) = 9\n+++ exited')), { code: 'TRACE_SYSCALL_UNKNOWN' });
+  assert.throws(() => parseRailway(replace('+++ exited', 'execve("/bin/sh", ["sh"], 0x0) = 0\n+++ exited')), { code: 'CHILD_EXEC_FORBIDDEN' });
+  assert.throws(() => parseRailway(replace('sin_port=htons(443)', 'sin_port=htons(8443)')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
+  assert.throws(() => parseRailway([VALID_RAILWAY_TRACE], ['192.0.2.53']), { code: 'DNS_RESOLVER_FORBIDDEN' });
+  assert.throws(() => parseRailway(replace('getpeername(7, {sa_family=AF_INET, sin_port=htons(443)', 'getpeername(7, {sa_family=AF_INET, sin_port=htons(80)')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
 });
 
 test('output bound, timeout, and executor failure remain failures with private tree retained', async () => {

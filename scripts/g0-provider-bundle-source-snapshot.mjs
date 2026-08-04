@@ -17,6 +17,13 @@ const NATIVE_PATHS = new Set([
   'node_modules/@railway/cli/bin/railway',
   'node_modules/@supabase/cli-linux-x64/bin/supabase',
 ]);
+const SOURCE_EXECUTABLE_PATHS = new Set([
+  'node_modules/vercel/dist/vc.js',
+  'node_modules/@railway/cli/bin/railway.js',
+  'node_modules/@railway/cli/bin/railway',
+  'node_modules/supabase/dist/supabase.js',
+  'node_modules/@supabase/cli-linux-x64/bin/supabase',
+]);
 const DIR_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
 const fail = (code) => { const error = new Error(code); error.code = code; throw error; };
@@ -69,7 +76,7 @@ async function namesIn(handle) {
 function validateNode(st, rootDev, wantedType) {
   if (st.dev !== rootDev) fail('SOURCE_MOUNT_CROSSING');
   if (statType(st) !== wantedType) fail(wantedType === 'file' ? 'SOURCE_SPECIAL_FORBIDDEN' : 'SOURCE_DIRECTORY_INVALID');
-  if ((Number(st.mode) & 0o7000) !== 0) fail('SOURCE_MODE_INVALID');
+  if ((Number(st.mode) & 0o7000) !== 0 || (Number(st.mode) & 0o022) !== 0) fail('SOURCE_MODE_INVALID');
   if (wantedType === 'file') {
     if (st.nlink !== 1n) fail('SOURCE_HARDLINK_FORBIDDEN');
     if (st.size > BigInt(MAX_FILE_BYTES)) fail('SOURCE_FILE_LIMIT');
@@ -102,7 +109,7 @@ async function readFileAt(parent, name, rootDev, maxBytes = MAX_FILE_BYTES) {
     const after = await handle.stat({ bigint: true });
     const namedAfter = await lstat(childAt(parent, name), { bigint: true }).catch(() => fail('SOURCE_CHANGED'));
     if (identity(before) !== identity(after) || identity(before) !== identity(namedAfter)) fail('SOURCE_CHANGED');
-    return { bytes: Buffer.concat(chunks), sha256: `sha256:${hash.digest('hex')}`, identity: identity(before), inode: inode(before), size: Number(before.size), handle };
+    return { bytes: Buffer.concat(chunks), sha256: `sha256:${hash.digest('hex')}`, identity: identity(before), inode: inode(before), mode: Number(before.mode & 0o7777n), size: Number(before.size), handle };
   } catch (error) { await handle.close(); throw error; }
 }
 async function recheckFile(parent, name, item) {
@@ -200,6 +207,8 @@ async function scanPackages(packagePaths, heldPackages, rootDev) {
       } else {
         const item = await readFileAt(opened.handle, name, rootDev);
         try {
+          const allowedModes = new Set([0o600, 0o644, 0o700, 0o755]);
+          if (!allowedModes.has(item.mode)) fail('SOURCE_MODE_INVALID');
           if (fileInodes.has(item.inode)) fail('SOURCE_HARDLINK_FORBIDDEN'); fileInodes.add(item.inode);
           payloadBytes += item.size; if (!Number.isSafeInteger(payloadBytes)) fail('SOURCE_PAYLOAD_LIMIT');
           add({ mode: NATIVE_PATHS.has(childPath) ? 0o555 : 0o444, path: childPath, sha256: item.sha256, type: 'file' });

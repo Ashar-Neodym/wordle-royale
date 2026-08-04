@@ -349,6 +349,15 @@ The AN-5 harness creates `acquisition-a` and `acquisition-b` under two new empty
 
 The only files placed in each empty source before npm are byte copies of the two committed acquisition inputs. Their hashes are checked before and after each acquisition. No workspace files, existing `node_modules`, lock sidecar, npm log, package manager state, or project `.npmrc` is admitted.
 
+Source-mode policy is closed before snapshotting or assembly. The copied root
+`package.json` and `package-lock.json` are created as `0644`; payload regular
+files may be exactly `0600`, `0644`, `0700`, or `0755`. Fresh private roots are
+`0700`, while npm payload directories are normally `0755`; every directory is
+required to have no group/world write or special bit. No source mode is preserved into a bundle: ordinary files
+normalize to `0444`, directories to `0555`, and only the pinned provider native
+paths normalize to `0555`. Group/world-writable inputs—including `0664`—and
+setuid, setgid, or sticky inputs are rejected, not repaired by normalization.
+
 The pinned tool identities are exactly:
 
 * Node path and realpath `/home/ashar/.nvm/versions/node/v26.3.0/bin/node`, version `v26.3.0`, SHA-256 `5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926`;
@@ -387,13 +396,39 @@ The only acquisition operation is equivalent to this argv vector, executed witho
 
 This argv is acceptance-harness data and is never placed in `install-plan.json` or a publication. `npm ci` must leave package and lock bytes unchanged. No lifecycle script, package binary, provider CLI, git client, shell, credential helper, session helper, or postinstall process may execute.
 
+After that lifecycle-disabled npm process exits, each acquisition performs one
+separate native acquisition for Railway. A pinned mode-`0644` Python helper
+(`sha256:90a986ce871c15e6e6770728b7551fe0b0afa60774b59866f44d95beea4e0c16`)
+requests only the official Railway `v5.30.1` x86-64 GNU/Linux release archive
+from `https://github.com/railwayapp/cli/releases/download/v5.30.1/`, accepts
+exactly one redirect to `https://release-assets.githubusercontent.com`, and
+closes the repository id/path, signed query keys, attachment filename, and
+`application/octet-stream` declaration. No proxy or ambient credential is
+forwarded. Any wrong origin/path/repository id/query key, duplicate key, wrong
+filename/type, extra redirect, unexpected response, or size-limit breach
+fails. The gzip tar must contain exactly one mode-`0755` regular file named
+`railway`; traversal, extra entries, directories, symlinks, hardlinks, special
+nodes, wrong mode, oversize, and malformed archives fail. Its exact bytes are
+pinned as
+`sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2`
+and are exclusively installed at
+`node_modules/@railway/cli/bin/railway` as a single-link owner mode-`0700`
+regular file below held safe source descriptors. An existing destination or
+unsafe/writable/symlink directory fails without overwrite.
+
+This operation is official-GitHub native-byte acquisition only. It does not
+execute npm lifecycle/provider code, the acquired binary, a provider CLI,
+shell, session/auth discovery, deployment, or production installation. The
+subsequent assembler remains network-free and normalizes that private `0700`
+source native to canonical bundle mode `0555`.
+
 ### 5.2 Unprivileged network and process tracing
 
 AN-5 performs no firewall, network-namespace, routing, resolver, or other privileged mutation. Each acquisition runs under lossless unprivileged `strace -f` process/network/file-exec tracing with a new owner-only trace file. The harness records the exact lockfile `resolved` origins, generated npm configuration, resolver addresses read from the host's existing resolver configuration, npm's requested URLs, process ids, and every observed `socket`, `connect`, `sendto`, `recvfrom`, `execve`, `clone`, `fork`, and `vfork`. It does not claim preventative egress confinement that an ordinary user cannot enforce.
 
-Acceptance is nevertheless closed over observed behavior: every lockfile package URL and npm-requested HTTP origin must be exactly `https://registry.npmjs.org/`; every external TCP connection must use port 443 and correspond to addresses resolved for that origin during the run; DNS traffic may target only the pre-recorded host resolver addresses on port 53. Proxies are absent from the environment and configs. Registry redirects or package URLs to another origin, listening sockets, metadata-service traffic, localhost proxy traffic, provider endpoints, unknown external destinations, trace loss/truncation, or an unavailable tracer make the acquisition failing rather than widening policy. This is trace-attested registry-only acquisition, not a firewall guarantee.
+Acceptance is nevertheless closed over observed behavior: every lockfile package URL and npm-requested HTTP origin must be exactly `https://registry.npmjs.org/`; the separate Railway native trace may observe only `https://github.com` and its one approved `https://release-assets.githubusercontent.com` redirect. Every external TCP connection must use port 443; DNS traffic may target only the pre-recorded host resolver addresses on port 53. Proxies are absent from the environment and configs. Registry redirects, package URLs to another origin, an unapproved Railway origin/redirect, listening sockets, metadata-service traffic, localhost proxy traffic, provider API endpoints, unknown external destinations, trace loss/truncation, or an unavailable tracer make the acquisition failing rather than widening policy. This is trace-attested closed-origin acquisition, not a firewall guarantee.
 
-The complete process trace may contain only the harness/tracer and the pinned Node process running npm. Any lifecycle, package binary, provider CLI, shell, git client, credential helper, or other npm child process is a failure. After npm exits, all three assemblies and publications are run under a separate lossless trace that must contain zero `socket` or `connect` syscalls and only the reviewed assembler, pinned Python copy helper, publisher helper, and scanner boundaries. No provider CLI is executed.
+The npm process trace may contain only the harness/tracer and the pinned Node process running npm. Any lifecycle, package binary, provider CLI, shell, git client, credential helper, or other npm child process is a failure. After npm exits, the pinned Python Railway helper runs in its own closed-origin trace as specified above. After that helper exits, all three assemblies and publications are run under a separate lossless trace that must contain zero `socket` or `connect` syscalls and only the reviewed assembler, pinned Python copy helper, publisher helper, and scanner boundaries. No provider CLI is executed.
 
 ### 5.3 Six outputs and third-scanner comparison
 
