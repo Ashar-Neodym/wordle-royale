@@ -1,7 +1,7 @@
 # Wave AM — G0 real read-only adapter/session/tool-pinning architecture
 
-Date: 2026-08-04  
-Status: architecture decision; implementable and fixture-testable while live evidence is blocked  
+Date: 2026-08-04
+Status: architecture decision; implementable and fixture-testable while live evidence is blocked
 Base: `78d054ddcd421840b4aa0bca70f121a299f9c8ee`
 
 ## Decision
