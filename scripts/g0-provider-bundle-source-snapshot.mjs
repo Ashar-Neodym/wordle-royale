@@ -89,7 +89,7 @@ async function readFileAt(parent, name, rootDev, maxBytes = MAX_FILE_BYTES) {
   let named; try { named = await lstat(childAt(parent, name), { bigint: true }); } catch { fail('SOURCE_FILE_UNAVAILABLE'); }
   if (named.isSymbolicLink()) fail('SOURCE_SYMLINK_FORBIDDEN');
   validateNode(named, rootDev, 'file');
-  if (named.size < 1n || named.size > BigInt(maxBytes)) fail('SOURCE_FILE_LIMIT');
+  if (named.size > BigInt(maxBytes)) fail('SOURCE_FILE_LIMIT');
   let handle; try { handle = await open(childAt(parent, name), FILE_FLAGS); } catch { fail('SOURCE_CHANGED'); }
   try {
     const before = await handle.stat({ bigint: true });

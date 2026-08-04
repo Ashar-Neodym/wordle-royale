@@ -38,6 +38,7 @@ async function fixture() {
   }
   await mkdir(join(sourceRoot, 'node_modules/vercel/dist/deep'), { recursive: true });
   await writeFile(join(sourceRoot, 'node_modules/vercel/dist/deep/payload.js'), 'payload\n');
+  await writeFile(join(sourceRoot, 'node_modules/vercel/dist/deep/empty.txt'), '');
   for (const path of ['node_modules/@railway/cli/bin/railway', 'node_modules/@supabase/cli-linux-x64/bin/supabase']) {
     await mkdir(join(sourceRoot, path, '..'), { recursive: true }); await writeFile(join(sourceRoot, path), 'native\n', { mode: 0o700 });
   }
@@ -83,6 +84,7 @@ test('scanner accepts the exact API, all-provider installed union, nested/scoped
   const byPath = new Map(result.snapshot.entries.map((entry) => [entry.path, entry]));
   assert.equal(byPath.get('node_modules/vercel').mode, 0o555);
   assert.equal(byPath.get('node_modules/vercel/dist/deep/payload.js').mode, 0o444);
+  assert.equal(byPath.get('node_modules/vercel/dist/deep/empty.txt').sha256, 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   assert.equal(byPath.get('node_modules/@railway/cli/bin/railway').mode, 0o555);
   assert.equal(byPath.has('node_modules/.bin'), false);
   assert.equal(Object.isFrozen(result), true); assert.equal(Object.isFrozen(result.snapshot), true);
