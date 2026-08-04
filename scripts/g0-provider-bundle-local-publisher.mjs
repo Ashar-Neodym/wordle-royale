@@ -1,7 +1,7 @@
 import { constants, createReadStream } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, open, readdir, realpath, rename, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { assembleProviderBundleStagingProduction } from './g0-provider-bundle-staging-assembler-core.mjs';
 import { validateStagedProviderBundle } from './g0-provider-bundle-staging-validator.mjs';
@@ -14,7 +14,7 @@ import {
 import { canonicalProviderToolJson } from './g0-provider-tool-bundle.mjs';
 
 const HELPER_PATH = new URL('./g0-bundle-publication-helper.py', import.meta.url).pathname;
-export const PUBLICATION_HELPER_SHA256 = 'sha256:9042dbf6697ea17bf8d60ec0574424e6b05cd13614ad5131f738973834e06894';
+export const PUBLICATION_HELPER_SHA256 = 'sha256:b5190ff5ee5a515839a6c04446d6c399d30dfb03b5578a0275ecaa1508a45ebf';
 const PYTHON_PATH = '/usr/bin/python3';
 const PYTHON_REALPATH = '/usr/bin/python3.12';
 const PYTHON_SHA256 = 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118';
@@ -178,9 +178,10 @@ function parseHelperResult(result, action) {
   if (result.error || result.killed || result.signal !== null || result.stderr?.length || !result.stdout?.length || result.stdout.length > MAX_OUTPUT) fail('PUBLISHER_HELPER_FAILED');
   let value; try { value = JSON.parse(result.stdout.toString('utf8')); } catch { fail('PUBLISHER_HELPER_PROTOCOL'); }
   if (!canonical(value).equals(result.stdout) || !exactKeys(value, ['status']) || typeof value.status !== 'string') fail('PUBLISHER_HELPER_PROTOCOL');
-  const accepted = action === 'publish' ? new Set(['PUBLISHED', 'COLLISION']) : new Set(['CLEANED', 'CLEANUP_IDENTITY_LOST']);
+  const accepted = action === 'publish' || action === 'commit_file' ? new Set(['PUBLISHED', 'COLLISION'])
+    : action === 'move' ? new Set(['MOVED', 'COLLISION']) : new Set(['CLEANED', 'CLEANUP_IDENTITY_LOST']);
   if (!accepted.has(value.status)) fail('PUBLISHER_HELPER_PROTOCOL');
-  const wantedExit = ['PUBLISHED', 'CLEANED'].includes(value.status) ? 0 : value.status === 'CLEANUP_IDENTITY_LOST' ? 3 : 2;
+  const wantedExit = ['PUBLISHED', 'MOVED', 'CLEANED'].includes(value.status) ? 0 : value.status === 'CLEANUP_IDENTITY_LOST' ? 3 : 2;
   if (result.status !== wantedExit) fail('PUBLISHER_HELPER_PROTOCOL');
   return value.status;
 }
@@ -250,11 +251,21 @@ async function publish(input, deps, hooks, testing) {
     try {
       await work.handle.chmod(0o700); work.mode = 0o700;
       await assertHeldNamed(scratch.handle, workName, work, 'PUBLICATION_BUNDLE_CHANGED');
-      await rename(childAt(scratch.handle, workName), childAt(container.handle, 'bundle'));
+      const moveFrame = {
+        action: 'move', ...frameBase(parent, scratch),
+        expectedContainerDev: String(container.stat.dev), expectedContainerIno: String(container.stat.ino),
+        expectedSourceDev: String(work.stat.dev), expectedSourceIno: String(work.stat.ino), publicationName,
+      };
+      const moveStatus = await deps.helperRunner({ frame: moveFrame, helper, parent, scratch, container, source: work, hooks });
+      if (moveStatus === 'COLLISION') fail('PUBLICATION_BUNDLE_COLLISION');
+      if (moveStatus !== 'MOVED') fail('PUBLISHER_HELPER_PROTOCOL');
       await work.handle.chmod(0o555); work.mode = 0o555; await work.handle.sync();
       await assertHeldNamed(container.handle, 'bundle', work, 'PUBLICATION_BUNDLE_CHANGED');
       await syncTree(work.handle, uid, parent.stat.dev);
-    } finally { await work.handle.close(); }
+    } finally {
+      if (work.mode === 0o700) { await work.handle.chmod(0o555).catch(() => {}); work.mode = 0o555; }
+      await work.handle.close();
+    }
     await container.handle.sync(); await assertHeldNamed(scratch.handle, publicationName, container, 'PUBLICATION_CONTAINER_CHANGED');
     await invokeHook(hooks, 'afterBundle', { publicationName });
     await assertHeldNamed(scratch.handle, publicationName, container, 'PUBLICATION_CONTAINER_CHANGED');

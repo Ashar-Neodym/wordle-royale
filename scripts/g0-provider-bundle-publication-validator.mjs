@@ -50,11 +50,12 @@ function pathValid(path) {
   if (Buffer.byteLength(path) > MAX_PATH_BYTES || path.split('/').some((part) => Buffer.byteLength(part) > MAX_COMPONENT_BYTES)) fail('PUBLICATION_PATH_LIMIT');
 }
 async function openReadOnly(path, directory = false) {
-  const base = constants.O_RDONLY | constants.O_NOFOLLOW | (directory ? constants.O_DIRECTORY : 0);
-  const noAtime = constants.O_NOATIME ?? 0;
-  try { return await open(path, base | noAtime); } catch (error) {
-    if (!noAtime || !['EPERM', 'EINVAL', 'EOPNOTSUPP'].includes(error?.code)) throw error;
-    return open(path, base);
+  const noAtime = constants.O_NOATIME;
+  if (!Number.isInteger(noAtime) || noAtime === 0) fail('READ_ONLY_UNAVAILABLE');
+  const flags = constants.O_RDONLY | constants.O_NOFOLLOW | noAtime | (directory ? constants.O_DIRECTORY : 0);
+  try { return await open(path, flags); } catch (error) {
+    if (['EPERM', 'EINVAL', 'EOPNOTSUPP', 'ENOTSUP'].includes(error?.code)) fail('READ_ONLY_UNAVAILABLE');
+    throw error;
   }
 }
 async function namesIn(handle) {
@@ -73,7 +74,7 @@ async function openHeldDirectory(parent, name, uid, mode, dev) {
   const path = childAt(parent, name);
   let named; try { named = await lstat(path, { bigint: true }); } catch { fail('PUBLICATION_FILESYSTEM_CHANGED'); }
   if (!named.isDirectory() || named.isSymbolicLink()) fail('PUBLICATION_NODE_TYPE_INVALID');
-  let handle; try { handle = await openReadOnly(path, true); } catch { fail('PUBLICATION_FILESYSTEM_CHANGED'); }
+  let handle; try { handle = await openReadOnly(path, true); } catch (error) { if (error?.code === 'READ_ONLY_UNAVAILABLE') throw error; fail('PUBLICATION_FILESYSTEM_CHANGED'); }
   try {
     const held = await handle.stat({ bigint: true });
     if (metadata(named) !== metadata(held) || held.uid !== uid || held.dev !== dev || held.nlink < 1n || (Number(held.mode) & 0o7777) !== mode) fail('PUBLICATION_DIRECTORY_POLICY');
@@ -85,7 +86,7 @@ async function readHeldFile(parent, name, relativePath, uid, dev, mode, maxBytes
   let named; try { named = await lstat(path, { bigint: true }); } catch { fail('PUBLICATION_FILESYSTEM_CHANGED'); }
   if (named.isSymbolicLink()) fail('PUBLICATION_SYMLINK_FORBIDDEN');
   if (!named.isFile()) fail('PUBLICATION_SPECIAL_FILE_FORBIDDEN');
-  let handle; try { handle = await openReadOnly(path); } catch { fail('PUBLICATION_FILESYSTEM_CHANGED'); }
+  let handle; try { handle = await openReadOnly(path); } catch (error) { if (error?.code === 'READ_ONLY_UNAVAILABLE') throw error; fail('PUBLICATION_FILESYSTEM_CHANGED'); }
   try {
     const before = await handle.stat({ bigint: true });
     if (!before.isFile() || metadata(named) !== metadata(before)) fail('PUBLICATION_FILESYSTEM_CHANGED');
@@ -263,11 +264,11 @@ export async function validateProviderBundlePublication(input) {
   if (!artifactId) fail('PUBLICATION_NAME_INVALID'); const provider = ARTIFACTS[artifactId];
   const uidNumber = process.getuid?.(); if (!Number.isInteger(uidNumber)) fail('PUBLICATION_UID_UNAVAILABLE'); const uid = BigInt(uidNumber);
   const publicationParentDirectory = dirname(publicationParent); const publicationParentBase = basename(publicationParent);
-  let parentDirectoryHandle; try { parentDirectoryHandle = await openReadOnly(publicationParentDirectory, true); } catch { fail('PUBLICATION_PARENT_UNSAFE'); }
+  let parentDirectoryHandle; try { parentDirectoryHandle = await openReadOnly(publicationParentDirectory, true); } catch (error) { if (error?.code === 'READ_ONLY_UNAVAILABLE') throw error; fail('PUBLICATION_PARENT_UNSAFE'); }
   const parentDirectoryMetadata = metadata(await parentDirectoryHandle.stat({ bigint: true }).catch(() => fail('PUBLICATION_PARENT_UNSAFE')));
   let parentNamed; try { parentNamed = await lstat(childAt(parentDirectoryHandle, publicationParentBase), { bigint: true }); } catch { await parentDirectoryHandle.close(); fail('PUBLICATION_PARENT_UNSAFE'); }
   if (!parentNamed.isDirectory() || parentNamed.isSymbolicLink() || parentNamed.uid !== uid || parentNamed.nlink < 1n || (Number(parentNamed.mode) & 0o7777) !== 0o700) { await parentDirectoryHandle.close(); fail('PUBLICATION_PARENT_UNSAFE'); }
-  let parentHandle; try { parentHandle = await openReadOnly(childAt(parentDirectoryHandle, publicationParentBase), true); } catch { await parentDirectoryHandle.close(); fail('PUBLICATION_PARENT_UNSAFE'); }
+  let parentHandle; try { parentHandle = await openReadOnly(childAt(parentDirectoryHandle, publicationParentBase), true); } catch (error) { await parentDirectoryHandle.close(); if (error?.code === 'READ_ONLY_UNAVAILABLE') throw error; fail('PUBLICATION_PARENT_UNSAFE'); }
   let container;
   try {
     const parentHeld = { handle: parentHandle, metadata: metadata(await parentHandle.stat({ bigint: true })) };

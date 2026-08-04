@@ -4,7 +4,7 @@ import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFi
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { createProviderBundleReproducibilityForTests, REPRODUCIBILITY_RECEIPT_SCHEMA } from './g0-provider-bundle-reproducibility.mjs';
+import { commitReceiptNoReplaceForTests, createProviderBundleReproducibilityForTests, REPRODUCIBILITY_RECEIPT_SCHEMA } from './g0-provider-bundle-reproducibility.mjs';
 
 const REVISION = 'a'.repeat(40);
 const H = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -15,9 +15,10 @@ const CONTRACT = Object.freeze({
   toolchain: {
     node: { path: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', sha256: 'sha256:5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926', version: 'v26.3.0' },
     npm: { path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: 'sha256:8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0' },
+    tracer: { path: '/usr/bin/strace', realpath: '/usr/bin/strace', sha256: 'sha256:28f957c227012de0b18d1bd7fff2d396cb693ea60ed8013be68de071e84b5001', version: 'strace -- version 6.8' },
   },
 });
-const NETWORK = Object.freeze({ allowedOrigin: 'https://registry.npmjs.org/', dnsRequestCount: 2, httpRequestCount: 3, networkSyscallCount: 12, registryConnectionCount: 4 });
+const NETWORK = Object.freeze({ allowedObservedHttpOrigin: 'https://registry.npmjs.org/', dnsRequestCount: 2, httpRequestCount: 3, networkSyscallCount: 12, tlsConnectionCount: 4 });
 const MEMBERS = Object.freeze({
   COMMIT: H('commit'), 'acquisition-record.json': H('acq'), 'bundle.tree-manifest.json': H('manifest'),
   'descriptor.json': H('descriptor'), 'install-plan.json': H('plan'), 'publication-index.json': H('index'),
@@ -64,6 +65,13 @@ function dependencies({ reportMutation, acquisitionMutation, delay = false } = {
       const original = reports.get(`${publicationParent}\0${publicationName}`); const label = publicationParent.endsWith('pub-a') ? 'A' : 'B';
       return { ...original, ...(reportMutation?.({ provider: original.provider, label, boundary: 'validator' }) ?? {}) };
     },
+    standaloneScanner: async ({ publicationParent, publicationName }) => {
+      const original = reports.get(`${publicationParent}\0${publicationName}`); const label = publicationParent.endsWith('pub-a') ? 'A' : 'B';
+      const standalone = { ...original, ...(reportMutation?.({ provider: original.provider, label, boundary: 'standalone' }) ?? {}) };
+      const providerNumber = ['vercel', 'railway', 'supabase'].indexOf(original.provider) + 1; const labelNumber = label === 'A' ? 1 : 2;
+      return { report: standalone, contentReport: { counts: standalone.counts, memberHashes: standalone.memberHashes, tree: [{ mode: 0o555, path: '.', type: 'directory' }] }, regularFileIdentities: [`${providerNumber}:${labelNumber}`] };
+    },
+    commitReceiptNoReplace: commitReceiptNoReplaceForTests,
   };
 }
 async function runFixture(options = {}) {

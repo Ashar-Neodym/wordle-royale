@@ -99,6 +99,35 @@ function expectError(result, code) {
   assert.deepEqual(result.body, { error: code });
 }
 
+test('move no-replace transfers exact .bundle-work into held container and never replaces bundle', async () => {
+  const f = await fixture(); const s = await staged(f);
+  const work = join(s.scratch, '.bundle-work'); await mkdir(work, { mode: 0o700 });
+  await writeFile(join(work, 'source'), 'source bytes\n', { mode: 0o400 });
+  const workId = id(await lstat(work, { bigint: true }));
+  const input = {
+    action: 'move', expectedContainerDev: s.containerId.dev, expectedContainerIno: s.containerId.ino,
+    expectedParentDev: f.parentId.dev, expectedParentIno: f.parentId.ino,
+    expectedScratchDev: s.scratchId.dev, expectedScratchIno: s.scratchId.ino,
+    expectedSourceDev: workId.dev, expectedSourceIno: workId.ino,
+    limits: { ...LIMITS }, publicationName: s.publicationName, schemaVersion: SCHEMA, scratchName: s.scratchName,
+  };
+  const moved = invoke(f.parent, input); assert.equal(moved.status, 0, moved.stdout); assert.deepEqual(moved.body, { status: 'MOVED' });
+  assert.deepEqual(id(await lstat(join(s.container, 'bundle'), { bigint: true })), workId);
+  const f2 = await fixture(); const s2 = await staged(f2); const work2 = join(s2.scratch, '.bundle-work');
+  await mkdir(work2, { mode: 0o700 }); const work2Id = id(await lstat(work2, { bigint: true }));
+  const inserted = join(s2.container, 'bundle'); await mkdir(inserted, { mode: 0o700 }); const insertedId = id(await lstat(inserted, { bigint: true }));
+  const collision = invoke(f2.parent, {
+    ...input, expectedContainerDev: s2.containerId.dev, expectedContainerIno: s2.containerId.ino,
+    expectedParentDev: f2.parentId.dev, expectedParentIno: f2.parentId.ino,
+    expectedScratchDev: s2.scratchId.dev, expectedScratchIno: s2.scratchId.ino,
+    expectedSourceDev: work2Id.dev, expectedSourceIno: work2Id.ino,
+    publicationName: s2.publicationName, scratchName: s2.scratchName,
+  });
+  assert.equal(collision.status, 2, collision.stdout); assert.deepEqual(collision.body, { status: 'COLLISION' });
+  assert.deepEqual(id(await lstat(inserted, { bigint: true })), insertedId);
+  assert.deepEqual(id(await lstat(work2, { bigint: true })), work2Id);
+});
+
 test('publish uses no-replace and preserves the exact staged container inode', async () => {
   const f = await fixture(); const s = await staged(f);
   const result = invoke(f.parent, frame(f, s));

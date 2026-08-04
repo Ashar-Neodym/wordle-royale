@@ -202,5 +202,7 @@ test('validator is static read-only local code with no publisher, mutation, proc
   const source = await readFile(new URL('./g0-provider-bundle-publication-validator.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /g0-provider-bundle-local-publisher|node:child_process|node:(?:net|http|https|dns|tls)|\bprocess\.env\b|\b(?:fetch|spawn|exec|fork|rename|unlink|mkdir|writeFile|chmod|chown|rm)\s*\(|\bimport\s*\(|\brequire\s*\(/u);
   assert.doesNotMatch(source, /betweenSnapshots|assemblyResult|expectedHash|callerPolicy|ownerUid|provider\s*:\s*input/u);
+  assert.match(source, /fail\('READ_ONLY_UNAVAILABLE'\)/u);
+  assert.doesNotMatch(source, /O_NOATIME\s*\?\?\s*0|return\s+open\(path,\s*base\)/u);
   assert.deepEqual([...source.matchAll(/^export (?:async )?function ([A-Za-z0-9_]+)/gmu)].map((x) => x[1]), ['validateProviderBundlePublication']);
 });

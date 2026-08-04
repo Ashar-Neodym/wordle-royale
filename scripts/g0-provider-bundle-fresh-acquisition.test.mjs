@@ -19,6 +19,7 @@ async function workspace() {
 }
 function evidence() { return { npmStderr: VALID_HTTP, traceFiles: [VALID_TRACE] }; }
 function fakeScanner() { return SNAPSHOT; }
+const parse = (value) => parseFreshAcquisitionEvidence({ ...value, resolverAddresses: ['127.0.0.53'] });
 
 async function withWorkspace(fn) {
   const path = await workspace();
@@ -37,12 +38,12 @@ test('fixed executor receives closed environment, exact argv, cwd, and held fd b
   const result = await run({ workspaceRoot: path, label: 'A' });
   assert.equal(result.status, 'FRESH_ACQUISITION_VALID');
   assert.equal(Object.isFrozen(result), true);
-  assert.deepEqual(observed.args, ['ci', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', '--prefer-online', '--registry=https://registry.npmjs.org/']);
+  assert.deepEqual(observed.args, ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--registry=https://registry.npmjs.org/', `--userconfig=${join(path, 'acquisition-A/config/user.npmrc')}`, `--cache=${join(path, 'acquisition-A/cache')}`]);
   assert.equal(observed.cwd, join(path, 'acquisition-A/source'));
   assert.equal(Number.isInteger(observed.nodeFd) && observed.nodeFd > 2, true);
   assert.equal(Number.isInteger(observed.npmFd) && observed.npmFd > 2, true);
   assert.notEqual(observed.nodeFd, observed.npmFd);
-  assert.deepEqual(Object.keys(observed.env).sort(), ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TZ', 'npm_config_audit', 'npm_config_cache', 'npm_config_fund', 'npm_config_globalconfig', 'npm_config_ignore_scripts', 'npm_config_loglevel', 'npm_config_progress', 'npm_config_registry', 'npm_config_update_notifier', 'npm_config_userconfig'].sort());
+  assert.deepEqual(Object.keys(observed.env).sort(), ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TZ', 'npm_config_arch', 'npm_config_audit', 'npm_config_cache', 'npm_config_fund', 'npm_config_globalconfig', 'npm_config_ignore_scripts', 'npm_config_libc', 'npm_config_loglevel', 'npm_config_platform', 'npm_config_prefix', 'npm_config_progress', 'npm_config_registry', 'npm_config_update_notifier', 'npm_config_userconfig'].sort());
   assert.equal(Object.keys(observed.env).some((key) => /proxy|auth|token|credential|session/iu.test(key)), false);
   assert.equal(observed.env.PATH, '/usr/bin:/bin');
   assert.equal(await readFile(join(path, 'acquisition-A/config/user.npmrc'), 'utf8'), 'registry=https://registry.npmjs.org/\nalways-auth=false\nignore-scripts=true\naudit=false\nfund=false\nstrict-ssl=true\n');
@@ -75,25 +76,26 @@ test('exclusive acquisition child refuses reuse and preserves existing identity'
   assert.deepEqual([after.dev, after.ino], [before.dev, before.ino]);
 }));
 
-test('lossless parser rejects duplicate, malformed, credential, and forbidden-origin HTTP logs', () => {
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: [VALID_TRACE, VALID_TRACE], npmStderr: VALID_HTTP }), { code: 'TRACE_DUPLICATE' });
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: [VALID_TRACE], npmStderr: 'npm http nonsense\n' }), { code: 'NPM_HTTP_LOG_INVALID' });
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: [VALID_TRACE], npmStderr: `${VALID_HTTP}${VALID_HTTP}` }), { code: 'NPM_HTTP_LOG_INVALID' });
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: [VALID_TRACE], npmStderr: 'npm http fetch GET 200 https://user:pass@registry.npmjs.org/x 1ms\n' }), { code: 'NETWORK_ORIGIN_FORBIDDEN' });
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: [VALID_TRACE], npmStderr: 'npm http fetch GET 200 https://evil.example/x 1ms\n' }), { code: 'NETWORK_ORIGIN_FORBIDDEN' });
+test('lossless parser allows repeated syscalls but rejects malformed, credential, and forbidden-origin HTTP logs', () => {
+  const repeatedNetworkTrace = VALID_TRACE.replace(/^execve[^\n]*\n/u, '');
+  assert.equal(parse({ traceFiles: [VALID_TRACE, repeatedNetworkTrace], npmStderr: VALID_HTTP }).tlsConnectionCount, 2);
+  assert.throws(() => parse({ traceFiles: [VALID_TRACE], npmStderr: 'npm http nonsense\n' }), { code: 'NPM_HTTP_LOG_INVALID' });
+  assert.equal(parse({ traceFiles: [VALID_TRACE], npmStderr: `${VALID_HTTP}${VALID_HTTP}` }).httpRequestCount, 2);
+  assert.throws(() => parse({ traceFiles: [VALID_TRACE], npmStderr: 'npm http fetch GET 200 https://user:pass@registry.npmjs.org/x 1ms\n' }), { code: 'NETWORK_ORIGIN_FORBIDDEN' });
+  assert.throws(() => parse({ traceFiles: [VALID_TRACE], npmStderr: 'npm http fetch GET 200 https://evil.example/x 1ms\n' }), { code: 'NETWORK_ORIGIN_FORBIDDEN' });
 });
 
 test('process/network parser rejects child exec, non-thread clone, trace loss, odd ports, and AF_UNIX', () => {
   const replace = (from, to) => ({ traceFiles: [VALID_TRACE.replace(from, to)], npmStderr: VALID_HTTP });
-  assert.throws(() => parseFreshAcquisitionEvidence(replace('+++ exited', 'execve("/bin/sh", ["sh"], 0) = 0\n+++ exited')), { code: 'CHILD_EXEC_FORBIDDEN' });
-  assert.throws(() => parseFreshAcquisitionEvidence(replace('+++ exited', 'clone(child_stack=0, flags=SIGCHLD) = 9\n+++ exited')), { code: 'CHILD_EXEC_FORBIDDEN' });
-  assert.throws(() => parseFreshAcquisitionEvidence(replace('+++ exited', '<... connect resumed>) = 0\n+++ exited')), { code: 'TRACE_LOSS' });
-  assert.throws(() => parseFreshAcquisitionEvidence(replace('htons(443)', 'htons(80)')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
-  assert.throws(() => parseFreshAcquisitionEvidence(replace('AF_INET, SOCK_STREAM', 'AF_UNIX, SOCK_STREAM')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
+  assert.throws(() => parse(replace('+++ exited', 'execve("/bin/sh", ["sh"], 0) = 0\n+++ exited')), { code: 'CHILD_EXEC_FORBIDDEN' });
+  assert.throws(() => parse(replace('+++ exited', 'clone(child_stack=0, flags=SIGCHLD) = 9\n+++ exited')), { code: 'CHILD_EXEC_FORBIDDEN' });
+  assert.throws(() => parse(replace('+++ exited', '<... connect resumed>) = 0\n+++ exited')), { code: 'TRACE_LOSS' });
+  assert.throws(() => parse(replace('htons(443)', 'htons(80)')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
+  assert.throws(() => parse(replace('AF_INET, SOCK_STREAM', 'AF_UNIX, SOCK_STREAM')), { code: 'NETWORK_ENDPOINT_FORBIDDEN' });
 });
 
 test('output bound, timeout, and executor failure remain failures with private tree retained', async () => {
-  assert.throws(() => parseFreshAcquisitionEvidence({ traceFiles: ['x'.repeat(16 * 1024 * 1024 + 1)], npmStderr: VALID_HTTP }), { code: 'TRACE_INVALID' });
+  assert.throws(() => parse({ traceFiles: ['x'.repeat(16 * 1024 * 1024 + 1)], npmStderr: VALID_HTTP }), { code: 'TRACE_INVALID' });
   await withWorkspace(async (path) => {
     const error = Object.assign(new Error('ACQUISITION_TIMEOUT'), { code: 'ACQUISITION_TIMEOUT' });
     const run = createFreshAcquisitionRunnerForTest(async () => { throw error; }, fakeScanner);
@@ -107,5 +109,5 @@ test('source mutation during executor is detected after apparent successful trac
     await chmod(join(spec.cwd, 'package.json'), 0o600);
     return evidence();
   }, fakeScanner);
-  await assert.rejects(run({ workspaceRoot: path, label: 'A' }), { code: 'PINNED_FILE_POLICY_MISMATCH' });
+  await assert.rejects(run({ workspaceRoot: path, label: 'A' }), { code: 'PINNED_FILE_CHANGED' });
 }));

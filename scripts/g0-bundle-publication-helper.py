@@ -27,8 +27,17 @@ COMMON_FIELDS = {
 PUBLISH_FIELDS = COMMON_FIELDS | {
     "expectedContainerDev", "expectedContainerIno", "publicationName",
 }
+MOVE_FIELDS = COMMON_FIELDS | {
+    "expectedContainerDev", "expectedContainerIno", "expectedSourceDev", "expectedSourceIno", "publicationName",
+}
+COMMIT_FILE_FIELDS = {
+    "action", "expectedParentDev", "expectedParentIno", "expectedTempDev", "expectedTempIno",
+    "finalName", "limits", "schemaVersion", "tempName",
+}
 SCRATCH_RE = re.compile(r"\.an4-tmp-[0-9a-f]{32}\Z")
 PUBLICATION_RE = re.compile(r"(?:vercel-58\.4\.4|railway-5\.30\.1|supabase-2\.110\.0)-[0-9a-f]{32}\Z")
+TEMP_FILE_RE = re.compile(r"\.an5b-receipt-[0-9a-f]{32}\Z")
+FINAL_FILE_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?\Z")
 DECIMAL_RE = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 
 
@@ -87,9 +96,12 @@ def parse_frame():
         raise
     except (UnicodeDecodeError, json.JSONDecodeError):
         fail("FRAME_INVALID")
-    if type(frame) is not dict or frame.get("action") not in ("publish", "cleanup"):
+    if type(frame) is not dict or frame.get("action") not in ("publish", "cleanup", "move", "commit_file"):
         fail("INPUT_SCHEMA")
-    fields = PUBLISH_FIELDS if frame["action"] == "publish" else COMMON_FIELDS
+    fields = {
+        "publish": PUBLISH_FIELDS, "cleanup": COMMON_FIELDS,
+        "move": MOVE_FIELDS, "commit_file": COMMIT_FILE_FIELDS,
+    }[frame["action"]]
     if set(frame) != fields or frame.get("schemaVersion") != SCHEMA:
         fail("INPUT_SCHEMA")
     limits = frame.get("limits")
@@ -102,6 +114,14 @@ def parse_frame():
         fail("INPUT_LIMIT_INVALID")
     if len(data) > limits["maxFrameBytes"] or data != canonical(frame):
         fail("FRAME_INVALID")
+    if frame["action"] == "commit_file":
+        if type(frame["tempName"]) is not str or TEMP_FILE_RE.fullmatch(frame["tempName"]) is None:
+            fail("TEMP_NAME_INVALID")
+        if type(frame["finalName"]) is not str or FINAL_FILE_RE.fullmatch(frame["finalName"]) is None:
+            fail("FINAL_NAME_INVALID")
+        expected(frame, "Parent")
+        expected(frame, "Temp")
+        return frame
     if type(frame["scratchName"]) is not str or SCRATCH_RE.fullmatch(frame["scratchName"]) is None:
         fail("SCRATCH_NAME_INVALID")
     expected(frame, "Parent")
@@ -110,6 +130,11 @@ def parse_frame():
         if type(frame["publicationName"]) is not str or PUBLICATION_RE.fullmatch(frame["publicationName"]) is None:
             fail("PUBLICATION_NAME_INVALID")
         expected(frame, "Container")
+    elif frame["action"] == "move":
+        if type(frame["publicationName"]) is not str or PUBLICATION_RE.fullmatch(frame["publicationName"]) is None:
+            fail("PUBLICATION_NAME_INVALID")
+        expected(frame, "Container")
+        expected(frame, "Source")
     return frame
 
 
@@ -230,6 +255,80 @@ def publish(frame, parent_st):
                     os.close(fd)
                 except OSError:
                     pass
+
+
+def move_bundle(frame, parent_st):
+    scratch_fd = container_fd = source_fd = None
+    try:
+        scratch_fd, _ = open_named_dir(
+            PARENT_FD, frame["scratchName"], expected(frame, "Scratch"), parent_st.st_dev,
+            "SCRATCH_UNSAFE", "SCRATCH_IDENTITY_LOST", 0o700,
+        )
+        container_fd, container_st = open_named_dir(
+            scratch_fd, frame["publicationName"], expected(frame, "Container"), parent_st.st_dev,
+            "CONTAINER_UNSAFE", "CONTAINER_IDENTITY_LOST", 0o700,
+        )
+        source_fd, source_st = open_named_dir(
+            scratch_fd, ".bundle-work", expected(frame, "Source"), parent_st.st_dev,
+            "SOURCE_UNSAFE", "SOURCE_IDENTITY_LOST", 0o700,
+        )
+        parent_still(frame, parent_st)
+        # Both names and both directory identities are closed and descriptor-relative.
+        rename_noreplace(scratch_fd, ".bundle-work", container_fd, "bundle")
+        for fd, code in ((scratch_fd, "SOURCE_DIR_FSYNC_FAILED"), (container_fd, "DEST_DIR_FSYNC_FAILED")):
+            try:
+                os.fsync(fd)
+            except OSError:
+                fail(code)
+        if named_matches(scratch_fd, ".bundle-work", source_st):
+            fail("SOURCE_IDENTITY_LOST")
+        if not named_matches(container_fd, "bundle", source_st):
+            fail("SOURCE_IDENTITY_LOST")
+        if identity(os.fstat(container_fd)) != identity(container_st):
+            fail("CONTAINER_IDENTITY_LOST")
+        parent_still(frame, parent_st)
+        return "MOVED"
+    finally:
+        for fd in (source_fd, container_fd, scratch_fd):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+def commit_file(frame, parent_st):
+    temp_fd = None
+    try:
+        try:
+            named = os.stat(frame["tempName"], dir_fd=PARENT_FD, follow_symlinks=False)
+            temp_fd = os.open(frame["tempName"], FILE_FLAGS, dir_fd=PARENT_FD)
+            held = os.fstat(temp_fd)
+        except OSError:
+            fail("TEMP_IDENTITY_LOST")
+        if (not same_node(named, held) or identity(held) != expected(frame, "Temp")
+                or not stat.S_ISREG(held.st_mode) or held.st_dev != parent_st.st_dev
+                or held.st_uid != os.getuid() or stat.S_IMODE(held.st_mode) != 0o600 or held.st_nlink != 1):
+            fail("TEMP_UNSAFE")
+        parent_still(frame, parent_st)
+        rename_noreplace(PARENT_FD, frame["tempName"], PARENT_FD, frame["finalName"])
+        try:
+            os.fsync(PARENT_FD)
+        except OSError:
+            fail("PARENT_FSYNC_FAILED")
+        if not named_matches(PARENT_FD, frame["finalName"], held):
+            fail("TEMP_IDENTITY_LOST")
+        latest = os.fstat(temp_fd)
+        if not same_node(held, latest) or latest.st_nlink != 1 or stat.S_IMODE(latest.st_mode) != 0o600:
+            fail("TEMP_IDENTITY_LOST")
+        parent_still(frame, parent_st)
+        return "PUBLISHED"
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
 
 
 class Cleaner:
@@ -373,9 +472,17 @@ def main():
     try:
         frame = parse_frame()
         parent_st = verify_parent(frame)
-        result = publish(frame, parent_st) if frame["action"] == "publish" else cleanup(frame, parent_st)
+        action = frame["action"]
+        if action == "publish":
+            result = publish(frame, parent_st)
+        elif action == "cleanup":
+            result = cleanup(frame, parent_st)
+        elif action == "move":
+            result = move_bundle(frame, parent_st)
+        else:
+            result = commit_file(frame, parent_st)
         sys.stdout.buffer.write(canonical({"status": result}))
-        if result in ("PUBLISHED", "CLEANED"):
+        if result in ("PUBLISHED", "MOVED", "CLEANED"):
             return 0
         if result == "CLEANUP_IDENTITY_LOST":
             return 3

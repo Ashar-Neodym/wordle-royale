@@ -1,11 +1,13 @@
-import { constants } from 'node:fs';
+import { constants, watch } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
-import { link, lstat, open, readFile, readdir, realpath, unlink } from 'node:fs/promises';
+import { lstat, open, readFile, readdir, realpath, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { runFreshProviderBundleAcquisition } from './g0-provider-bundle-fresh-acquisition.mjs';
 import { publishProviderBundleLocally } from './g0-provider-bundle-local-publisher.mjs';
 import { validateProviderBundlePublication } from './g0-provider-bundle-publication-validator.mjs';
 import { canonicalProviderToolJson } from './g0-provider-tool-bundle.mjs';
+import { scanProviderBundlePublicationStandalone } from './g0-standalone-repro-scanner.mjs';
+import { commitLocalReceiptNoReplace } from './g0-local-noreplace-commit.mjs';
 
 export const REPRODUCIBILITY_RECEIPT_SCHEMA = 'wordle-royale-g0-provider-bundle-reproducibility/v1';
 export const MAX_REPRODUCIBILITY_RECEIPT_BYTES = 256 * 1024;
@@ -18,13 +20,14 @@ const PINNED_ACQUISITION = Object.freeze({
   toolchain: Object.freeze({
     node: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/bin/node', sha256: 'sha256:5325ac9da58541494afcc136f0880279a2a853609bf4dae7755e04fb682b6926', version: 'v26.3.0' }),
     npm: Object.freeze({ path: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', realpath: '/home/ashar/.nvm/versions/node/v26.3.0/lib/node_modules/npm/bin/npm-cli.js', sha256: 'sha256:8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7', version: '11.16.0' }),
+    tracer: Object.freeze({ path: '/usr/bin/strace', realpath: '/usr/bin/strace', sha256: 'sha256:28f957c227012de0b18d1bd7fff2d396cb693ea60ed8013be68de071e84b5001', version: 'strace -- version 6.8' }),
   }),
 });
 const DIR_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | (constants.O_NOATIME ?? 0);
 const CREATE_FLAGS = constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 const RECEIPT_KEYS = Object.freeze([
-  'acquisitionContract', 'acquisitionCount', 'allBytesAndModesReproduced', 'hostedMutationAuthorized',
+  'acquisitionContract', 'acquisitionCount', 'allBytesAndModesReproduced', 'allSixRegularFileInodeSetsDisjoint', 'hostedMutationAuthorized',
   'independentScannerCount', 'independentScanners', 'networkSummaries', 'privilegedInstallationAuthorized', 'providerBundleCount',
   'providerExecutionAuthorized', 'providers', 'retryGate', 'rootInstallationPerformed', 'schemaVersion', 'sourceRevision',
 ]);
@@ -67,6 +70,21 @@ async function assertDirectoryHeld(item, code) {
   if (identity(held) !== item.id || identity(named) !== item.id || !held.isDirectory() || !named.isDirectory()
       || modeOf(held) !== 0o700 || modeOf(named) !== 0o700 || held.uid !== BigInt(process.getuid()) || named.uid !== held.uid
       || await realpath(item.path).catch(() => '') !== item.path) fail(code);
+}
+function monitorNamedRoot(item) {
+  const wanted = Buffer.from(basename(item.path)); const state = { changed: false, error: false }; let watcher;
+  try {
+    watcher = watch(dirname(item.path), { encoding: 'buffer', persistent: false }, (event, filename) => {
+      if ((event === 'rename' || event === 'change') && Buffer.isBuffer(filename) && filename.equals(wanted)) state.changed = true;
+    });
+  } catch { fail('REPRODUCIBILITY_ROOT_MONITOR_FAILED'); }
+  watcher.on('error', () => { state.error = true; });
+  return { close: () => watcher.close(), state };
+}
+async function assertRootsStable(roots, monitors) {
+  await new Promise((done) => setImmediate(done));
+  if (monitors.some((x) => x.state.changed || x.state.error)) fail('REPRODUCIBILITY_ROOT_CHANGED');
+  for (const root of roots) await assertDirectoryHeld(root, 'REPRODUCIBILITY_ROOT_CHANGED');
 }
 
 async function sourceInventory(sourceRoot, cacheRoot) {
@@ -116,16 +134,17 @@ function sanitizeAcquisition(value, label, expectedSource) {
   if (value.status !== 'FRESH_ACQUISITION_VALID' || value.label !== label || value.sourceRoot !== expectedSource
       || !SHA256.test(value.canonicalSourceSnapshotSha256) || !SHA256.test(value.packageJsonSha256) || !SHA256.test(value.packageLockSha256)
       || value.lifecycleScriptsExecuted !== false || value.credentialsForwarded !== false || value.providerExecuted !== false) fail('ACQUISITION_RESULT_INVALID');
-  exact(value.toolchain, ['node', 'npm'], 'ACQUISITION_TOOLCHAIN_INVALID');
-  const toolchain = { node: validateTool('node', value.toolchain.node), npm: validateTool('npm', value.toolchain.npm) };
+  exact(value.toolchain, ['node', 'npm', 'tracer'], 'ACQUISITION_TOOLCHAIN_INVALID');
+  const operationalToolchain = { node: validateTool('node', value.toolchain.node), npm: validateTool('npm', value.toolchain.npm), tracer: validateTool('tracer', value.toolchain.tracer) };
   if (value.packageJsonSha256 !== PINNED_ACQUISITION.packageJsonSha256 || value.packageLockSha256 !== PINNED_ACQUISITION.packageLockSha256
-      || !equalCanonical(toolchain, PINNED_ACQUISITION.toolchain)) fail('ACQUISITION_PIN_MISMATCH');
-  exact(value.networkSummary, ['allowedOrigin', 'dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'registryConnectionCount'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
-  if (value.networkSummary.allowedOrigin !== 'https://registry.npmjs.org/'
-      || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'registryConnectionCount'].some((key) => !Number.isSafeInteger(value.networkSummary[key]) || value.networkSummary[key] < 1)) fail('ACQUISITION_NETWORK_SUMMARY_INVALID');
+      || !equalCanonical(operationalToolchain, PINNED_ACQUISITION.toolchain)) fail('ACQUISITION_PIN_MISMATCH');
+  exact(value.networkSummary, ['allowedObservedHttpOrigin', 'dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'], 'ACQUISITION_NETWORK_SUMMARY_INVALID');
+  if (value.networkSummary.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/'
+      || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'].some((key) => !Number.isSafeInteger(value.networkSummary[key]) || value.networkSummary[key] < 1)) fail('ACQUISITION_NETWORK_SUMMARY_INVALID');
+  const toolchain = Object.fromEntries(Object.entries(operationalToolchain).map(([name, tool]) => [name, { sha256: tool.sha256, version: tool.version }]));
   return freezeDeep({
     contract: { canonicalSourceSnapshotSha256: value.canonicalSourceSnapshotSha256, packageJsonSha256: value.packageJsonSha256, packageLockSha256: value.packageLockSha256, toolchain },
-    network: { allowedOrigin: value.networkSummary.allowedOrigin, credentialsForwarded: false, dnsRequestCount: value.networkSummary.dnsRequestCount, httpRequestCount: value.networkSummary.httpRequestCount, lifecycleScriptsExecuted: false, networkSyscallCount: value.networkSummary.networkSyscallCount, providerExecuted: false, registryConnectionCount: value.networkSummary.registryConnectionCount },
+    network: { allowedObservedHttpOrigin: value.networkSummary.allowedObservedHttpOrigin, credentialsForwarded: false, dnsRequestCount: value.networkSummary.dnsRequestCount, httpRequestCount: value.networkSummary.httpRequestCount, lifecycleScriptsExecuted: false, networkSyscallCount: value.networkSummary.networkSyscallCount, tlsConnectionCount: value.networkSummary.tlsConnectionCount },
   });
 }
 
@@ -156,9 +175,10 @@ function receiptDocument(sourceRevision, acquisitions, providers) {
     acquisitionContract: acquisitions.A.contract,
     acquisitionCount: 2,
     allBytesAndModesReproduced: true,
+    allSixRegularFileInodeSetsDisjoint: true,
     hostedMutationAuthorized: false,
     independentScannerCount: 3,
-    independentScanners: ['copy-helper', 'staging-validator', 'publication-validator'],
+    independentScanners: ['staging-validator', 'publication-validator', 'standalone-repro-scanner'],
     networkSummaries: { A: acquisitions.A.network, B: acquisitions.B.network },
     privilegedInstallationAuthorized: false,
     providerBundleCount: 3,
@@ -170,25 +190,31 @@ function receiptDocument(sourceRevision, acquisitions, providers) {
     sourceRevision,
   };
 }
+function validateCanonicalTool(tool) {
+  exact(tool, ['sha256', 'version'], 'RECEIPT_INVALID');
+  if (!SHA256.test(tool.sha256) || typeof tool.version !== 'string' || !tool.version) fail('RECEIPT_INVALID');
+}
 function validateReceipt(value) {
   exact(value, RECEIPT_KEYS, 'RECEIPT_INVALID');
   if (value.schemaVersion !== REPRODUCIBILITY_RECEIPT_SCHEMA || !REVISION.test(value.sourceRevision) || value.acquisitionCount !== 2 || value.providerBundleCount !== 3
-      || value.independentScannerCount !== 3 || value.allBytesAndModesReproduced !== true || value.hostedMutationAuthorized !== false
+      || value.independentScannerCount !== 3 || value.allBytesAndModesReproduced !== true || value.allSixRegularFileInodeSetsDisjoint !== true || value.hostedMutationAuthorized !== false
       || value.privilegedInstallationAuthorized !== false || value.providerExecutionAuthorized !== false || value.rootInstallationPerformed !== false || value.retryGate !== 'closed') fail('RECEIPT_INVALID');
-  if (!Array.isArray(value.independentScanners) || value.independentScanners.join('\0') !== 'copy-helper\0staging-validator\0publication-validator') fail('RECEIPT_INVALID');
+  if (!Array.isArray(value.independentScanners) || value.independentScanners.join('\0') !== 'staging-validator\0publication-validator\0standalone-repro-scanner') fail('RECEIPT_INVALID');
   exact(value.acquisitionContract, ['canonicalSourceSnapshotSha256', 'packageJsonSha256', 'packageLockSha256', 'toolchain'], 'RECEIPT_INVALID');
   if (![value.acquisitionContract.canonicalSourceSnapshotSha256, value.acquisitionContract.packageJsonSha256, value.acquisitionContract.packageLockSha256].every((x) => typeof x === 'string' && SHA256.test(x))) fail('RECEIPT_INVALID');
-  exact(value.acquisitionContract.toolchain, ['node', 'npm'], 'RECEIPT_INVALID');
-  validateTool('node', value.acquisitionContract.toolchain.node); validateTool('npm', value.acquisitionContract.toolchain.npm);
+  exact(value.acquisitionContract.toolchain, ['node', 'npm', 'tracer'], 'RECEIPT_INVALID');
+  validateCanonicalTool(value.acquisitionContract.toolchain.node); validateCanonicalTool(value.acquisitionContract.toolchain.npm); validateCanonicalTool(value.acquisitionContract.toolchain.tracer);
   exact(value.networkSummaries, ['A', 'B'], 'RECEIPT_INVALID');
   for (const summary of Object.values(value.networkSummaries)) {
-    exact(summary, ['allowedOrigin', 'credentialsForwarded', 'dnsRequestCount', 'httpRequestCount', 'lifecycleScriptsExecuted', 'networkSyscallCount', 'providerExecuted', 'registryConnectionCount'], 'RECEIPT_INVALID');
-    if (summary.allowedOrigin !== 'https://registry.npmjs.org/' || summary.credentialsForwarded !== false || summary.lifecycleScriptsExecuted !== false || summary.providerExecuted !== false
-        || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'registryConnectionCount'].some((key) => !Number.isSafeInteger(summary[key]) || summary[key] < 1)) fail('RECEIPT_INVALID');
+    exact(summary, ['allowedObservedHttpOrigin', 'credentialsForwarded', 'dnsRequestCount', 'httpRequestCount', 'lifecycleScriptsExecuted', 'networkSyscallCount', 'tlsConnectionCount'], 'RECEIPT_INVALID');
+    if (summary.allowedObservedHttpOrigin !== 'https://registry.npmjs.org/' || summary.credentialsForwarded !== false || summary.lifecycleScriptsExecuted !== false
+        || ['dnsRequestCount', 'httpRequestCount', 'networkSyscallCount', 'tlsConnectionCount'].some((key) => !Number.isSafeInteger(summary[key]) || summary[key] < 1)) fail('RECEIPT_INVALID');
   }
   if (!Array.isArray(value.providers) || value.providers.length !== 3 || value.providers.some((p, i) => p?.provider !== PROVIDERS[i])) fail('RECEIPT_INVALID');
   for (const provider of value.providers) {
-    exact(provider, ['provider', 'artifactId', 'publicationId', 'treeSha256', 'memberHashes', 'counts'], 'RECEIPT_INVALID');
+    exact(provider, ['provider', 'artifactId', 'publicationId', 'treeSha256', 'memberHashes', 'counts', 'publicationReports'], 'RECEIPT_INVALID');
+    exact(provider.publicationReports, ['A', 'B'], 'RECEIPT_INVALID');
+    if (!SHA256.test(provider.publicationReports.A) || provider.publicationReports.A !== provider.publicationReports.B) fail('RECEIPT_INVALID');
     normalizeReport({
       status: 'PUBLICATION_VALID', publicationValid: true, provider: provider.provider, artifactId: provider.artifactId,
       publicationId: provider.publicationId, treeSha256: provider.treeSha256,
@@ -224,7 +250,7 @@ async function cleanupTemp(parent, name, tempIdentity) {
   if (!named.isFile() || identity(named) !== tempIdentity) fail('RECEIPT_CLEANUP_IDENTITY_LOST');
   await unlink(childAt(parent.handle, name)).catch(() => fail('RECEIPT_CLEANUP_FAILED'));
 }
-async function commitReceipt(receiptPath, bytes, hooks) {
+async function commitReceipt(receiptPath, bytes, hooks, noReplace = commitLocalReceiptNoReplace) {
   const parentPath = dirname(receiptPath); const name = basename(receiptPath);
   if (!name || name === '.' || name === '..' || name.includes('/')) fail('REPRODUCIBILITY_INPUT_INVALID');
   const parent = await openSafeDirectory(parentPath, 'RECEIPT_PARENT_UNSAFE');
@@ -251,14 +277,15 @@ async function commitReceipt(receiptPath, bytes, hooks) {
     };
     await assertTempNamed(); await assertDirectoryHeld(parent, 'RECEIPT_PARENT_CHANGED'); await invokeHook(hooks, 'beforeLink', { receiptPath, tempName });
     await assertDirectoryHeld(parent, 'RECEIPT_PARENT_CHANGED'); await assertTempNamed();
-    try { await link(childAt(parent.handle, tempName), childAt(parent.handle, name)); } catch (error) {
-      if (error?.code !== 'EEXIST') fail('RECEIPT_LINK_FAILED');
+    const moved = await noReplace({ parentHandle: parent.handle, tempHandle: temp, tempName, finalName: name });
+    if (moved?.status === 'COLLISION') {
       const replay = await readExistingReceipt(parent, name, bytes); return { status: 'ALREADY_REPRODUCED_IDENTICAL', bytes: replay };
     }
+    if (moved?.status !== 'PUBLISHED') fail('RECEIPT_NOREPLACE_FAILED');
+    tempName = undefined;
     await invokeHook(hooks, 'afterLink', { receiptPath, tempName });
     await assertDirectoryHeld(parent, 'RECEIPT_PARENT_CHANGED'); await invokeHook(hooks, 'beforeParentFsync', { receiptPath, tempName });
     await parent.handle.sync().catch(() => fail('RECEIPT_PARENT_FSYNC_FAILED')); await invokeHook(hooks, 'afterParentFsync', { receiptPath, tempName });
-    await cleanupTemp(parent, tempName, tempId); tempName = undefined;
     await invokeHook(hooks, 'afterTempUnlink', { receiptPath });
     await parent.handle.sync().catch(() => fail('RECEIPT_PARENT_FSYNC_FAILED'));
     await assertDirectoryHeld(parent, 'RECEIPT_PARENT_CHANGED'); await invokeHook(hooks, 'beforeFinalRead', { receiptPath });
@@ -271,11 +298,12 @@ async function commitReceipt(receiptPath, bytes, hooks) {
   }
 }
 
-const PRODUCTION_DEPS = Object.freeze({ acquisitionRunner: runFreshProviderBundleAcquisition, publisher: publishProviderBundleLocally, validator: validateProviderBundlePublication });
+export const commitReceiptNoReplaceForTests = commitReceipt;
+const PRODUCTION_DEPS = Object.freeze({ acquisitionRunner: runFreshProviderBundleAcquisition, publisher: publishProviderBundleLocally, validator: validateProviderBundlePublication, standaloneScanner: scanProviderBundlePublicationStandalone, commitReceiptNoReplace: commitReceipt });
 export function createProviderBundleReproducibilityForTests(overrides = {}) {
   if (!plain(overrides)) fail('REPRODUCIBILITY_TEST_DEPS_INVALID');
   const { hooks, ...deps } = overrides;
-  for (const key of Object.keys(deps)) if (!['acquisitionRunner', 'publisher', 'validator'].includes(key) || typeof deps[key] !== 'function') fail('REPRODUCIBILITY_TEST_DEPS_INVALID');
+  for (const key of Object.keys(deps)) if (!['acquisitionRunner', 'publisher', 'validator', 'standaloneScanner', 'commitReceiptNoReplace'].includes(key) || typeof deps[key] !== 'function') fail('REPRODUCIBILITY_TEST_DEPS_INVALID');
   return (input) => reproduce(input, Object.freeze({ ...PRODUCTION_DEPS, ...deps }), hooks);
 }
 export const createReproducibilityOrchestratorForTests = createProviderBundleReproducibilityForTests;
@@ -289,40 +317,56 @@ async function reproduce(input, deps, hooks) {
   const { workspaceRoot, publicationRootA, publicationRootB, receiptPath, sourceRevision } = input;
   if (![workspaceRoot, publicationRootA, publicationRootB, receiptPath].every(normalizedAbsolute) || !REVISION.test(sourceRevision)) fail('REPRODUCIBILITY_INPUT_INVALID');
   const roots = await Promise.all([workspaceRoot, publicationRootA, publicationRootB].map((path) => openSafeDirectory(path, 'REPRODUCIBILITY_ROOT_UNSAFE')));
-  const rootDevice = roots[0].stat.dev;
+  const monitors = roots.map(monitorNamedRoot); const rootDevice = roots[0].stat.dev;
   try {
     if (new Set(roots.map((x) => x.id)).size !== roots.length || new Set(roots.map((x) => String(x.stat.dev))).size !== 1) fail('REPRODUCIBILITY_ROOTS_NOT_INDEPENDENT');
+    await assertRootsStable(roots, monitors);
     const raw = await Promise.all(['A', 'B'].map((label) => deps.acquisitionRunner({ workspaceRoot, label })));
-  const sourceA = join(workspaceRoot, 'acquisition-A/source'); const sourceB = join(workspaceRoot, 'acquisition-B/source');
-  const acquisitions = { A: sanitizeAcquisition(raw[0], 'A', sourceA), B: sanitizeAcquisition(raw[1], 'B', sourceB) };
-  if (!equalCanonical(acquisitions.A.contract, acquisitions.B.contract)) fail('ACQUISITION_CONTRACT_MISMATCH');
-  const inventories = await Promise.all([sourceInventory(sourceA, join(workspaceRoot, 'acquisition-A/cache')), sourceInventory(sourceB, join(workspaceRoot, 'acquisition-B/cache'))]);
-  if (inventories.some((item) => item.sourceDevice !== rootDevice || item.cacheDevice !== rootDevice)) fail('ACQUISITION_FILESYSTEM_MISMATCH');
-  assertIndependent(inventories[0], inventories[1]);
-  const providerReceipts = [];
-  for (const provider of PROVIDERS) {
-    const pair = [];
-    for (const [label, sourceRoot, publicationParent] of [['A', sourceA, publicationRootA], ['B', sourceB, publicationRootB]]) {
-      await invokeHook(hooks, 'beforePublish', { label, provider });
-      const published = await deps.publisher({ provider, sourceRoot, publicationParent, sourceRevision });
-      if (!plain(published) || typeof published.publicationName !== 'string') fail('PUBLISHER_RESULT_INVALID');
-      const scanned = normalizeReport(await deps.validator({ publicationParent, publicationName: published.publicationName }), provider);
-      checkPublisherResult(published, provider, scanned, sourceRevision, acquisitions[label].contract.canonicalSourceSnapshotSha256);
-      pair.push(scanned);
+    await assertRootsStable(roots, monitors);
+    const sourceA = join(workspaceRoot, 'acquisition-A/source'); const sourceB = join(workspaceRoot, 'acquisition-B/source');
+    const acquisitions = { A: sanitizeAcquisition(raw[0], 'A', sourceA), B: sanitizeAcquisition(raw[1], 'B', sourceB) };
+    if (!equalCanonical(acquisitions.A.contract, acquisitions.B.contract)) fail('ACQUISITION_CONTRACT_MISMATCH');
+    const inventories = await Promise.all([sourceInventory(sourceA, join(workspaceRoot, 'acquisition-A/cache')), sourceInventory(sourceB, join(workspaceRoot, 'acquisition-B/cache'))]);
+    await assertRootsStable(roots, monitors);
+    if (inventories.some((item) => item.sourceDevice !== rootDevice || item.cacheDevice !== rootDevice)) fail('ACQUISITION_FILESYSTEM_MISMATCH');
+    assertIndependent(inventories[0], inventories[1]);
+    const providerReceipts = []; const sixInodeSets = [];
+    for (const provider of PROVIDERS) {
+      const pair = [];
+      for (const [label, sourceRoot, publicationParent] of [['A', sourceA, publicationRootA], ['B', sourceB, publicationRootB]]) {
+        await assertRootsStable(roots, monitors); await invokeHook(hooks, 'beforePublish', { label, provider });
+        const published = await deps.publisher({ provider, sourceRoot, publicationParent, sourceRevision });
+        await assertRootsStable(roots, monitors);
+        if (!plain(published) || typeof published.publicationName !== 'string') fail('PUBLISHER_RESULT_INVALID');
+        const scanned = normalizeReport(await deps.validator({ publicationParent, publicationName: published.publicationName }), provider);
+        await assertRootsStable(roots, monitors);
+        checkPublisherResult(published, provider, scanned, sourceRevision, acquisitions[label].contract.canonicalSourceSnapshotSha256);
+        const independent = await deps.standaloneScanner({ publicationParent, publicationName: published.publicationName });
+        await assertRootsStable(roots, monitors);
+        exact(independent, ['contentReport', 'regularFileIdentities', 'report'], 'STANDALONE_REPORT_INVALID');
+        const standaloneReport = normalizeReport(independent.report, provider);
+        if (!equalCanonical(scanned, standaloneReport) || !plain(independent.contentReport) || !Array.isArray(independent.regularFileIdentities)
+            || independent.regularFileIdentities.length === 0 || new Set(independent.regularFileIdentities).size !== independent.regularFileIdentities.length
+            || independent.regularFileIdentities.some((id) => !/^[0-9]+:[0-9]+$/u.test(id))) fail('STANDALONE_SCANNER_MISMATCH');
+        const contentDigest = sha256(canonicalBytes(independent.contentReport));
+        pair.push({ report: scanned, contentReport: independent.contentReport, contentDigest }); sixInodeSets.push({ label, provider, ids: new Set(independent.regularFileIdentities) });
+      }
+      if (!equalCanonical(pair[0].report, pair[1].report) || !equalCanonical(pair[0].contentReport, pair[1].contentReport)) fail('PROVIDER_REPRODUCIBILITY_MISMATCH', provider);
+      providerReceipts.push(freezeDeep({ provider, artifactId: pair[0].report.artifactId, publicationId: pair[0].report.publicationId, treeSha256: pair[0].report.treeSha256, memberHashes: pair[0].report.memberHashes, counts: pair[0].report.counts, publicationReports: { A: pair[0].contentDigest, B: pair[1].contentDigest } }));
     }
-    if (!equalCanonical(pair[0], pair[1])) fail('PROVIDER_REPRODUCIBILITY_MISMATCH', provider);
-    providerReceipts.push(freezeDeep({ provider, artifactId: pair[0].artifactId, publicationId: pair[0].publicationId, treeSha256: pair[0].treeSha256, memberHashes: pair[0].memberHashes, counts: pair[0].counts }));
-  }
-  const document = receiptDocument(sourceRevision, acquisitions, providerReceipts);
-  validateReceipt(document); const bytes = canonicalBytes(document);
-  if (bytes.length > MAX_REPRODUCIBILITY_RECEIPT_BYTES) fail('RECEIPT_SIZE_LIMIT');
-  for (const path of [workspaceRoot, publicationRootA, publicationRootB, receiptPath, sourceA, sourceB]) if (bytes.includes(Buffer.from(path))) fail('RECEIPT_ABSOLUTE_PATH_LEAK');
-    for (const root of roots) await assertDirectoryHeld(root, 'REPRODUCIBILITY_ROOT_CHANGED');
-    const committed = await commitReceipt(receiptPath, bytes, hooks);
-    for (const root of roots) await assertDirectoryHeld(root, 'REPRODUCIBILITY_ROOT_CHANGED');
+    for (let i = 0; i < sixInodeSets.length; i += 1) for (let j = i + 1; j < sixInodeSets.length; j += 1) {
+      for (const id of sixInodeSets[i].ids) if (sixInodeSets[j].ids.has(id)) fail('SIX_PUBLICATION_FILE_ALIAS', { a: `${sixInodeSets[i].provider}-${sixInodeSets[i].label}`, b: `${sixInodeSets[j].provider}-${sixInodeSets[j].label}`, id });
+    }
+    const document = receiptDocument(sourceRevision, acquisitions, providerReceipts);
+    validateReceipt(document); const bytes = canonicalBytes(document);
+    if (bytes.length > MAX_REPRODUCIBILITY_RECEIPT_BYTES) fail('RECEIPT_SIZE_LIMIT');
+    for (const path of [workspaceRoot, publicationRootA, publicationRootB, receiptPath, sourceA, sourceB, ...Object.values(PINNED_ACQUISITION.toolchain).flatMap((tool) => [tool.path, tool.realpath])]) if (bytes.includes(Buffer.from(path))) fail('RECEIPT_ABSOLUTE_PATH_LEAK');
+    await assertRootsStable(roots, monitors);
+    const committed = await deps.commitReceiptNoReplace(receiptPath, bytes, hooks);
+    await assertRootsStable(roots, monitors);
     const result = { status: committed.status, receiptSha256: sha256(committed.bytes), providers: providerReceipts, receiptPath };
     return freezeDeep(result);
-  } finally { await Promise.allSettled(roots.map((x) => x.handle.close())); }
+  } finally { for (const monitor of monitors) monitor.close(); await Promise.allSettled(roots.map((x) => x.handle.close())); }
 }
 
 export const runProviderBundleReproducibility = reproduceProviderBundles;

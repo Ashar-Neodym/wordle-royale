@@ -28,6 +28,26 @@ test('deterministic commit-last fault matrix exposes no accepted partial', async
   });
 });
 
+test('permanent bundle insertion immediately before helper move is never overwritten', async (t) => {
+  const f = await fixture('bundle-move-collision'); t.after(() => cleanupSyntheticFixture(f.root));
+  const deps = await makeSyntheticDeps(); const base = deps.helperRunner; let insertedPath; let insertedIno;
+  deps.helperRunner = async (value) => {
+    if (value.frame.action === 'move') {
+      insertedPath = join(f.publicationParent, value.frame.scratchName, value.frame.publicationName, 'bundle');
+      await mkdir(insertedPath, { mode: 0o700 }); insertedIno = (await lstat(insertedPath, { bigint: true })).ino;
+      return base(value);
+    }
+    if (value.frame.action === 'cleanup') {
+      assert.equal((await lstat(insertedPath, { bigint: true })).ino, insertedIno);
+      return 'CLEANUP_IDENTITY_LOST';
+    }
+    return base(value);
+  };
+  const error = await createLocalPublisherForTests(deps)(f.input).then(() => null, (value) => value);
+  assert.equal(error.code, 'PUBLICATION_BUNDLE_COLLISION'); assert.equal(error.cleanupStatus, 'CLEANUP_IDENTITY_LOST');
+  assert.equal((await lstat(insertedPath, { bigint: true })).ino, insertedIno);
+});
+
 test('container replacement is preserved and cleanup reports identity loss', async (t) => {
   const f = await fixture('container-replace'); t.after(() => cleanupSyntheticFixture(f.root));
   let replacement;
