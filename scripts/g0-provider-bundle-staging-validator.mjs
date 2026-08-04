@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, posix, resolve } from 'node:path';
 import { parseBoundedStrictJson } from './g0-provider-bundle-assembler-core.mjs';
 import { generateProviderBundleArtifacts, PROVIDER_BUNDLE_COPY_SCHEMA } from './g0-provider-bundle-artifact-core.mjs';
 import { generateProviderBundleProfile } from './g0-provider-bundle-profile.mjs';
@@ -52,25 +52,30 @@ function validateAssembly(provider, value, policy) {
       || typeof value.sourceSnapshotSha256 !== 'string' || !SHA256.test(value.sourceSnapshotSha256)) fail('STAGING_ASSEMBLY_RESULT_INVALID');
 }
 
-async function openDirectory(path, uid, wantedMode, rootDev) {
+// Linux exposes an already-open directory as a stable directory anchor here.
+// Descendants are always addressed below one of these held descriptors; no
+// recursive operation reconstructs a path below stagingRoot.
+const fdAnchor = (handle) => `/proc/self/fd/${handle.fd}`;
+const childAt = (parent, name) => `${fdAnchor(parent)}/${name}`;
+
+async function openDirectory(parent, name, uid, wantedMode, rootDev) {
+  const anchoredPath = childAt(parent, name);
   let named;
-  try { named = await lstat(path, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_UNAVAILABLE'); }
+  try { named = await lstat(anchoredPath, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
   if (!named.isDirectory() || named.isSymbolicLink()) fail('STAGING_NODE_TYPE_INVALID');
   let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+  try { handle = await open(anchoredPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
   try {
     const held = await handle.stat({ bigint: true });
     if (metadata(named) !== metadata(held) || held.uid !== uid || held.dev !== rootDev || held.nlink < 1n
         || (Number(held.mode) & 0o7777) !== wantedMode) fail('STAGING_DIRECTORY_POLICY');
-    let resolved; try { resolved = await realpath(path); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
-    if (resolved !== path) fail('STAGING_SYMLINK_FORBIDDEN');
     return { handle, identity: metadata(held) };
   } catch (error) { await handle.close(); throw error; }
 }
 
-async function namesIn(path) {
+async function namesIn(handle) {
   let buffers;
-  try { buffers = await readdir(path, { encoding: 'buffer' }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+  try { buffers = await readdir(fdAnchor(handle), { encoding: 'buffer' }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const names = buffers.map((bytes) => {
     let name; try { name = decoder.decode(bytes); } catch { fail('STAGING_PATH_ENCODING_INVALID'); }
@@ -82,13 +87,14 @@ async function namesIn(path) {
   return names;
 }
 
-async function readRegularFile(path, relativePath, uid, rootDev, wantedMode, capture) {
+async function readRegularFile(parent, name, relativePath, uid, rootDev, wantedMode, capture) {
+  const anchoredPath = childAt(parent, name);
   let named;
-  try { named = await lstat(path, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+  try { named = await lstat(anchoredPath, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
   if (named.isSymbolicLink()) fail('STAGING_SYMLINK_FORBIDDEN');
   if (!named.isFile()) fail('STAGING_SPECIAL_FILE_FORBIDDEN');
   let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+  try { handle = await open(anchoredPath, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
   try {
     const before = await handle.stat({ bigint: true });
     if (!before.isFile() || metadata(named) !== metadata(before)) fail('STAGING_FILESYSTEM_CHANGED');
@@ -104,10 +110,8 @@ async function readRegularFile(path, relativePath, uid, rootDev, wantedMode, cap
       const chunk = buffer.subarray(0, bytesRead); digest.update(chunk); if (chunks) chunks.push(Buffer.from(chunk)); position += bytesRead;
     }
     const after = await handle.stat({ bigint: true });
-    let namedAfter; try { namedAfter = await lstat(path, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+    let namedAfter; try { namedAfter = await lstat(anchoredPath, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
     if (metadata(before) !== metadata(after) || metadata(before) !== metadata(namedAfter)) fail('STAGING_FILESYSTEM_CHANGED');
-    let resolved; try { resolved = await realpath(path); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
-    if (resolved !== path) fail('STAGING_SYMLINK_FORBIDDEN');
     return { entry: { path: relativePath, type: 'file', mode: wantedMode, sha256: `sha256:${digest.digest('hex')}` }, size: Number(before.size), identity: metadata(before), bytes: chunks ? Buffer.concat(chunks) : undefined };
   } finally { await handle.close(); }
 }
@@ -119,39 +123,46 @@ function isPackageRoot(path) {
     || (n >= 3 && parts[n - 3] === 'node_modules' && parts[n - 2].startsWith('@') && !parts[n - 1].startsWith('@')));
 }
 
-async function scanTree(root, uid, rootDev, policy, capturePaths) {
+async function scanTree(rootHeld, uid, rootDev, policy, capturePaths) {
   const entries = []; const identities = []; const fileIds = new Set(); const folded = new Set(); const captures = new Map();
   let payloadBytes = 0; let packageCount = 0;
-  const walk = async (path, relativePath) => {
+  const visitHeldDirectory = async (opened, relativePath) => {
     validRelativePath(relativePath);
     if (relativePath === 'node_modules/.bin' || relativePath.endsWith('/node_modules/.bin')) fail('STAGING_BIN_FORBIDDEN');
     const foldedPath = relativePath.toLowerCase(); if (folded.has(foldedPath)) fail('STAGING_PATH_COLLISION'); folded.add(foldedPath);
     if (entries.length >= policy.limits.maxNodes) fail('STAGING_NODE_LIMIT');
-    let named; try { named = await lstat(path, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
-    if (named.isSymbolicLink()) fail('STAGING_SYMLINK_FORBIDDEN');
-    if (named.dev !== rootDev) fail('STAGING_MOUNT_CROSSING');
-    if (named.isDirectory()) {
-      const opened = await openDirectory(path, uid, 0o555, rootDev);
-      try {
-        const beforeNames = await namesIn(path);
-        entries.push({ path: relativePath, type: 'directory', mode: 0o555 }); identities.push([relativePath, opened.identity]);
-        if (isPackageRoot(relativePath)) { packageCount += 1; if (packageCount > policy.limits.maxPackages) fail('STAGING_PACKAGE_LIMIT'); }
-        for (const name of beforeNames) await walk(join(path, name), relativePath === '.' ? name : `${relativePath}/${name}`);
-        const afterNames = await namesIn(path);
-        const after = await opened.handle.stat({ bigint: true });
-        let namedAfter; try { namedAfter = await lstat(path, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
-        if (beforeNames.length !== afterNames.length || beforeNames.some((name, i) => name !== afterNames[i])
-            || metadata(after) !== opened.identity || metadata(namedAfter) !== opened.identity) fail('STAGING_FILESYSTEM_CHANGED');
-      } finally { await opened.handle.close(); }
-    } else {
-      const wantedMode = relativePath === policy.native?.path ? 0o555 : 0o444;
-      const item = await readRegularFile(path, relativePath, uid, rootDev, wantedMode, capturePaths.has(relativePath));
-      const id = item.identity.split(':').slice(0, 2).join(':'); if (fileIds.has(id)) fail('STAGING_HARDLINK_FORBIDDEN'); fileIds.add(id);
-      payloadBytes += item.size; if (!Number.isSafeInteger(payloadBytes) || payloadBytes > policy.limits.maxPayloadBytes) fail('STAGING_PAYLOAD_LIMIT');
-      entries.push(item.entry); identities.push([relativePath, item.identity]); if (item.bytes) captures.set(relativePath, item.bytes);
+    const beforeNames = await namesIn(opened.handle);
+    entries.push({ path: relativePath, type: 'directory', mode: 0o555 }); identities.push([relativePath, opened.identity]);
+    if (isPackageRoot(relativePath)) { packageCount += 1; if (packageCount > policy.limits.maxPackages) fail('STAGING_PACKAGE_LIMIT'); }
+    for (const name of beforeNames) {
+      const childPath = childAt(opened.handle, name);
+      let named; try { named = await lstat(childPath, { bigint: true }); } catch { fail('STAGING_FILESYSTEM_CHANGED'); }
+      if (named.isSymbolicLink()) fail('STAGING_SYMLINK_FORBIDDEN');
+      if (named.dev !== rootDev) fail('STAGING_MOUNT_CROSSING');
+      const childRelative = relativePath === '.' ? name : `${relativePath}/${name}`;
+      if (named.isDirectory()) {
+        const child = await openDirectory(opened.handle, name, uid, 0o555, rootDev);
+        try {
+          await visitHeldDirectory(child, childRelative);
+          const namedAfter = await lstat(childPath, { bigint: true }).catch(() => fail('STAGING_FILESYSTEM_CHANGED'));
+          const heldAfter = await child.handle.stat({ bigint: true }).catch(() => fail('STAGING_FILESYSTEM_CHANGED'));
+          if (metadata(named) !== child.identity || metadata(namedAfter) !== child.identity
+              || metadata(heldAfter) !== child.identity) fail('STAGING_FILESYSTEM_CHANGED');
+        } finally { await child.handle.close(); }
+      } else {
+        const wantedMode = childRelative === policy.native?.path ? 0o555 : 0o444;
+        const item = await readRegularFile(opened.handle, name, childRelative, uid, rootDev, wantedMode, capturePaths.has(childRelative));
+        const id = item.identity.split(':').slice(0, 2).join(':'); if (fileIds.has(id)) fail('STAGING_HARDLINK_FORBIDDEN'); fileIds.add(id);
+        payloadBytes += item.size; if (!Number.isSafeInteger(payloadBytes) || payloadBytes > policy.limits.maxPayloadBytes) fail('STAGING_PAYLOAD_LIMIT');
+        entries.push(item.entry); identities.push([childRelative, item.identity]); if (item.bytes) captures.set(childRelative, item.bytes);
+      }
     }
+    const afterNames = await namesIn(opened.handle);
+    const after = await opened.handle.stat({ bigint: true }).catch(() => fail('STAGING_FILESYSTEM_CHANGED'));
+    if (beforeNames.length !== afterNames.length || beforeNames.some((name, i) => name !== afterNames[i])
+        || metadata(after) !== opened.identity) fail('STAGING_FILESYSTEM_CHANGED');
   };
-  await walk(root, '.');
+  await visitHeldDirectory(rootHeld, '.');
   entries.sort((a, b) => rawCompare(a.path, b.path)); identities.sort((a, b) => rawCompare(a[0], b[0]));
   return { entries, identities, payloadBytes, packageCount, nodeCount: entries.length, captures };
 }
@@ -193,10 +204,11 @@ export async function validateStagedProviderBundle(input) {
   try {
     const parentHeld = { handle: parentHandle, identity: metadata(await parentHandle.stat({ bigint: true })) };
     if (parentHeld.identity !== metadata(parentNamed) || await realpath(parentPath) !== parentPath) fail('STAGING_PARENT_UNSAFE');
-    let rootNamed; try { rootNamed = await lstat(stagingRoot, { bigint: true }); } catch { fail('STAGING_ROOT_UNSAFE'); }
+    const rootName = basename(stagingRoot); const anchoredRoot = childAt(parentHandle, rootName);
+    let rootNamed; try { rootNamed = await lstat(anchoredRoot, { bigint: true }); } catch { fail('STAGING_ROOT_UNSAFE'); }
     if (!rootNamed.isDirectory() || rootNamed.isSymbolicLink() || rootNamed.uid !== uid || rootNamed.dev !== parentNamed.dev
         || rootNamed.nlink < 1n || (Number(rootNamed.mode) & 0o7777) !== 0o555) fail('STAGING_ROOT_UNSAFE');
-    rootHandle = await open(stagingRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW).catch(() => fail('STAGING_ROOT_UNSAFE'));
+    rootHandle = await open(anchoredRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW).catch(() => fail('STAGING_ROOT_UNSAFE'));
     const rootHeld = { handle: rootHandle, identity: metadata(await rootHandle.stat({ bigint: true })) };
     if (rootHeld.identity !== metadata(rootNamed) || await realpath(stagingRoot) !== stagingRoot) fail('STAGING_ROOT_UNSAFE');
     const rootDev = rootNamed.dev;
@@ -204,9 +216,9 @@ export async function validateStagedProviderBundle(input) {
     const packagePath = `node_modules/${policy.package}/package.json`;
     const capturePaths = new Set(['package-lock.json', profile.relativePath, packagePath]);
     if (policy.native) capturePaths.add(`node_modules/${policy.native.package}/package.json`);
-    const first = await scanTree(stagingRoot, uid, rootDev, policy, capturePaths);
+    const first = await scanTree(rootHeld, uid, rootDev, policy, capturePaths);
     await assertHeld(stagingRoot, rootHeld, 'STAGING_ROOT_CHANGED'); await assertHeld(parentPath, parentHeld, 'STAGING_PARENT_CHANGED');
-    const second = await scanTree(stagingRoot, uid, rootDev, policy, capturePaths);
+    const second = await scanTree(rootHeld, uid, rootDev, policy, capturePaths);
     await assertHeld(stagingRoot, rootHeld, 'STAGING_ROOT_CHANGED'); await assertHeld(parentPath, parentHeld, 'STAGING_PARENT_CHANGED');
     if (scanCanonical(first) !== scanCanonical(second)) fail('STAGING_SCAN_MISMATCH');
     if (second.packageCount !== assemblyResult.packageCount) fail('STAGING_PACKAGE_COUNT_MISMATCH');

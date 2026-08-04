@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ACQUISITION_DECLARATION, validateLockfileV3Object } from './g0-provider-bundle-assembler-core.mjs';
@@ -111,6 +111,69 @@ test('rejects helper hash and mode drift before execution', async () => {
   } finally { await chmod(HELPER, 0o644); await cleanupFixture(f.base); }
 });
 
+test('executes only the held verified helper inode and rejects named replacement before spawn', async () => {
+  const f = await fixture();
+  const original = await fakeHelper(f.base, await readFile(HELPER));
+  const saved = `${original.path}.verified`;
+  const marker = join(f.base, 'malicious-executed');
+  const malicious = await fakeHelper(f.base, `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text("bad")\n`);
+  try {
+    const parser = (lock) => { const parsed = JSON.parse(lock); validateLockfileV3Object(parsed); return { lock: parsed }; };
+    const assembler = createStagingAssemblerForTests({
+      helperPath: original.path,
+      helperSha256: original.sha256,
+      parseLock: parser,
+      beforeHelperSpawn: async ({ helperPath }) => {
+        assert.equal(helperPath, original.path);
+        await rename(original.path, saved);
+        await rename(malicious.path, original.path);
+      },
+    });
+    await rejectsCode(assembler({ provider: 'vercel', sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, 'replace') }), 'SOURCE_CHANGED');
+    await assert.rejects(lstat(marker), (error) => error?.code === 'ENOENT');
+  } finally { await cleanupFixture(f.base); }
+});
+
+test('detects helper content mutation even when bytes are restored before spawn', async () => {
+  const f = await fixture();
+  const original = await fakeHelper(f.base, await readFile(HELPER));
+  const originalBytes = await readFile(original.path);
+  try {
+    const parser = (lock) => { const parsed = JSON.parse(lock); validateLockfileV3Object(parsed); return { lock: parsed }; };
+    const assembler = createStagingAssemblerForTests({
+      helperPath: original.path,
+      helperSha256: original.sha256,
+      parseLock: parser,
+      beforeHelperSpawn: async () => {
+        await writeFile(original.path, 'raise SystemExit(99)\n');
+        await writeFile(original.path, originalBytes);
+        await chmod(original.path, 0o644);
+      },
+    });
+    await rejectsCode(assembler({ provider: 'vercel', sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, 'restore') }), 'SOURCE_CHANGED');
+  } finally { await cleanupFixture(f.base); }
+});
+
+test('forced helper stdin EPIPE settles once without uncaught error or hang', async () => {
+  const f = await fixture();
+  try {
+    const parser = (lock) => { const parsed = JSON.parse(lock); validateLockfileV3Object(parsed); return { lock: parsed }; };
+    let boundaryCalls = 0;
+    const assembler = createStagingAssemblerForTests({
+      helperSha256: digest(await readFile(HELPER)),
+      parseLock: parser,
+      timeoutMs: 2_000,
+      testChildBoundary(child) {
+        boundaryCalls += 1;
+        child.stdin.destroy(Object.assign(new Error('forced EPIPE'), { code: 'EPIPE' }));
+      },
+    });
+    await rejectsCode(assembler({ provider: 'vercel', sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, 'epipe') }), 'HELPER_FAILED');
+    assert.equal(boundaryCalls, 1);
+    assert.equal((await readdir(f.outputParent)).length, 0);
+  } finally { await cleanupFixture(f.base); }
+});
+
 test('sanitized helper boundary handles timeout, nonzero, and oversized output without ambient canary', async () => {
   for (const kind of ['timeout', 'nonzero', 'oversize']) {
     const f = await fixture();
@@ -138,4 +201,12 @@ test('assembler sources expose no network, npm, provider execution, HOME, sessio
   }
   assert.match(core, /env: ENVIRONMENT/u);
   assert.match(core, /\/usr\/bin\/python3/u);
+  assert.match(core, /\['-I', '-S', '-B', '\/proc\/self\/fd\/3'\]/u);
+  assert.match(core, /O_RDONLY \| constants\.O_NOFOLLOW/u);
+  assert.match(core, /\['pipe', 'pipe', 'pipe', helperFd\]/u);
+  assert.doesNotMatch(core, /childProcess\([^;\n]*deps\.helperPath/u);
+  assert.match(core, /helperFd: helper\.handle\.fd/u);
+  assert.match(core, /finally \{ await helper\.handle\.close\(\); \}/u);
+  assert.match(core, /assembleProviderBundleStaging\(input, PRODUCTION_DEPS\)/u);
+  assert.doesNotMatch(core.match(/const PRODUCTION_DEPS[^\n]+/u)?.[0] ?? '', /beforeHelperSpawn|testChildBoundary/u);
 });

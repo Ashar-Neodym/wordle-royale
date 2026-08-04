@@ -89,17 +89,72 @@ async function verifyProgram(path, wantedRealpath, wantedSha, wantedMode, owner)
   const bytes = await openProtected(actualRealpath, 256 * 1024 * 1024, owner);
   try { if (bytes.digest !== wantedSha) fail('TOOLCHAIN_POLICY_MISMATCH'); } finally { await bytes.handle.close(); }
 }
-function childProcess(path, args, { cwd, input, timeoutMs, maxOutput }) {
+
+async function openVerifiedHelper(path, wantedSha, owner) {
+  let named;
+  try { named = await lstat(path, { bigint: true }); } catch { fail('TOOLCHAIN_UNAVAILABLE'); }
+  let handle;
+  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { fail('TOOLCHAIN_POLICY_MISMATCH'); }
+  try {
+    const value = await readHandle(handle, 256 * 1024 * 1024);
+    const after = await handle.stat({ bigint: true });
+    if (identity(named) !== identity(value.st) || identity(after) !== identity(value.st)
+      || value.st.uid !== BigInt(owner) || value.st.nlink !== 1n
+      || (Number(value.st.mode) & 0o7777) !== 0o644 || value.digest !== wantedSha) fail('TOOLCHAIN_POLICY_MISMATCH');
+    return { path, handle, ...value, initialIdentity: identity(value.st) };
+  } catch (error) { await handle.close(); throw error; }
+}
+
+async function recheckVerifiedHelper(item) {
+  let namedHandle;
+  try {
+    const held = await readHandle(item.handle, item.bytes.length);
+    const heldAfter = await item.handle.stat({ bigint: true });
+    const named = await lstat(item.path, { bigint: true });
+    namedHandle = await open(item.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = await readHandle(namedHandle, item.bytes.length);
+    const openedAfter = await namedHandle.stat({ bigint: true });
+    if (identity(held.st) !== item.initialIdentity || identity(heldAfter) !== item.initialIdentity
+      || identity(named) !== item.initialIdentity || identity(opened.st) !== item.initialIdentity
+      || identity(openedAfter) !== item.initialIdentity || !held.bytes.equals(item.bytes)
+      || !opened.bytes.equals(item.bytes) || held.digest !== item.digest || opened.digest !== item.digest
+      || held.st.uid !== item.st.uid || held.st.nlink !== 1n || (Number(held.st.mode) & 0o7777) !== 0o644) fail('SOURCE_CHANGED');
+  } catch (error) {
+    if (error?.code === 'SOURCE_CHANGED') throw error;
+    fail('SOURCE_CHANGED');
+  } finally { await namedHandle?.close(); }
+}
+
+async function runBoundedTestHook(hook, value) {
+  if (hook === undefined) return;
+  if (typeof hook !== 'function') fail('ASSEMBLER_INPUT_INVALID');
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => hook(value)),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('TEST_HOOK_TIMEOUT'), { code: 'TEST_HOOK_TIMEOUT' })), 5_000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+function childProcess(path, args, { cwd, input, timeoutMs, maxOutput, helperFd, testChildBoundary }) {
   return new Promise((resolveChild) => {
-    const child = spawn(path, args, { cwd, env: ENVIRONMENT, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const stdio = helperFd === undefined ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe', helperFd];
+    const child = spawn(path, args, { cwd, env: ENVIRONMENT, stdio, shell: false });
     const stdout = []; const stderr = []; let out = 0; let killedForOutput = false; let timedOut = false; let stdinFailed = false; let settled = false;
     const finish = (value) => { if (!settled) { settled = true; resolveChild(value); } };
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     for (const [stream, chunks] of [[child.stdout, stdout], [child.stderr, stderr]]) stream.on('data', (chunk) => { out += chunk.length; if (out > maxOutput) { killedForOutput = true; child.kill('SIGKILL'); } else chunks.push(chunk); });
-    child.stdin.on('error', () => { stdinFailed = true; });
+    child.stdin.on('error', () => { stdinFailed = true; child.kill('SIGKILL'); });
     child.on('error', () => { clearTimeout(timer); finish({ error: true, stdinFailed }); });
     child.on('close', (status, signal) => { clearTimeout(timer); finish({ status, signal, timedOut, killedForOutput, stdinFailed, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }); });
-    try { child.stdin.end(input); } catch { stdinFailed = true; child.kill('SIGKILL'); }
+    try {
+      if (testChildBoundary !== undefined) {
+        if (typeof testChildBoundary !== 'function') throw new TypeError('invalid test child boundary');
+        testChildBoundary(child);
+      }
+      child.stdin.end(input);
+    } catch { stdinFailed = true; child.kill('SIGKILL'); }
   });
 }
 async function verifyPython(deps, cwd) {
@@ -128,11 +183,13 @@ function validateHelperResult(bytes, frame, expected) {
 const PRODUCTION_DEPS = Object.freeze({ helperPath: HELPER_PATH, helperSha256: HELPER_SHA256, pythonPath: PYTHON_PATH, pythonRealpath: PYTHON_REALPATH, pythonSha256: PYTHON_SHA256, pythonVersion: PYTHON_VERSION, declaration: ACQUISITION_DECLARATION, parseLock: parseAndValidateLockfile, timeoutMs: HELPER_TIMEOUT_MS, maxOutput: MAX_HELPER_OUTPUT });
 
 export function createStagingAssemblerForTests(overrides = {}) {
-  return (input) => assembleProviderBundleStaging(input, { ...PRODUCTION_DEPS, ...overrides });
+  const { beforeHelperSpawn, testChildBoundary, ...dependencyOverrides } = overrides;
+  const testHooks = Object.freeze({ beforeHelperSpawn, testChildBoundary });
+  return (input) => assembleProviderBundleStaging(input, { ...PRODUCTION_DEPS, ...dependencyOverrides }, testHooks);
 }
 export async function assembleProviderBundleStagingProduction(input) { return assembleProviderBundleStaging(input, PRODUCTION_DEPS); }
 
-async function assembleProviderBundleStaging({ provider, sourceRoot, destinationRoot } = {}, deps) {
+async function assembleProviderBundleStaging({ provider, sourceRoot, destinationRoot } = {}, deps, testHooks) {
   if (!Object.hasOwn(PROVIDER_LIMITS, provider) || !absolute(sourceRoot) || !absolute(destinationRoot) || sourceRoot === destinationRoot || destinationRoot.startsWith(`${sourceRoot}/`)) fail('ASSEMBLER_INPUT_INVALID');
   const owner = process.getuid();
   await safeRoot(sourceRoot, owner);
@@ -163,13 +220,18 @@ async function assembleProviderBundleStaging({ provider, sourceRoot, destination
     const policy = deps.declaration.providerLimits[provider];
     const frame = { schemaVersion: STAGING_COPY_SCHEMA, sourceRoot, destinationRoot, selectedPackagePaths: closure.paths, installedPackagePaths: layout.map((x) => x.path).sort(rawCompare), nativeExecutablePaths, generatedFiles, limits: { maxPackages: policy.maxPackages, maxNodes: policy.maxNodes, maxSourceNodes: 12_000, maxPayloadBytes: policy.maxPayloadBytes, maxFileBytes: 224 * 1024 * 1024, maxPathBytes: 1024, maxComponentBytes: 255, maxFrameBytes: 1024 * 1024 } };
     const frameBytes = canonical(frame); if (frameBytes.length > frame.limits.maxFrameBytes) fail('FRAME_LIMIT');
-    await verifyProgram(deps.helperPath, deps.helperPath, deps.helperSha256, 0o644, owner);
-    await verifyPython(deps, cwd);
-    const child = await childProcess(deps.pythonPath, [deps.helperPath], { cwd, input: frameBytes, timeoutMs: deps.timeoutMs, maxOutput: deps.maxOutput });
+    const helper = await openVerifiedHelper(deps.helperPath, deps.helperSha256, owner);
+    let child;
+    try {
+      await runBoundedTestHook(testHooks?.beforeHelperSpawn, Object.freeze({ helperPath: deps.helperPath }));
+      await recheckVerifiedHelper(helper);
+      await verifyPython(deps, cwd);
+      child = await childProcess(deps.pythonPath, ['-I', '-S', '-B', '/proc/self/fd/3'], { cwd, input: frameBytes, timeoutMs: deps.timeoutMs, maxOutput: deps.maxOutput, helperFd: helper.handle.fd, testChildBoundary: testHooks?.testChildBoundary });
+      await recheckVerifiedHelper(helper);
+    } finally { await helper.handle.close(); }
     if (child.error || child.timedOut) fail('HELPER_TIMEOUT');
     if (child.killedForOutput) fail('HELPER_OUTPUT_LIMIT');
     if (child.stdinFailed || child.status !== 0 || child.signal !== null || child.stderr.length !== 0) fail('HELPER_FAILED');
-    await verifyProgram(deps.helperPath, deps.helperPath, deps.helperSha256, 0o644, owner);
     const expected = [['package-lock.json', lockfile.digest, 0o444], [profile.relativePath, profile.sha256, 0o444]];
     for (const packagePath of closure.paths) {
       const item = held.find((x) => x.path === join(sourceRoot, ...packagePath.split('/'), 'package.json'));
