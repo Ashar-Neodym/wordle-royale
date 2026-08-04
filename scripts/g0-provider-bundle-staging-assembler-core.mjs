@@ -17,7 +17,7 @@ const PYTHON_PATH = '/usr/bin/python3';
 const PYTHON_REALPATH = '/usr/bin/python3.12';
 const PYTHON_VERSION = 'Python 3.12.3';
 // Updated only when the reviewed helper source changes.
-const HELPER_SHA256 = 'sha256:06212eb32c0bf2f1a03c6e74590299bcaeb3990002da436b1d2f267b40004d35';
+const HELPER_SHA256 = 'sha256:ec809f4ea5f975cd51ebff9a1dc7226b5b4effae2594cd4afdb1ddcac036dc94';
 const PYTHON_SHA256 = 'sha256:1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118';
 const MAX_HELPER_OUTPUT = 2 * 1024 * 1024;
 const HELPER_TIMEOUT_MS = 120_000;
