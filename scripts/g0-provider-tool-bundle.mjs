@@ -15,23 +15,28 @@ const PROVIDERS = Object.freeze({
     package: 'vercel', version: '58.4.4', entrypoint: 'node_modules/vercel/dist/vc.js',
     entrypointSha256: 'sha256:56b16d6893212069398eb30e2d96943421cd8a5ba7ea3372a1dd5743ed23d363',
     sessionMode: 'standard_os_user_session', invocationProfile: 'vercel-g0-readonly/1', native: null,
+    finalRoot: '/opt/wordle-royale/g0-provider-tools/vercel-58.4.4',
+    limits: Object.freeze({ maxPackages: 400, maxNodes: 8_500, maxPayloadBytes: 192 * 1024 * 1024, maxManifestBytes: 1_310_720 }),
   }),
   railway: Object.freeze({
     package: '@railway/cli', version: '5.30.1', entrypoint: 'node_modules/@railway/cli/bin/railway.js',
     entrypointSha256: 'sha256:21023bebb7838bd52d7646bf0ce75d3c33dc259797dd6e920e318be630184d2d',
     sessionMode: 'standard_os_user_session', invocationProfile: 'railway-g0-readonly/1',
     native: Object.freeze({ package: '@railway/cli', version: '5.30.1', path: 'node_modules/@railway/cli/bin/railway', sha256: 'sha256:26f5c4d8e22c8af4b6523e54d33a44cfe861a40442f171d4aa0fee8ec800a3b2' }),
+    finalRoot: '/opt/wordle-royale/g0-provider-tools/railway-5.30.1',
+    limits: Object.freeze({ maxPackages: 24, maxNodes: 320, maxPayloadBytes: 32 * 1024 * 1024, maxManifestBytes: 49_152 }),
   }),
   supabase: Object.freeze({
     package: 'supabase', version: '2.110.0', entrypoint: 'node_modules/supabase/dist/supabase.js',
     entrypointSha256: 'sha256:253caa8c31ee5976322d04a8bd7752622c0915e7943de3f74e2b73395c54a240',
     sessionMode: 'standard_os_user_session', invocationProfile: 'supabase-g0-readonly/1',
     native: Object.freeze({ package: '@supabase/cli-linux-x64', version: '2.110.0', path: 'node_modules/@supabase/cli-linux-x64/bin/supabase', sha256: 'sha256:e0574b435f54898aa1f5f6fe0696e61b612dafc9b86a2aa538cf8215fc3c9e9f' }),
+    finalRoot: '/opt/wordle-royale/g0-provider-tools/supabase-2.110.0',
+    limits: Object.freeze({ maxPackages: 24, maxNodes: 900, maxPayloadBytes: 224 * 1024 * 1024, maxManifestBytes: 147_456 }),
   }),
 });
 const LOCKFILE_SHA256 = 'sha256:bc4cfd9d815ad6615ffce0a0fc877f25f199bf48ce4d11fa2cbec3bc85d93b90';
 const RUNTIME = Object.freeze({ path: '/usr/bin/node', version: 'v18.19.1', sha256: 'sha256:f3f93db342d5ac5bb61656d0599a603a73779e98befd9342171e550002725f4d' });
-const MAX_MANIFEST_BYTES = 1_048_576;
 const fail = (code) => { const error = new Error(code); error.code = code; throw error; };
 const plain = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && Object.getPrototypeOf(x) === Object.prototype;
 function exact(x, fields, code) {
@@ -62,6 +67,21 @@ export const sha256ProviderTool = (bytes) => `sha256:${createHash('sha256').upda
 // separately as raw UTF-8 bytes, independent of locale and readdir order.
 export const hashProviderToolManifest = (manifest) => sha256ProviderTool(Buffer.from(`${canonicalProviderToolJson(manifest)}\n`, 'utf8'));
 
+// Artifact builders consume this reviewed, recursively frozen policy instead of
+// re-stating production pins. The closed provider name is the only selector.
+export function getProviderToolArtifactPolicy(provider) {
+  const policy = PROVIDERS[provider];
+  if (!policy) fail('TOOL_PROVIDER_UNSUPPORTED');
+  return Object.freeze({
+    provider, package: policy.package, version: policy.version,
+    distribution: 'official_npm_cli', sessionMode: policy.sessionMode,
+    entrypoint: policy.entrypoint, entrypointSha256: policy.entrypointSha256,
+    invocationProfile: policy.invocationProfile, native: policy.native,
+    finalRoot: policy.finalRoot, lockfileSha256: LOCKFILE_SHA256,
+    runtime: RUNTIME, limits: policy.limits,
+  });
+}
+
 export function validateProviderToolDescriptor(descriptor, expectedProvider) {
   const policy = PROVIDERS[expectedProvider]; if (!policy) fail('TOOL_PROVIDER_UNSUPPORTED');
   const fields = ['schemaVersion', 'distribution', 'package', 'version', 'bundleRoot', 'bundleRealpath', 'entrypoint', 'entrypointSha256', 'packageJsonSha256', 'lockfileSha256', 'treeManifestSha256', 'runtime', 'sessionMode', 'invocationProfile', 'invocationProfileSha256', 'nativeBinary'];
@@ -82,9 +102,14 @@ export function validateProviderToolDescriptor(descriptor, expectedProvider) {
 }
 
 function comparePath(a, b) { return Buffer.compare(Buffer.from(a.path, 'utf8'), Buffer.from(b.path, 'utf8')); }
-export function validateProviderToolTreeManifest(manifest) {
+export function validateProviderToolTreeManifest(manifest, expectedProvider) {
   exact(manifest, ['schemaVersion', 'entries'], 'TOOL_MANIFEST_INVALID');
   if (manifest.schemaVersion !== PROVIDER_TOOL_TREE_MANIFEST_SCHEMA || !Array.isArray(manifest.entries) || manifest.entries.length < 2) fail('TOOL_MANIFEST_INVALID');
+  if (expectedProvider !== undefined) {
+    const policy = PROVIDERS[expectedProvider];
+    if (!policy) fail('TOOL_PROVIDER_UNSUPPORTED');
+    if (manifest.entries.length > policy.limits.maxNodes) fail('TOOL_MANIFEST_NODE_LIMIT');
+  }
   const paths = new Set(); const folded = new Set(); let previous;
   for (const entry of manifest.entries) {
     if (!plain(entry) || (entry.type !== 'directory' && entry.type !== 'file')) fail('TOOL_MANIFEST_INVALID');
@@ -206,13 +231,16 @@ export async function validateProviderToolBundleFilesystem({ descriptor, manifes
 // real filesystem. Tests can still exercise the pure snapshot policy above.
 export async function validateProviderToolBundleForExecution({ descriptor, expectedProvider, betweenSnapshots } = {}) {
   validateProviderToolDescriptor(descriptor, expectedProvider);
+  // The descriptor policy is validated before selecting this cap. Neither a
+  // descriptor field nor any caller-supplied numeric value can widen it.
+  const manifestPolicy = PROVIDERS[expectedProvider];
   const path = `${descriptor.bundleRoot}.tree-manifest.json`;
   let bytes;
   try { bytes = await readFile(path); } catch { fail('TOOL_MANIFEST_UNAVAILABLE'); }
-  if (bytes.length < 3 || bytes.length > MAX_MANIFEST_BYTES) fail('TOOL_MANIFEST_SIZE_INVALID');
+  if (bytes.length < 3 || bytes.length > manifestPolicy.limits.maxManifestBytes) fail('TOOL_MANIFEST_SIZE_INVALID');
   let manifest;
   try { manifest = JSON.parse(bytes.toString('utf8')); } catch { fail('TOOL_MANIFEST_INVALID'); }
-  validateProviderToolTreeManifest(manifest);
+  validateProviderToolTreeManifest(manifest, expectedProvider);
   const canonical = Buffer.from(`${canonicalProviderToolJson(manifest)}\n`, 'utf8');
   if (!bytes.equals(canonical)) fail('TOOL_MANIFEST_NON_CANONICAL');
   if (hashProviderToolManifest(manifest) !== descriptor.treeManifestSha256) fail('TOOL_TREE_MANIFEST_DIGEST_MISMATCH');

@@ -57,6 +57,8 @@
     "typecheck:g0:provider-bundle-staging-assembler": "node --check scripts/g0-provider-bundle-staging-assembler-core.mjs && node --check scripts/g0-provider-bundle-staging-assembler.mjs && node --check scripts/g0-provider-bundle-staging-assembler.e2e.test.mjs",
     "test:g0:provider-bundle-profile": "node --test scripts/g0-provider-bundle-profile.test.mjs",
     "typecheck:g0:provider-bundle-profile": "node --check scripts/g0-invocation-profile.mjs && node --check scripts/g0-provider-bundle-profile.mjs && node --check scripts/g0-provider-bundle-profile.test.mjs",
+    "test:g0:provider-bundle-artifacts": "node --test scripts/g0-provider-bundle-artifact-core.test.mjs",
+    "typecheck:g0:provider-bundle-artifacts": "node --check scripts/g0-provider-bundle-artifact-core.mjs && node --check scripts/g0-provider-bundle-artifact-core.test.mjs",
     "test:g0:sanitized-provider-runtime": "node --test scripts/g0-sanitized-provider-adapter-runtime.test.mjs",
     "typecheck:g0:sanitized-provider-runtime": "node --check scripts/g0-sanitized-provider-adapter-runtime.mjs && node --check scripts/g0-sanitized-provider-adapter-runtime.test.mjs",
     "test:g0:readonly-provider-adapters": "node --test scripts/g0-readonly-provider-adapters.test.mjs",
