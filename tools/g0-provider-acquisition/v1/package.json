@@ -1,0 +1,11 @@
+{
+  "name": "wordle-g0-provider-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned read-only provider CLI tooling for Wordle Royale G0 verification",
+  "dependencies": {
+    "@railway/cli": "5.30.1",
+    "supabase": "2.110.0",
+    "vercel": "58.4.4"
+  }
+}
