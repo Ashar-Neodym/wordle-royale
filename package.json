@@ -52,6 +52,8 @@
     "typecheck:g0:provider-bundle-assembler-core": "node --check scripts/g0-provider-bundle-assembler-core.mjs && node --check scripts/g0-provider-bundle-assembler-core.test.mjs",
     "test:g0:bundle-copy-helper": "node --test scripts/g0-bundle-copy-helper.e2e.test.mjs",
     "typecheck:g0:bundle-copy-helper": "/usr/bin/python3 -m py_compile scripts/g0-bundle-copy-helper.py && node --check scripts/g0-bundle-copy-helper.e2e.test.mjs",
+    "test:g0:bundle-publication-helper": "node --test scripts/g0-bundle-publication-helper.e2e.test.mjs",
+    "typecheck:g0:bundle-publication-helper": "/usr/bin/python3 -m py_compile scripts/g0-bundle-publication-helper.py && node --check scripts/g0-bundle-publication-helper.e2e.test.mjs",
     "g0:provider-bundle-staging-assembler": "node scripts/g0-provider-bundle-staging-assembler.mjs",
     "test:g0:provider-bundle-staging-assembler": "node --test scripts/g0-provider-bundle-staging-assembler.e2e.test.mjs",
     "typecheck:g0:provider-bundle-staging-assembler": "node --check scripts/g0-provider-bundle-staging-assembler-core.mjs && node --check scripts/g0-provider-bundle-staging-assembler.mjs && node --check scripts/g0-provider-bundle-staging-assembler.e2e.test.mjs",
