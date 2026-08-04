@@ -50,6 +50,12 @@ export async function makeSyntheticDeps(options = {}) {
       await makeWritable(root).catch(() => { unsafe = true; }); if (unsafe) return 'CLEANUP_IDENTITY_LOST';
       await rm(root, { recursive: true, force: false }); return 'CLEANED';
     }
+    if (frame.action === 'move') {
+      const source = `${parentPath}/${frame.scratchName}/.bundle-work`;
+      const destination = `${parentPath}/${frame.scratchName}/${frame.publicationName}/bundle`;
+      try { await lstat(destination); return 'COLLISION'; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      await rename(source, destination); return 'MOVED';
+    }
     try { await lstat(`${parentPath}/${frame.publicationName}`); return 'COLLISION'; } catch (error) { if (error.code !== 'ENOENT') throw error; }
     await rename(`${parentPath}/${frame.scratchName}/${frame.publicationName}`, `${parentPath}/${frame.publicationName}`);
     await rmdir(`${parentPath}/${frame.scratchName}`); await parent.handle.sync(); return 'PUBLISHED';
