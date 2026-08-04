@@ -31,6 +31,7 @@ const PROVIDERS = Object.freeze({
 });
 const LOCKFILE_SHA256 = 'sha256:bc4cfd9d815ad6615ffce0a0fc877f25f199bf48ce4d11fa2cbec3bc85d93b90';
 const RUNTIME = Object.freeze({ path: '/usr/bin/node', version: 'v18.19.1', sha256: 'sha256:f3f93db342d5ac5bb61656d0599a603a73779e98befd9342171e550002725f4d' });
+const MAX_MANIFEST_BYTES = 1_048_576;
 const fail = (code) => { const error = new Error(code); error.code = code; throw error; };
 const plain = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && Object.getPrototypeOf(x) === Object.prototype;
 function exact(x, fields, code) {
@@ -174,18 +175,46 @@ async function ancestry(root) {
 async function filesystemSnapshot(descriptor) {
   return { bundleRoot: descriptor.bundleRoot, bundleRealpath: await realpath(descriptor.bundleRoot), ancestry: await ancestry(descriptor.bundleRoot), nodes: await scan(descriptor.bundleRoot), runtime: await inspect(descriptor.runtime.path) };
 }
-// Pure policy above lets tests model root-owned trees without privileges. This
-// adapter collects complete pre/post snapshots from a real filesystem.
-export async function validateProviderToolBundleFilesystem({ descriptor, manifest, expectedProvider, collectorUid = process.getuid?.(), betweenSnapshots } = {}) {
-  validateProviderToolDescriptor(descriptor, expectedProvider); validateProviderToolTreeManifest(manifest);
-  const before = await filesystemSnapshot(descriptor); validateProviderToolBundleSnapshot({ descriptor, manifest, snapshot: before, expectedProvider, collectorUid });
-  if (betweenSnapshots !== undefined) { if (typeof betweenSnapshots !== 'function') fail('TOOL_VALIDATOR_INVALID'); await betweenSnapshots(); }
-  const after = await filesystemSnapshot(descriptor); validateProviderToolBundleSnapshot({ descriptor, manifest, snapshot: after, expectedProvider, collectorUid }); assertProviderToolSnapshotsEqual(before, after);
+async function validateProviderToolPackageVersions(descriptor) {
   const packagePins = [[packageJsonPath(descriptor), descriptor.package, descriptor.version]];
   if (descriptor.nativeBinary && descriptor.nativeBinary.package !== descriptor.package) packagePins.push([`node_modules/${descriptor.nativeBinary.package}/package.json`, descriptor.nativeBinary.package, descriptor.nativeBinary.version]);
   for (const [relativePath, name, version] of packagePins) {
     let packageJson; try { packageJson = JSON.parse(await readFile(join(descriptor.bundleRoot, relativePath), 'utf8')); } catch { fail('TOOL_PACKAGE_JSON_INVALID'); }
     if (!plain(packageJson) || packageJson.name !== name || packageJson.version !== version) fail('TOOL_PACKAGE_VERSION_MISMATCH');
   }
-  return Object.freeze({ descriptor, manifest, before, after });
+}
+// Pure policy above lets tests model root-owned trees without privileges. This
+// adapter collects complete pre/post snapshots from a real filesystem.
+export async function validateProviderToolBundleFilesystem({ descriptor, manifest, expectedProvider, collectorUid = process.getuid?.(), betweenSnapshots } = {}) {
+  validateProviderToolDescriptor(descriptor, expectedProvider); validateProviderToolTreeManifest(manifest);
+  const before = await filesystemSnapshot(descriptor); validateProviderToolBundleSnapshot({ descriptor, manifest, snapshot: before, expectedProvider, collectorUid });
+  await validateProviderToolPackageVersions(descriptor);
+  let operationResult, operationError;
+  if (betweenSnapshots !== undefined) {
+    if (typeof betweenSnapshots !== 'function') fail('TOOL_VALIDATOR_INVALID');
+    try { operationResult = await betweenSnapshots(); } catch (error) { operationError = error; }
+  }
+  const after = await filesystemSnapshot(descriptor); validateProviderToolBundleSnapshot({ descriptor, manifest, snapshot: after, expectedProvider, collectorUid }); assertProviderToolSnapshotsEqual(before, after);
+  await validateProviderToolPackageVersions(descriptor);
+  if (operationError) throw operationError;
+  return Object.freeze({ descriptor, manifest, before, after, operationResult });
+}
+
+// The signed plan pins the manifest digest, while the complete manifest lives
+// beside (not inside) the bundle so it does not have to describe/hash itself.
+// Production callers use this entry point; its snapshots always inspect the
+// real filesystem. Tests can still exercise the pure snapshot policy above.
+export async function validateProviderToolBundleForExecution({ descriptor, expectedProvider, betweenSnapshots } = {}) {
+  validateProviderToolDescriptor(descriptor, expectedProvider);
+  const path = `${descriptor.bundleRoot}.tree-manifest.json`;
+  let bytes;
+  try { bytes = await readFile(path); } catch { fail('TOOL_MANIFEST_UNAVAILABLE'); }
+  if (bytes.length < 3 || bytes.length > MAX_MANIFEST_BYTES) fail('TOOL_MANIFEST_SIZE_INVALID');
+  let manifest;
+  try { manifest = JSON.parse(bytes.toString('utf8')); } catch { fail('TOOL_MANIFEST_INVALID'); }
+  validateProviderToolTreeManifest(manifest);
+  const canonical = Buffer.from(`${canonicalProviderToolJson(manifest)}\n`, 'utf8');
+  if (!bytes.equals(canonical)) fail('TOOL_MANIFEST_NON_CANONICAL');
+  if (hashProviderToolManifest(manifest) !== descriptor.treeManifestSha256) fail('TOOL_TREE_MANIFEST_DIGEST_MISMATCH');
+  return validateProviderToolBundleFilesystem({ descriptor, manifest, expectedProvider, betweenSnapshots });
 }

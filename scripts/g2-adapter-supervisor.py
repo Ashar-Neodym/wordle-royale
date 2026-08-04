@@ -8,6 +8,7 @@ removed before a framed response is returned.
 import base64
 import ctypes
 import errno
+import hashlib
 import json
 import os
 import selectors
@@ -21,6 +22,8 @@ PR_SET_CHILD_SUBREAPER = 36
 SIGKILL = signal.SIGKILL
 MAX_FRAME = 1_048_576
 ADAPTER_FD = 5
+DESCRIPTOR_FD = 3
+MAX_DESCRIPTOR = 4096
 EMPTY_SCANS_REQUIRED = 3
 SCAN_SLEEP = 0.01
 CLEANUP_SECONDS = 2.0
@@ -204,18 +207,49 @@ def cleanup(initial_pid, pgid, known, pipes, deadline=None, overflow=None):
         time.sleep(SCAN_SLEEP)
     return False
 
+def descriptor_bytes(request):
+    if "toolDescriptor" not in request:
+        return None
+    encoded = request["toolDescriptor"]
+    digest = request["toolDescriptorSha256"]
+    if not isinstance(encoded, str) or not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
+        raise ValueError("descriptor")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError):
+        raise ValueError("descriptor")
+    if not raw or len(raw) > MAX_DESCRIPTOR or base64.b64encode(raw).decode("ascii") != encoded:
+        raise ValueError("descriptor")
+    if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("descriptor")
+    try:
+        value = json.loads(raw.decode("utf-8", "strict"), object_pairs_hook=strict_object,
+                           parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("constant")))
+        canonical = (json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
+    except (UnicodeError, ValueError, TypeError):
+        raise ValueError("descriptor")
+    if not isinstance(value, dict) or canonical != raw:
+        raise ValueError("descriptor")
+    return raw
+
 def execute(request):
     argv = request["argv"]
     timeout_ms = request["timeoutMs"]
     stdout_limit = request["stdoutBytes"]
     stderr_limit = request["stderrBytes"]
+    descriptor = descriptor_bytes(request)
     out_r, out_w = os.pipe2(os.O_CLOEXEC)
     err_r, err_w = os.pipe2(os.O_CLOEXEC)
+    desc_r = desc_w = None
+    if descriptor is not None:
+        desc_r, desc_w = os.pipe2(os.O_CLOEXEC)
     expected_parent = os.getpid()
     try:
         pid = os.fork()
     except OSError:
-        for fd in (out_r, out_w, err_r, err_w):
+        for fd in (out_r, out_w, err_r, err_w, desc_r, desc_w):
+            if fd is None:
+                continue
             os.close(fd)
         return {"ok": False, "code": "PROCESS_SPAWN_FAILED"}
     if pid == 0:
@@ -227,7 +261,13 @@ def execute(request):
             os.dup2(err_w, 2)
             devnull = os.open("/dev/null", os.O_RDONLY | os.O_CLOEXEC)
             os.dup2(devnull, 0)
+            if descriptor is not None:
+                os.close(desc_w)
+                os.dup2(desc_r, DESCRIPTOR_FD)
+                os.set_inheritable(DESCRIPTOR_FD, True)
             keep = {0, 1, 2, ADAPTER_FD}
+            if descriptor is not None:
+                keep.add(DESCRIPTOR_FD)
             for fd in range(3, 256):
                 if fd not in keep:
                     try:
@@ -240,6 +280,13 @@ def execute(request):
             os._exit(127)
     os.close(out_w)
     os.close(err_w)
+    if descriptor is not None:
+        os.close(desc_r)
+        try:
+            if os.write(desc_w, descriptor) != len(descriptor):
+                raise OSError(errno.EIO, "descriptor")
+        finally:
+            os.close(desc_w)
     os.set_blocking(out_r, False)
     os.set_blocking(err_r, False)
     selector = selectors.DefaultSelector()
@@ -304,7 +351,9 @@ def execute(request):
                 pass
 
 def validate_request(value, sequence):
-    if not isinstance(value, dict) or set(value) != {"type", "seq", "argv", "timeoutMs", "stdoutBytes", "stderrBytes"}:
+    v1 = {"type", "seq", "argv", "timeoutMs", "stdoutBytes", "stderrBytes"}
+    v2 = v1 | {"toolDescriptor", "toolDescriptorSha256"}
+    if not isinstance(value, dict) or set(value) not in (v1, v2):
         raise ValueError("fields")
     if value["type"] != "run" or value["seq"] != sequence or type(sequence) is not int:
         raise ValueError("sequence")
@@ -313,6 +362,7 @@ def validate_request(value, sequence):
     for field, maximum in (("timeoutMs", 900000), ("stdoutBytes", 1048576), ("stderrBytes", 1048576)):
         if type(value[field]) is not int or value[field] < 1 or value[field] > maximum:
             raise ValueError("limit")
+    descriptor_bytes(value)
 
 active_pid = 0
 try:
