@@ -40,8 +40,12 @@ shutdown_requested = False
 
 def on_signal(_signum, _frame):
     global shutdown_requested
+    # Parent death and pipe closure can race, and Linux may deliver more than
+    # one termination signal while the collector's thread group exits.  A
+    # raised asynchronous exception can interrupt cleanup itself and let an
+    # adopted grandchild outlive this subreaper.  Latch shutdown instead;
+    # read EOF wakes the protocol loop and execute() polls this flag.
     shutdown_requested = True
-    raise Shutdown()
 
 signal.signal(signal.SIGTERM, on_signal)
 signal.signal(signal.SIGINT, on_signal)
