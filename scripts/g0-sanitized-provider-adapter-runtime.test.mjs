@@ -8,13 +8,18 @@ import test from 'node:test';
 import { canonicalProviderToolJson, PROVIDER_TOOL_SCHEMA } from './g0-provider-tool-bundle.mjs';
 import {
   assertCleanOuterEnvironment, createSanitizedProviderRuntime, parseStrictJsonBytes,
-  readPinnedToolDescriptor, resolveVerifiedHome, validateHomeSnapshot, writeSanitizedEnvelope,
+  hashInvocationProfile, readPinnedToolDescriptor, resolveVerifiedHome, validateHomeSnapshot, writeSanitizedEnvelope,
 } from './g0-sanitized-provider-adapter-runtime.mjs';
 
 const HASH = (c) => `sha256:${c.repeat(64)}`;
 const CLEAN_ENV = Object.freeze({ LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin', TZ: 'UTC' });
 const accountSchema = { type: 'object', fields: { accountId: { type: 'string', maxLength: 80, pattern: '^[A-Za-z0-9_-]+$' } } };
 const resultSchema = { type: 'object', fields: { accountId: { type: 'string', maxLength: 80, pattern: '^[A-Za-z0-9_-]+$' }, active: { type: 'boolean' } } };
+const DEFAULT_OPERATIONS = {
+  before: { runtime: 'node_entrypoint', args: ['before'], schema: accountSchema, resultPolicy: 'json_empty_stderr' },
+  observe: { runtime: 'node_entrypoint', args: ['observe'], schema: resultSchema, resultPolicy: 'json_empty_stderr' },
+  after: { runtime: 'node_entrypoint', args: ['after'], schema: accountSchema, resultPolicy: 'json_empty_stderr' },
+};
 function staticPolicyViolations(source) {
   const checks = [
     ['direct network', /(?:from\s*|require\(\s*|import\(\s*)['"](?:node:)?(?:http2?|https|net|tls|dgram|dns|undici)['"]|\bfetch\s*\(|\bcurl\b/iu],
@@ -25,20 +30,20 @@ function staticPolicyViolations(source) {
   ];
   return checks.filter(([, pattern]) => pattern.test(source)).map(([name]) => name);
 }
-function descriptor(root) {
+function descriptor(root, operations = DEFAULT_OPERATIONS) {
   return {
     schemaVersion: PROVIDER_TOOL_SCHEMA, distribution: 'official_npm_cli', package: 'vercel', version: '58.4.4', bundleRoot: root, bundleRealpath: root,
     entrypoint: 'node_modules/vercel/dist/vc.js', entrypointSha256: 'sha256:56b16d6893212069398eb30e2d96943421cd8a5ba7ea3372a1dd5743ed23d363',
     packageJsonSha256: HASH('1'), lockfileSha256: 'sha256:bc4cfd9d815ad6615ffce0a0fc877f25f199bf48ce4d11fa2cbec3bc85d93b90', treeManifestSha256: HASH('2'),
     runtime: { path: '/usr/bin/node', realpath: '/usr/bin/node', version: 'v18.19.1', sha256: 'sha256:f3f93db342d5ac5bb61656d0599a603a73779e98befd9342171e550002725f4d' },
-    sessionMode: 'standard_os_user_session', invocationProfile: 'vercel-g0-readonly/1', invocationProfileSha256: HASH('3'), nativeBinary: null,
+    sessionMode: 'standard_os_user_session', invocationProfile: 'vercel-g0-readonly/1', invocationProfileSha256: hashInvocationProfile('vercel-g0-readonly/1', operations), nativeBinary: null,
   };
 }
 async function fdFor(root, bytes) { const path = join(root, `descriptor-${Math.random()}`); await writeFile(path, bytes); return openSync(path, 'r'); }
 async function fixture(source) {
   const root = await mkdtemp(join(tmpdir(), 'wordle-am3-')); const entry = join(root, 'node_modules/vercel/dist/vc.js'); await mkdir(join(root, 'node_modules/vercel/dist'), { recursive: true }); await writeFile(entry, source, { mode: 0o500 }); await chmod(entry, 0o500);
-  const d = descriptor(root), fd = await fdFor(root, `${canonicalProviderToolJson(d)}\n`);
-  return { root, d, fd, operations: { before: { runtime: 'node_entrypoint', args: ['before'], schema: accountSchema }, observe: { runtime: 'node_entrypoint', args: ['observe'], schema: resultSchema }, after: { runtime: 'node_entrypoint', args: ['after'], schema: accountSchema } } };
+  const operations = structuredClone(DEFAULT_OPERATIONS), d = descriptor(root, operations), fd = await fdFor(root, `${canonicalProviderToolJson(d)}\n`);
+  return { root, d, fd, operations };
 }
 const cleanup = async (root) => rm(root, { recursive: true, force: true });
 
@@ -89,6 +94,16 @@ test('child gets verified HOME, deterministic allowlisted env, empty private cwd
     runtime = createSanitizedProviderRuntime({ expectedProvider: 'vercel', expectedInvocationProfile: 'vercel-g0-readonly/1', descriptorFd: f.fd, ambientEnv: CLEAN_ENV, operations: f.operations });
     assert.deepEqual(await runtime.runOperation('observe'), { accountId: 'acct_1', active: true });
   } finally { runtime?.close(); await cleanup(f.root); }
+});
+
+test('descriptor-declared invocation hash must equal the compiled argv and schemas before spawn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wordle-am4-profile-')); const marker = join(root, 'spawned');
+  try {
+    const entry = join(root, 'node_modules/vercel/dist/vc.js'); await mkdir(join(root, 'node_modules/vercel/dist'), { recursive: true }); await writeFile(entry, `require('fs').writeFileSync(${JSON.stringify(marker)},'x')`, { mode: 0o500 }); await chmod(entry, 0o500);
+    const d = descriptor(root); d.invocationProfileSha256 = HASH('3'); const fd = await fdFor(root, `${canonicalProviderToolJson(d)}\n`);
+    assert.throws(() => createSanitizedProviderRuntime({ expectedProvider: 'vercel', expectedInvocationProfile: 'vercel-g0-readonly/1', descriptorFd: fd, ambientEnv: CLEAN_ENV, operations: DEFAULT_OPERATIONS }), (error) => error?.code === 'INVOCATION_PROFILE_DIGEST_MISMATCH');
+    await assert.rejects(readFile(marker), (error) => error?.code === 'ENOENT');
+  } finally { await cleanup(root); }
 });
 
 test('fixed dispatcher forbids arbitrary operation and child/provider data cannot become argv', async () => {

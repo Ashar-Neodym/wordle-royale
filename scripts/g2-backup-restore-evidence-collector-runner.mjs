@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE=dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR_PATH=resolve(HERE,'g2-adapter-supervisor.py');
-const SUPERVISOR_SHA256='sha256:5e2c389ff6dd000071093105da1c99ceed6c655ea67d434f7366ee804f320f58';
+const SUPERVISOR_SHA256='sha256:2c49dd99582f70b6f126f4e64218d23f789107ff381664ec16a04cbcb1c59529';
 const PYTHON_LINK='/usr/bin/python3';
 const MAX_FRAME=1_048_576;
 const fail = (code) => { const error = new Error(code); error.code = code; throw error; };

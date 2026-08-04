@@ -24,6 +24,7 @@ MAX_FRAME = 1_048_576
 ADAPTER_FD = 5
 DESCRIPTOR_FD = 3
 MAX_DESCRIPTOR = 4096
+MAX_CONTEXT = 8192
 EMPTY_SCANS_REQUIRED = 3
 SCAN_SLEEP = 0.01
 CLEANUP_SECONDS = 2.0
@@ -208,17 +209,18 @@ def cleanup(initial_pid, pgid, known, pipes, deadline=None, overflow=None):
     return False
 
 def descriptor_bytes(request):
-    if "toolDescriptor" not in request:
+    context = "adapterContext" in request
+    if not context and "toolDescriptor" not in request:
         return None
-    encoded = request["toolDescriptor"]
-    digest = request["toolDescriptorSha256"]
+    encoded = request["adapterContext" if context else "toolDescriptor"]
+    digest = request["adapterContextSha256" if context else "toolDescriptorSha256"]
     if not isinstance(encoded, str) or not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
         raise ValueError("descriptor")
     try:
         raw = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError):
         raise ValueError("descriptor")
-    if not raw or len(raw) > MAX_DESCRIPTOR or base64.b64encode(raw).decode("ascii") != encoded:
+    if not raw or len(raw) > (MAX_CONTEXT if context else MAX_DESCRIPTOR) or base64.b64encode(raw).decode("ascii") != encoded:
         raise ValueError("descriptor")
     if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
         raise ValueError("descriptor")
@@ -230,6 +232,13 @@ def descriptor_bytes(request):
         raise ValueError("descriptor")
     if not isinstance(value, dict) or canonical != raw:
         raise ValueError("descriptor")
+    if context:
+        if set(value) != {"schemaVersion", "toolDescriptor", "issuedAt", "observationDeadline"} or value["schemaVersion"] != "wordle-royale-g0-adapter-context/v1" or not isinstance(value["toolDescriptor"], dict):
+            raise ValueError("context")
+        for field in ("issuedAt", "observationDeadline"):
+            timestamp = value[field]
+            if not isinstance(timestamp, str) or len(timestamp) != 24 or timestamp[4] != "-" or timestamp[7] != "-" or timestamp[10] != "T" or timestamp[13] != ":" or timestamp[16] != ":" or timestamp[19] != "." or not timestamp.endswith("Z"):
+                raise ValueError("context")
     return raw
 
 def execute(request):
@@ -353,7 +362,8 @@ def execute(request):
 def validate_request(value, sequence):
     v1 = {"type", "seq", "argv", "timeoutMs", "stdoutBytes", "stderrBytes"}
     v2 = v1 | {"toolDescriptor", "toolDescriptorSha256"}
-    if not isinstance(value, dict) or set(value) not in (v1, v2):
+    v3 = v1 | {"adapterContext", "adapterContextSha256"}
+    if not isinstance(value, dict) or set(value) not in (v1, v2, v3):
         raise ValueError("fields")
     if value["type"] != "run" or value["seq"] != sequence or type(sequence) is not int:
         raise ValueError("sequence")

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, lstatSync, mkdtempSync, readSync, realpathSync, rmSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -6,6 +7,9 @@ import { TextDecoder } from 'node:util';
 import { canonicalProviderToolJson, validateProviderToolDescriptor } from './g0-provider-tool-bundle.mjs';
 
 const MAX_DESCRIPTOR_BYTES = 4096;
+const MAX_CONTEXT_BYTES = 8192;
+export const G0_ADAPTER_CONTEXT_SCHEMA = 'wordle-royale-g0-adapter-context/v1';
+export const G0_INVOCATION_PROFILE_SCHEMA = 'wordle-royale-g0-invocation-profile/v1';
 const MAX_JSON_DEPTH = 16;
 const OUTER_ENV = Object.freeze({ LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin', TZ: 'UTC' });
 const CHILD_CONSTANTS = Object.freeze({
@@ -63,29 +67,51 @@ export function parseStrictJsonBytes(bytes, { maxBytes = 1_048_576, maxDepth = M
   const result = value(1); ws(); if (at !== text.length) fail('JSON_TRAILING_DATA'); return result;
 }
 
-export function readPinnedToolDescriptor({ fd = 3, expectedProvider, expectedInvocationProfile } = {}) {
+function canonicalTimestamp(value, code = 'OBSERVATION_WINDOW_INVALID') {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) fail(code);
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) fail(code);
+  return milliseconds;
+}
+
+function readPinnedAdapterWire({ fd = 3, expectedProvider, expectedInvocationProfile, allowContext = false } = {}) {
   if (!Number.isInteger(fd) || fd < 0 || typeof expectedProvider !== 'string' || typeof expectedInvocationProfile !== 'string') fail('TOOL_DESCRIPTOR_EXPECTATION_INVALID');
+  const maximum = allowContext ? MAX_CONTEXT_BYTES : MAX_DESCRIPTOR_BYTES;
   const chunks = []; let length = 0;
   try {
     while (true) {
-      const chunk = Buffer.alloc(Math.min(1024, MAX_DESCRIPTOR_BYTES + 1 - length));
+      const chunk = Buffer.alloc(Math.min(1024, maximum + 1 - length));
       const count = readSync(fd, chunk, 0, chunk.length, null);
       if (count === 0) { chunk.fill(0); break; }
       chunks.push(chunk.subarray(0, count)); length += count;
-      if (length > MAX_DESCRIPTOR_BYTES) fail('TOOL_DESCRIPTOR_SIZE_INVALID');
+      if (length > maximum) fail(allowContext ? 'ADAPTER_CONTEXT_SIZE_INVALID' : 'TOOL_DESCRIPTOR_SIZE_INVALID');
     }
-  } catch (error) { if (error?.code?.startsWith?.('TOOL_')) throw error; fail('TOOL_DESCRIPTOR_UNAVAILABLE'); }
+  } catch (error) { if (error?.code?.startsWith?.('TOOL_') || error?.code?.startsWith?.('ADAPTER_CONTEXT_')) throw error; fail('TOOL_DESCRIPTOR_UNAVAILABLE'); }
   finally { try { closeSync(fd); } catch {} }
   const wire = Buffer.concat(chunks, length); for (const chunk of chunks) chunk.fill(0);
   try {
     if (wire.length < 3 || wire.at(-1) !== 0x0a) fail('TOOL_DESCRIPTOR_NON_CANONICAL');
-    const descriptor = parseStrictJsonBytes(wire.subarray(0, -1), { maxBytes: MAX_DESCRIPTOR_BYTES });
+    const value = parseStrictJsonBytes(wire.subarray(0, -1), { maxBytes: maximum });
+    let descriptor = value, issuedAt = null, observationDeadline = null;
+    if (allowContext && value?.schemaVersion === G0_ADAPTER_CONTEXT_SCHEMA) {
+      exact(value, ['schemaVersion', 'toolDescriptor', 'issuedAt', 'observationDeadline'], 'ADAPTER_CONTEXT_INVALID');
+      descriptor = value.toolDescriptor; issuedAt = value.issuedAt; observationDeadline = value.observationDeadline;
+      if (canonicalTimestamp(issuedAt) > canonicalTimestamp(observationDeadline)) fail('OBSERVATION_WINDOW_INVALID');
+    }
     validateProviderToolDescriptor(descriptor, expectedProvider);
     if (descriptor.invocationProfile !== expectedInvocationProfile) fail('TOOL_DESCRIPTOR_IDENTITY_MISMATCH');
-    const canonical = Buffer.from(`${canonicalProviderToolJson(descriptor)}\n`, 'utf8');
+    const canonical = Buffer.from(`${canonicalProviderToolJson(value)}\n`, 'utf8');
     try { if (!wire.equals(canonical)) fail('TOOL_DESCRIPTOR_NON_CANONICAL'); } finally { canonical.fill(0); }
-    return deepFreeze(descriptor);
+    return deepFreeze({ descriptor, issuedAt, observationDeadline, legacy: descriptor === value });
   } finally { wire.fill(0); }
+}
+
+export function readPinnedToolDescriptor(options = {}) {
+  return readPinnedAdapterWire({ ...options, allowContext: false }).descriptor;
+}
+
+export function readPinnedAdapterContext(options = {}) {
+  return readPinnedAdapterWire({ ...options, allowContext: true });
 }
 
 function pathParts(path) { const parts = []; let current = path; while (true) { parts.push(current); if (current === sep) return parts.reverse(); current = dirname(current); } }
@@ -160,6 +186,7 @@ function validateSchema(value, schema, depth = 1) {
   }
   if (schema.type === 'boolean') { exact(schema, ['type'], 'ADAPTER_PROFILE_INVALID'); if (typeof value !== 'boolean') fail('CHILD_SCHEMA_INVALID'); return value; }
   if (schema.type === 'integer') { exact(schema, ['type', 'min', 'max'], 'ADAPTER_PROFILE_INVALID'); if (!Number.isSafeInteger(value) || value < schema.min || value > schema.max) fail('CHILD_SCHEMA_INVALID'); return value; }
+  if (schema.type === 'null') { exact(schema, ['type'], 'ADAPTER_PROFILE_INVALID'); if (value !== null) fail('CHILD_SCHEMA_INVALID'); return null; }
   fail('ADAPTER_PROFILE_INVALID');
 }
 
@@ -192,6 +219,7 @@ function validateOutputSchema(schema, depth = 1) {
     exact(schema, ['type', 'min', 'max'], 'ADAPTER_PROFILE_INVALID');
     if (!Number.isSafeInteger(schema.min) || !Number.isSafeInteger(schema.max) || schema.min > schema.max) fail('ADAPTER_PROFILE_INVALID'); return;
   }
+  if (schema.type === 'null') { exact(schema, ['type'], 'ADAPTER_PROFILE_INVALID'); return; }
   fail('ADAPTER_PROFILE_INVALID');
 }
 
@@ -218,20 +246,64 @@ function validateOperations(operations) {
   if (!plain(operations) || Object.keys(operations).length < 1) fail('ADAPTER_PROFILE_INVALID');
   for (const [operationId, operation] of Object.entries(operations)) {
     if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(operationId)) fail('ADAPTER_PROFILE_INVALID');
-    exact(operation, ['runtime', 'args', 'schema'], 'ADAPTER_PROFILE_INVALID');
+    exact(operation, ['runtime', 'args', 'schema', 'resultPolicy'], 'ADAPTER_PROFILE_INVALID');
     if (!['node_entrypoint', 'native_binary'].includes(operation.runtime) || !Array.isArray(operation.args) || operation.args.length > 64 || operation.args.some((x) => typeof x !== 'string' || x.length > 4096 || x.includes('\0'))) fail('ADAPTER_PROFILE_INVALID');
-    validateOutputSchema(operation.schema);
+    if (!['json_empty_stderr', 'vercel_json_banner', 'vercel_billing_404', 'supabase_legacy_auth_required'].includes(operation.resultPolicy)) fail('ADAPTER_PROFILE_INVALID');
+    if (operation.resultPolicy.endsWith('404') || operation.resultPolicy.endsWith('required')) {
+      if (operation.schema !== null) fail('ADAPTER_PROFILE_INVALID');
+    } else validateOutputSchema(operation.schema);
   }
   return deepFreeze(operations);
 }
 
+export function canonicalInvocationProfileDocument(invocationProfile, operations) {
+  if (typeof invocationProfile !== 'string' || invocationProfile.length < 1 || invocationProfile.length > 200) fail('ADAPTER_PROFILE_INVALID');
+  const profile = validateOperations(operations);
+  return canonicalProviderToolJson({ schemaVersion: G0_INVOCATION_PROFILE_SCHEMA, invocationProfile, operations: profile });
+}
+
+export function hashInvocationProfile(invocationProfile, operations) {
+  return `sha256:${createHash('sha256').update(`${canonicalInvocationProfileDocument(invocationProfile, operations)}\n`, 'utf8').digest('hex')}`;
+}
+
 export function createSanitizedProviderRuntime({ expectedProvider, expectedInvocationProfile, operations, descriptorFd = 3, ambientEnv = process.env, limits = {}, clock = () => new Date() } = {}) {
   assertCleanOuterEnvironment(ambientEnv); const profile = validateOperations(operations);
-  const descriptor = readPinnedToolDescriptor({ fd: descriptorFd, expectedProvider, expectedInvocationProfile }); // closes FD 3 before home checks or spawn
+  const context = readPinnedAdapterContext({ fd: descriptorFd, expectedProvider, expectedInvocationProfile }); // closes FD 3 before home checks or spawn
+  const descriptor = context.descriptor;
+  if (descriptor.invocationProfileSha256 !== hashInvocationProfile(expectedInvocationProfile, profile)) fail('INVOCATION_PROFILE_DIGEST_MISMATCH');
   const homeState = resolveVerifiedHome(); const env = buildSanitizedChildEnvironment(homeState.home);
   const timeoutMs = limits.timeoutMs ?? 10_000, stdoutBytes = limits.stdoutBytes ?? 262_144, stderrBytes = limits.stderrBytes ?? 16_384;
   if (![timeoutMs, stdoutBytes, stderrBytes].every((x) => Number.isInteger(x) && x >= 1 && x <= 1_048_576)) fail('ADAPTER_LIMITS_INVALID');
   let closed = false, active = 0;
+  const stripAnsi = (bytes, length) => {
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length)); } catch { fail('CHILD_STDERR_INVALID'); }
+    return text.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/gu, '');
+  };
+  const vercelBanner = (line, beta = false) => {
+    const suffix = beta ? ' \\| api is in beta — https:\\/\\/vercel\\.com\\/feedback' : '';
+    return new RegExp(`^Vercel CLI 58\\.4\\.4 \\(Node\\.js [0-9]+\\.[0-9]+\\.[0-9]+\\)${suffix}$`, 'u').test(line);
+  };
+  const interpretResult = (result, operation) => {
+    const stderr = stripAnsi(result.stderr, result.stderrLength);
+    const lines = stderr.endsWith('\n') ? stderr.slice(0, -1).split('\n') : stderr.split('\n');
+    if (operation.resultPolicy === 'vercel_billing_404') {
+      if (result.signal === null && result.code === 1 && result.stdoutLength === 0 && lines.length === 2 && vercelBanner(lines[0], true) && /^Error: (?:[A-Za-z0-9_-]+ )?Not Found \(404\)$/u.test(lines[1])) return 'VERCEL_BILLING_404';
+      fail('CHILD_RESULT_REJECTED');
+    }
+    if (operation.resultPolicy === 'supabase_legacy_auth_required') {
+      if (result.signal !== null || result.code !== 1 || result.stderrLength !== 0) fail('CHILD_RESULT_REJECTED');
+      const parsed = parseStrictJsonBytes(result.stdout.subarray(0, result.stdoutLength), { maxBytes: stdoutBytes });
+      exact(parsed, ['_tag', 'error'], 'CHILD_RESULT_REJECTED'); exact(parsed.error, ['code', 'message'], 'CHILD_RESULT_REJECTED');
+      if (parsed._tag !== 'Error' || parsed.error.code !== 'LegacyPlatformAuthRequiredError' || typeof parsed.error.message !== 'string' || parsed.error.message.length > 256 || !/^access token (?:is )?not provided(?:\.|\b)/iu.test(parsed.error.message)) fail('CHILD_RESULT_REJECTED');
+      return 'SUPABASE_LEGACY_AUTH_REQUIRED';
+    }
+    if (result.signal !== null || result.code !== 0) fail('CHILD_NONZERO');
+    if (operation.resultPolicy === 'json_empty_stderr' && result.stderrLength !== 0) fail('CHILD_STDERR_FORBIDDEN');
+    if (operation.resultPolicy === 'vercel_json_banner' && !(lines.length === 1 && vercelBanner(lines[0]))) fail('CHILD_STDERR_FORBIDDEN');
+    const parsed = parseStrictJsonBytes(result.stdout.subarray(0, result.stdoutLength), { maxBytes: stdoutBytes });
+    return validateSchema(parsed, operation.schema);
+  };
   const runOperation = async (operationId) => {
     if (closed || typeof operationId !== 'string' || !Object.hasOwn(profile, operationId)) fail('OPERATION_FORBIDDEN');
     const operation = profile[operationId]; let executable, argv;
@@ -240,8 +312,7 @@ export function createSanitizedProviderRuntime({ expectedProvider, expectedInvoc
     const cwd = createPrivateCwd(homeState.effectiveUid); active += 1; let result;
     try {
       result = await boundedChild({ executable, argv, env, cwd, timeoutMs, stdoutBytes, stderrBytes });
-      if (result.signal !== null || result.code !== 0) fail('CHILD_NONZERO'); if (result.stderrLength !== 0) fail('CHILD_STDERR_FORBIDDEN');
-      const parsed = parseStrictJsonBytes(result.stdout.subarray(0, result.stdoutLength), { maxBytes: stdoutBytes }); return validateSchema(parsed, operation.schema);
+      return interpretResult(result, operation);
     } finally {
       if (result) { result.stdout.fill(0); result.stderr.fill(0); }
       active -= 1; removePrivateCwd(cwd);
@@ -254,14 +325,12 @@ export function createSanitizedProviderRuntime({ expectedProvider, expectedInvoc
       const before = await runOperation(beforeOperation); if (typeof before.accountId !== 'string') fail('ACCOUNT_IDENTITY_INVALID');
       const observations = []; for (const id of observationOperations) observations.push(await runOperation(id));
       const after = await runOperation(afterOperation); if (after.accountId !== before.accountId) fail('ACCOUNT_IDENTITY_CHANGED');
-      return Object.freeze({ accountId: before.accountId, observations: Object.freeze(observations) });
+      return Object.freeze({ accountId: before.accountId, identityBefore: before, identityAfter: after, observations: Object.freeze(observations) });
     },
-    assertObservationWindow({ issuedAt, observationDeadline } = {}) {
-      const canonicalTime = (value) => {
-        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) fail('OBSERVATION_WINDOW_INVALID');
-        const milliseconds = Date.parse(value); if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) fail('OBSERVATION_WINDOW_INVALID'); return milliseconds;
-      };
-      const issued = canonicalTime(issuedAt), deadline = canonicalTime(observationDeadline), observed = clock();
+    assertObservationWindow(legacyWindow) {
+      const issuedAt = context.legacy ? legacyWindow?.issuedAt : context.issuedAt;
+      const observationDeadline = context.legacy ? legacyWindow?.observationDeadline : context.observationDeadline;
+      const issued = canonicalTimestamp(issuedAt), deadline = canonicalTimestamp(observationDeadline), observed = clock();
       if (!(observed instanceof Date) || !Number.isFinite(observed.getTime()) || issued > observed.getTime() || observed.getTime() > deadline) fail('OBSERVATION_WINDOW_INVALID'); return observed.toISOString();
     },
     close() {

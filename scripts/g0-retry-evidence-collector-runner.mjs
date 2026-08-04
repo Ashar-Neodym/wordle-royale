@@ -8,8 +8,9 @@ import { canonicalProviderToolJson, sha256ProviderTool, validateProviderToolBund
 
 const HERE=dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR=resolve(HERE,'g2-adapter-supervisor.py');
-const SUPERVISOR_SHA='sha256:5e2c389ff6dd000071093105da1c99ceed6c655ea67d434f7366ee804f320f58';
-const PYTHON='/usr/bin/python3', MAX_FRAME=1_048_576, MAX_DESCRIPTOR=4096;
+const SUPERVISOR_SHA='sha256:2c49dd99582f70b6f126f4e64218d23f789107ff381664ec16a04cbcb1c59529';
+const PYTHON='/usr/bin/python3', MAX_FRAME=1_048_576, MAX_DESCRIPTOR=4096, MAX_CONTEXT=8192;
+const ADAPTER_CONTEXT_SCHEMA='wordle-royale-g0-adapter-context/v1';
 const fail=(code)=>{const error=new Error(code);error.code=code;throw error;};
 const snapshotSame=(a,b)=>['dev','ino','uid','mode','nlink','sha256'].every(k=>a[k]===b[k]);
 async function hashHandle(handle){const hash=createHash('sha256');await new Promise((ok,no)=>createReadStream('',{fd:handle.fd,autoClose:false,start:0}).on('data',x=>hash.update(x)).on('error',no).on('end',ok));return `sha256:${hash.digest('hex')}`;}
@@ -38,16 +39,19 @@ export function createG0RetryAdapterRunner({totalTimeoutMs=30_000,toolBundleVali
  if(!Number.isInteger(totalTimeoutMs)||totalTimeoutMs<300||totalTimeoutMs>900_000)fail('INVALID_TOTAL_TIME_LIMIT');
  if(typeof toolBundleValidator!=='function')fail('TOOL_VALIDATOR_INVALID');
  const begun=Date.now(),seen=new Set();let closed=false;
- return{async run({provider,executable,tool,argv,limits}){
+ return{async run({provider,executable,tool,argv,limits,issuedAt,observationDeadline}){
   if(closed||!['vercel','railway','supabase'].includes(provider)||seen.has(provider))fail('INVALID_RUNNER_SPEC');seen.add(provider);policyFields(executable);
   if(!Array.isArray(argv)||argv.some(x=>typeof x!=='string'||x.includes('\0')))fail('INVALID_RUNNER_SPEC');for(const x of ['timeoutMs','stdoutBytes','stderrBytes'])if(!Number.isInteger(limits?.[x])||limits[x]<1||limits[x]>1_048_576)fail('INVALID_RUNNER_LIMITS');
-  let descriptorBytes,descriptorDigest;
-  if(tool!==undefined){validateProviderToolDescriptor(tool,provider);descriptorBytes=Buffer.from(`${canonicalProviderToolJson(tool)}\n`,'utf8');if(descriptorBytes.length>MAX_DESCRIPTOR)fail('TOOL_DESCRIPTOR_SIZE_INVALID');descriptorDigest=sha256ProviderTool(descriptorBytes);}
+  let descriptorBytes,descriptorDigest,contextBytes,contextDigest;
+  if(tool!==undefined){
+   validateProviderToolDescriptor(tool,provider);descriptorBytes=Buffer.from(`${canonicalProviderToolJson(tool)}\n`,'utf8');if(descriptorBytes.length>MAX_DESCRIPTOR)fail('TOOL_DESCRIPTOR_SIZE_INVALID');descriptorDigest=sha256ProviderTool(descriptorBytes);
+   if(issuedAt!==undefined||observationDeadline!==undefined){const valid=x=>typeof x==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/u.test(x)&&new Date(x).toISOString()===x;if(!valid(issuedAt)||!valid(observationDeadline)||Date.parse(issuedAt)>Date.parse(observationDeadline))fail('OBSERVATION_WINDOW_INVALID');const context={schemaVersion:ADAPTER_CONTEXT_SCHEMA,toolDescriptor:tool,issuedAt,observationDeadline};contextBytes=Buffer.from(`${canonicalProviderToolJson(context)}\n`,'utf8');if(contextBytes.length>MAX_CONTEXT)fail('ADAPTER_CONTEXT_SIZE_INVALID');contextDigest=sha256ProviderTool(contextBytes);}
+  }
   const opened=await inspect(executable.path);let supervisor;
   const execute=async()=>{try{
    if(opened.realpath!==executable.realpath||opened.snapshot.uid!==process.getuid?.()||opened.snapshot.mode!==0o500||opened.snapshot.nlink!==1||opened.snapshot.sha256!==executable.sha256)fail('EXECUTABLE_POLICY_MISMATCH');
    supervisor=await start(opened.handle.fd);const remaining=totalTimeoutMs-(Date.now()-begun),timeoutMs=Math.min(remaining,limits.timeoutMs);if(timeoutMs<1)fail('TOTAL_TIME_LIMIT');
-   const request={type:'run',seq:1,argv,timeoutMs,stdoutBytes:limits.stdoutBytes,stderrBytes:limits.stderrBytes};if(descriptorBytes){request.toolDescriptor=descriptorBytes.toString('base64');request.toolDescriptorSha256=descriptorDigest;}
+   const request={type:'run',seq:1,argv,timeoutMs,stdoutBytes:limits.stdoutBytes,stderrBytes:limits.stderrBytes};if(contextBytes){request.adapterContext=contextBytes.toString('base64');request.adapterContextSha256=contextDigest;}else if(descriptorBytes){request.toolDescriptor=descriptorBytes.toString('base64');request.toolDescriptorSha256=descriptorDigest;}
    const response=await supervisor.request(request);if(!response||response.type!=='result'||response.seq!==1||typeof response.ok!=='boolean')fail('CONTAINMENT_HELPER_FAILED');if(!response.ok){if(!['PROCESS_TIMEOUT','STDOUT_LIMIT','STDERR_LIMIT','PROCESS_SPAWN_FAILED','DESCENDANT_CLEANUP_FAILED'].includes(response.code))fail('CONTAINMENT_HELPER_FAILED');fail(response.code);}if(Object.keys(response).sort().join('|')!=='exitCode|ok|seq|signal|stderr|stdout|type'||!Number.isInteger(response.exitCode)||response.signal!==null)fail('CONTAINMENT_HELPER_FAILED');const stdout=strictBase64(response.stdout,limits.stdoutBytes),stderr=strictBase64(response.stderr,limits.stderrBytes);if(response.exitCode!==0)fail('ADAPTER_NONZERO_EXIT');if(stderr.length)fail('ADAPTER_STDERR_FORBIDDEN');const after=await inspect(executable.path);try{if(after.realpath!==opened.realpath||!snapshotSame(after.snapshot,opened.snapshot))fail('EXECUTABLE_CHANGED');}finally{await after.handle.close();}if(!await supervisor.close(2))fail('CONTAINMENT_HELPER_FAILED');supervisor=undefined;return stdout;
   }finally{if(supervisor){await supervisor.close(2).catch(()=>{});supervisor=undefined;}}};
   try{if(!tool)return await execute();let executed=false,result;await toolBundleValidator({descriptor:tool,expectedProvider:provider,betweenSnapshots:async()=>{if(executed)fail('TOOL_VALIDATOR_INVALID');executed=true;result=await execute();return result;}});if(!executed)fail('TOOL_VALIDATOR_INVALID');return result;}finally{await opened.handle.close();}
