@@ -12,6 +12,7 @@ import {
   collectG0RetryEvidence,
   g0RetryCollectorPolicy,
 } from "./g0-retry-evidence-collector-core.mjs";
+import { validateRailwayCandidate } from "./g0-readonly-provider-adapter-common.mjs";
 
 const t = (second) =>
   `2026-08-03T12:00:${String(second).padStart(2, "0")}.000Z`;
@@ -147,6 +148,18 @@ const code = (fn, expected) =>
     (error) =>
       error instanceof G0RetryEvidenceCollectorError && error.code === expected,
   );
+
+test("collector accepts the adapter's collector-native Railway quote projection", () => {
+  const input = fixture(), account = g0RetryCollectorPolicy.accounts.railway, payload = input.railway.payload;
+  const topology = { accountId: account.workspaceId, page: { complete: true, nextCursor: "", totalCount: 3 }, preview: payload.preview, priorCreatedResources: payload.priorCreatedResources };
+  input.railway.payload = validateRailwayCandidate({
+    identity: { accountId: account.workspaceId, ...account }, topology,
+    billing: { accountId: account.workspaceId, billingInterval: interval, currency: "USD", subtotalUsd: "4.9000", taxesUsd: "0.0100", feesUsd: "0.0100", appliedCreditsUsd: "0.0000", unappliedBalanceUsd: "12.0000", complete: true },
+  });
+  const result = collectG0RetryEvidence(input);
+  assert.equal(result.evidence.cost.allInUsd, "4.9200");
+  assert.equal(Object.hasOwn(input.railway.payload.costQuotes[0], "allInUsd"), false);
+});
 
 test("decimal normalization is string-only, directional, and conservative", () => {
   assert.equal(ceilDecimalToFour("0"), "0.0000");
