@@ -65,6 +65,8 @@
     "typecheck:g0:provider-bundle-source-snapshot": "node --check scripts/g0-provider-bundle-source-snapshot.mjs && node --check scripts/g0-provider-bundle-source-snapshot.test.mjs",
     "test:g0:provider-bundle-staging-validator": "node --test scripts/g0-provider-bundle-staging-validator.test.mjs",
     "typecheck:g0:provider-bundle-staging-validator": "node --check scripts/g0-provider-bundle-staging-validator.mjs && node --check scripts/g0-provider-bundle-staging-validator.test.mjs",
+    "test:g0:provider-bundle-publication-validator": "node --test scripts/g0-provider-bundle-publication-validator.test.mjs",
+    "typecheck:g0:provider-bundle-publication-validator": "node --check scripts/g0-provider-bundle-publication-validator.mjs && node --check scripts/g0-provider-bundle-publication-validator.test.mjs",
     "test:g0:sanitized-provider-runtime": "node --test scripts/g0-sanitized-provider-adapter-runtime.test.mjs",
     "typecheck:g0:sanitized-provider-runtime": "node --check scripts/g0-sanitized-provider-adapter-runtime.mjs && node --check scripts/g0-sanitized-provider-adapter-runtime.test.mjs",
     "test:g0:readonly-provider-adapters": "node --test scripts/g0-readonly-provider-adapters.test.mjs",
