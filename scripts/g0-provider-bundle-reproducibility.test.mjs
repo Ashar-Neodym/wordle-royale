@@ -33,6 +33,8 @@ async function setup() {
     await mkdir(source, { recursive: true, mode: 0o700 }); await mkdir(cache, { mode: 0o700 }); await mkdir(join(source, 'node_modules/pkg'), { recursive: true, mode: 0o700 });
     await writeFile(join(source, 'package.json'), '{}\n'); await writeFile(join(source, 'package-lock.json'), '{}\n'); await writeFile(join(source, 'node_modules/pkg/index.js'), 'module.exports=1\n');
     await mkdir(join(source, 'node_modules/.bin'), { mode: 0o755 }); await symlink('../pkg/index.js', join(source, 'node_modules/.bin/pkg'));
+    await mkdir(join(source, 'node_modules/pkg/node_modules/dep'), { recursive: true, mode: 0o755 }); await writeFile(join(source, 'node_modules/pkg/node_modules/dep/cli.js'), 'module.exports=2\n');
+    await mkdir(join(source, 'node_modules/pkg/node_modules/.bin'), { mode: 0o755 }); await symlink('../dep/cli.js', join(source, 'node_modules/pkg/node_modules/.bin/dep'));
   };
   await makeAcquisition('A'); await makeAcquisition('B');
   return { base, input: { workspaceRoot, publicationRootA, publicationRootB, receiptPath: join(receipts, 'receipt.json'), sourceRevision: REVISION } };
