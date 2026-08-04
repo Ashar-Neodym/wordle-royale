@@ -6,15 +6,17 @@ frame, uses no ambient configuration, and emits either one canonical result fram
 one fixed error frame.
 """
 import hashlib
+import base64
 import json
 import os
 import stat
 import sys
 
-SCHEMA = "wordle-g0-bundle-copy/v1"
+SCHEMA = "wordle-g0-bundle-copy/v2"
 FRAME_HARD_MAX = 1024 * 1024
-ROOT_FIELDS = {"schemaVersion", "sourceRoot", "destinationRoot", "selectedPackagePaths", "installedPackagePaths", "nativeExecutablePaths", "limits"}
-LIMIT_FIELDS = {"maxPackages", "maxNodes", "maxPayloadBytes", "maxFileBytes", "maxPathBytes", "maxComponentBytes", "maxFrameBytes"}
+ROOT_FIELDS = {"schemaVersion", "sourceRoot", "destinationRoot", "selectedPackagePaths", "installedPackagePaths", "nativeExecutablePaths", "generatedFiles", "limits"}
+GENERATED_FIELDS = {"path", "bytesBase64", "mode"}
+LIMIT_FIELDS = {"maxPackages", "maxNodes", "maxSourceNodes", "maxPayloadBytes", "maxFileBytes", "maxPathBytes", "maxComponentBytes", "maxFrameBytes"}
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
@@ -181,6 +183,46 @@ class Copier:
         self.created_dirs = {"."}
         self.entries["."] = {"path": ".", "type": "directory", "mode": 0o555}
 
+    def discover_packages(self, root_fd):
+        """Independently enumerate physical roots below every node_modules."""
+        found = []
+        seen_dirs = set()
+        source_nodes = 1
+
+        def visit(fd, rel):
+            nonlocal source_nodes
+            st = os.fstat(fd)
+            key = (st.st_dev, st.st_ino)
+            if key in seen_dirs:
+                fail("SOURCE_CHANGED")
+            seen_dirs.add(key)
+            for _, name in raw_names(fd, self.limits):
+                source_nodes += 1
+                if source_nodes > self.limits["maxSourceNodes"]:
+                    fail("SOURCE_NODE_LIMIT")
+                if name == ".bin" and rel.split("/")[-1] == "node_modules":
+                    continue
+                try:
+                    child_st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except OSError:
+                    fail("SOURCE_CHANGED")
+                if not stat.S_ISDIR(child_st.st_mode):
+                    continue
+                child = name if rel == "." else f"{rel}/{name}"
+                cfd, _ = self.source_dir(fd, name)
+                try:
+                    parts = rel.split("/")
+                    candidate = (parts[-1] == "node_modules" and not name.startswith("@") and not name.startswith(".")) or (
+                        len(parts) >= 2 and parts[-2] == "node_modules" and parts[-1].startswith("@"))
+                    if candidate:
+                        found.append(child)
+                    visit(cfd, child)
+                finally:
+                    os.close(cfd)
+
+        visit(root_fd, ".")
+        return sorted(found, key=lambda x: x.encode("utf-8"))
+
     def bump_path(self, path):
         raw = path.encode("utf-8")
         if len(raw) > self.limits["maxPathBytes"]:
@@ -311,6 +353,44 @@ class Copier:
         finally:
             os.close(sfd)
 
+    def write_generated(self, record):
+        rel = record["path"]
+        try:
+            data = base64.b64decode(record["bytesBase64"], validate=True)
+        except Exception:
+            fail("GENERATED_INVALID")
+        parent, leaf = rel.rsplit("/", 1) if "/" in rel else (".", rel)
+        self.ensure_dest_dir(parent)
+        dfd = self.open_dest(parent)
+        try:
+            try:
+                out = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600, dir_fd=dfd)
+            except FileExistsError:
+                fail("GENERATED_COLLISION")
+            except OSError:
+                fail("DESTINATION_FAILURE")
+        finally:
+            os.close(dfd)
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(out, view)
+                if written <= 0:
+                    fail("DESTINATION_FAILURE")
+                view = view[written:]
+            os.fchmod(out, 0o444)
+            st = os.fstat(out)
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                fail("DESTINATION_CHANGED")
+        finally:
+            os.close(out)
+        self.payload += len(data)
+        if self.payload > self.limits["maxPayloadBytes"]:
+            fail("PAYLOAD_LIMIT")
+        self.entries[rel] = {"path": rel, "type": "file", "mode": 0o444,
+                             "sha256": "sha256:" + hashlib.sha256(data).hexdigest()}
+        self.bump_path(rel)
+
     def descend_path(self, root_fd, path):
         fd = os.dup(root_fd)
         ancestry = []
@@ -405,6 +485,8 @@ class Copier:
             os.close(fd)
 
     def run(self):
+        if self.discover_packages(self.src_fd) != self.frame["installedPackagePaths"]:
+            fail("INSTALLED_PACKAGE_SET_MISMATCH")
         first = []
         ancestry_first = []
         for package in self.frame["selectedPackagePaths"]:
@@ -416,12 +498,16 @@ class Copier:
             fail("NATIVE_PATH_MISSING")
         if any(self.entries[p]["type"] != "file" for p in self.native):
             fail("NATIVE_PATH_INVALID")
+        for record in self.frame["generatedFiles"]:
+            self.write_generated(record)
         # Reopen the source by its absolute name, proving the held root itself was
         # not detached/replaced, then independently enumerate and hash everything.
         fresh = open_abs(norm_absolute(self.frame["sourceRoot"]))
         try:
             if ident(os.fstat(fresh)) != ident(os.fstat(self.src_fd)):
                 fail("SOURCE_CHANGED")
+            if self.discover_packages(fresh) != self.frame["installedPackagePaths"]:
+                fail("INSTALLED_PACKAGE_SET_MISMATCH")
             second = []
             ancestry_second = []
             for package in self.frame["selectedPackagePaths"]:
@@ -464,7 +550,7 @@ def parse_frame():
     for key, value in limits.items():
         if type(value) is not int or value <= 0 or value > 1 << 40:
             fail("INPUT_LIMIT_INVALID")
-    if limits["maxComponentBytes"] > 255 or limits["maxPathBytes"] > 1024 or limits["maxFileBytes"] > 224 * 1024 * 1024 or limits["maxFrameBytes"] > FRAME_HARD_MAX:
+    if limits["maxComponentBytes"] > 255 or limits["maxPathBytes"] > 1024 or limits["maxSourceNodes"] > 20_000 or limits["maxFileBytes"] > 224 * 1024 * 1024 or limits["maxFrameBytes"] > FRAME_HARD_MAX:
         fail("INPUT_LIMIT_INVALID")
     if len(data) > limits["maxFrameBytes"] or data != canonical(frame):
         fail("FRAME_INVALID")
@@ -474,6 +560,26 @@ def parse_frame():
     selected = sorted_unique(frame["selectedPackagePaths"], limits, True)
     installed = sorted_unique(frame["installedPackagePaths"], limits, True)
     natives = sorted_unique(frame["nativeExecutablePaths"], limits, False)
+    generated = frame["generatedFiles"]
+    if type(generated) is not list or len(generated) != 2:
+        fail("GENERATED_INVALID")
+    generated_paths = []
+    for record in generated:
+        exact_object(record, GENERATED_FIELDS, "GENERATED_INVALID")
+        validate_rel(record["path"], limits)
+        if record["mode"] != 0o444 or type(record["bytesBase64"]) is not str:
+            fail("GENERATED_INVALID")
+        try:
+            decoded = base64.b64decode(record["bytesBase64"], validate=True)
+        except Exception:
+            fail("GENERATED_INVALID")
+        if base64.b64encode(decoded).decode("ascii") != record["bytesBase64"] or len(decoded) > min(limits["maxFileBytes"], 256 * 1024):
+            fail("GENERATED_INVALID")
+        generated_paths.append(record["path"])
+    if generated_paths != sorted(generated_paths, key=lambda x: x.encode("utf-8")) or len(set(generated_paths)) != 2:
+        fail("GENERATED_INVALID")
+    if set(generated_paths) != {"package-lock.json", next((p for p in generated_paths if p.startswith("invocation-profiles/") and p.endswith("/1.json")), "")}:
+        fail("GENERATED_INVALID")
     if len(selected) > limits["maxPackages"] or not set(selected) <= set(installed):
         fail("PACKAGE_SET_INVALID")
     # Exact native subset means each native belongs to one selected package and

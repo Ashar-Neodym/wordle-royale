@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const HELPER = new URL('./g0-bundle-copy-helper.py', import.meta.url).pathname;
-const schemaVersion = 'wordle-g0-bundle-copy/v1';
-const limits = Object.freeze({ maxPackages: 32, maxNodes: 200, maxPayloadBytes: 64 * 1024 * 1024, maxFileBytes: 64 * 1024 * 1024, maxPathBytes: 1024, maxComponentBytes: 255, maxFrameBytes: 64 * 1024 });
+const schemaVersion = 'wordle-g0-bundle-copy/v2';
+const limits = Object.freeze({ maxPackages: 32, maxNodes: 200, maxSourceNodes: 1_000, maxPayloadBytes: 64 * 1024 * 1024, maxFileBytes: 64 * 1024 * 1024, maxPathBytes: 1024, maxComponentBytes: 255, maxFrameBytes: 64 * 1024 });
 const canonicalValue = (value) => {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]));
@@ -36,7 +36,11 @@ async function pkg(root, relative, files = { 'package.json': '{}\n' }) {
   }
 }
 function frame(f, selected, installed = selected, natives = [], overrides = {}) {
-  return { schemaVersion, sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, overrides.destination ?? 'bundle'), selectedPackagePaths: selected, installedPackagePaths: installed, nativeExecutablePaths: natives, limits: { ...limits, ...(overrides.limits ?? {}) } };
+  const generatedFiles = [
+    { path: 'invocation-profiles/test/1.json', bytesBase64: Buffer.from('{}\n').toString('base64'), mode: 0o444 },
+    { path: 'package-lock.json', bytesBase64: Buffer.from('lock\n').toString('base64'), mode: 0o444 },
+  ];
+  return { schemaVersion, sourceRoot: f.sourceRoot, destinationRoot: join(f.outputParent, overrides.destination ?? 'bundle'), selectedPackagePaths: selected, installedPackagePaths: installed, nativeExecutablePaths: natives, generatedFiles, limits: { ...limits, ...(overrides.limits ?? {}) } };
 }
 function run(input) {
   const result = spawnSync('/usr/bin/python3', [HELPER], { input: typeof input === 'string' ? input : canonical(input), encoding: 'utf8', env: {} });
@@ -82,7 +86,7 @@ test('rejects an installed unselected nested package and an untracked nested pac
     await pkg(f.sourceRoot, 'node_modules/a');
     await pkg(f.sourceRoot, 'node_modules/a/node_modules/c');
     const input = frame(f, ['node_modules/a'], tracked ? ['node_modules/a', 'node_modules/a/node_modules/c'] : ['node_modules/a']);
-    rejects(input, tracked ? 'UNSELECTED_NESTED_PACKAGE' : 'UNTRACKED_NESTED_PACKAGE');
+    rejects(input, tracked ? 'UNSELECTED_NESTED_PACKAGE' : 'INSTALLED_PACKAGE_SET_MISMATCH');
   }
 });
 
@@ -130,8 +134,8 @@ test('rejects case collisions, existing destination, bad native paths, malformed
     rejects(frame(f, ['node_modules/a'], ['node_modules/a'], ['node_modules/a/missing']), 'NATIVE_PATH_MISSING');
   }
   {
-    const f = await fixture(); await pkg(f.sourceRoot, 'node_modules/a', { big: '12345' });
-    rejects(frame(f, ['node_modules/a'], ['node_modules/a'], [], { limits: { maxFileBytes: 4 } }), 'FILE_LIMIT');
+    const f = await fixture(); await pkg(f.sourceRoot, 'node_modules/a', { big: '1234567890' });
+    rejects(frame(f, ['node_modules/a'], ['node_modules/a'], [], { limits: { maxFileBytes: 6 } }), 'FILE_LIMIT');
   }
   {
     const f = await fixture(); await pkg(f.sourceRoot, 'node_modules/a');
