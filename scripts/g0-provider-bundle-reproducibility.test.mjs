@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -32,6 +32,7 @@ async function setup() {
     const root = join(workspaceRoot, `acquisition-${label}`); const source = join(root, 'source'); const cache = join(root, 'cache');
     await mkdir(source, { recursive: true, mode: 0o700 }); await mkdir(cache, { mode: 0o700 }); await mkdir(join(source, 'node_modules/pkg'), { recursive: true, mode: 0o700 });
     await writeFile(join(source, 'package.json'), '{}\n'); await writeFile(join(source, 'package-lock.json'), '{}\n'); await writeFile(join(source, 'node_modules/pkg/index.js'), 'module.exports=1\n');
+    await mkdir(join(source, 'node_modules/.bin'), { mode: 0o755 }); await symlink('../pkg/index.js', join(source, 'node_modules/.bin/pkg'));
   };
   await makeAcquisition('A'); await makeAcquisition('B');
   return { base, input: { workspaceRoot, publicationRootA, publicationRootB, receiptPath: join(receipts, 'receipt.json'), sourceRevision: REVISION } };
@@ -108,6 +109,19 @@ test('rejects aliased source regular-file inodes', async (t) => {
   const { base, input } = await setup(); t.after(() => rm(base, { recursive: true, force: true }));
   const target = join(input.workspaceRoot, 'acquisition-B/source/node_modules/pkg/index.js'); await rm(target); await link(join(input.workspaceRoot, 'acquisition-A/source/node_modules/pkg/index.js'), target);
   const run = createProviderBundleReproducibilityForTests(dependencies()); await assert.rejects(run(input), { code: 'ACQUISITION_HARDLINK_FORBIDDEN' });
+});
+
+test('accepts only safe derived node_modules/.bin links and rejects every other source symlink', async (t) => {
+  {
+    const { base, input } = await setup(); t.after(() => rm(base, { recursive: true, force: true }));
+    const bad = join(input.workspaceRoot, 'acquisition-A/source/node_modules/.bin/pkg'); await unlink(bad); await symlink('../../../etc/passwd', bad);
+    await assert.rejects(createProviderBundleReproducibilityForTests(dependencies())(input), { code: 'ACQUISITION_BIN_TARGET_INVALID' });
+  }
+  {
+    const { base, input } = await setup(); t.after(() => rm(base, { recursive: true, force: true }));
+    await symlink('node_modules/pkg/index.js', join(input.workspaceRoot, 'acquisition-A/source/escape'));
+    await assert.rejects(createProviderBundleReproducibilityForTests(dependencies())(input), { code: 'ACQUISITION_SOURCE_SYMLINK_FORBIDDEN' });
+  }
 });
 
 test('rejects publisher versus independent-validator disagreement', async (t) => {

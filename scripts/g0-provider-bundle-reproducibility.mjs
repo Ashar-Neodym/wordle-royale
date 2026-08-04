@@ -1,7 +1,7 @@
 import { constants, watch } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, open, readFile, readdir, realpath, unlink } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { lstat, open, readFile, readdir, readlink, realpath, unlink } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { runFreshProviderBundleAcquisition } from './g0-provider-bundle-fresh-acquisition.mjs';
 import { publishProviderBundleLocally } from './g0-provider-bundle-local-publisher.mjs';
 import { validateProviderBundlePublication } from './g0-provider-bundle-publication-validator.mjs';
@@ -91,6 +91,24 @@ async function sourceInventory(sourceRoot, cacheRoot) {
   const source = await openSafeDirectory(sourceRoot, 'ACQUISITION_SOURCE_UNSAFE');
   const cache = await openSafeDirectory(cacheRoot, 'ACQUISITION_CACHE_UNSAFE');
   const files = new Map();
+  const validateBinDirectory = async (directory) => {
+    const names = (await readdir(anchor(directory), { encoding: 'buffer' })).sort(Buffer.compare);
+    const seen = new Set();
+    for (const raw of names) {
+      const name = new TextDecoder('utf-8', { fatal: true }).decode(raw);
+      if (!Buffer.from(name).equals(raw) || !name || name.includes('/') || name === '.' || name === '..' || seen.has(name.toLowerCase())) fail('ACQUISITION_BIN_PATH_INVALID');
+      seen.add(name.toLowerCase());
+      const linkPath = childAt(directory, name); const linkStat = await lstat(linkPath, { bigint: true }).catch(() => fail('ACQUISITION_SOURCE_CHANGED'));
+      if (!linkStat.isSymbolicLink() || linkStat.dev !== source.stat.dev || linkStat.uid !== source.stat.uid || linkStat.nlink !== 1n) fail('ACQUISITION_BIN_LINK_INVALID');
+      const target = await readlink(linkPath, { encoding: 'utf8' }).catch(() => fail('ACQUISITION_BIN_LINK_INVALID'));
+      if (!target || posix.isAbsolute(target) || target.includes('\\') || target.includes('\0')) fail('ACQUISITION_BIN_TARGET_INVALID');
+      const normalized = posix.normalize(posix.join('node_modules/.bin', target));
+      if (!normalized.startsWith('node_modules/') || normalized.startsWith('node_modules/.bin/') || normalized.includes('/../')) fail('ACQUISITION_BIN_TARGET_INVALID');
+      const targetStat = await lstat(childAt(source.handle, normalized), { bigint: true }).catch(() => fail('ACQUISITION_BIN_TARGET_INVALID'));
+      if (!targetStat.isFile() || targetStat.isSymbolicLink() || targetStat.dev !== source.stat.dev || targetStat.uid !== source.stat.uid) fail('ACQUISITION_BIN_TARGET_INVALID');
+      if (targetStat.nlink !== 1n) fail('ACQUISITION_HARDLINK_FORBIDDEN');
+    }
+  };
   const walk = async (directory, relative) => {
     const names = (await readdir(anchor(directory), { encoding: 'buffer' })).sort(Buffer.compare);
     for (const raw of names) {
@@ -102,7 +120,10 @@ async function sourceInventory(sourceRoot, cacheRoot) {
       if (st.dev !== source.stat.dev || st.uid !== source.stat.uid) fail('ACQUISITION_SOURCE_POLICY_MISMATCH');
       if (st.isDirectory()) {
         const child = await open(path, DIR_FLAGS).catch(() => fail('ACQUISITION_SOURCE_CHANGED'));
-        try { const held = await child.stat({ bigint: true }); if (identity(st) !== identity(held)) fail('ACQUISITION_SOURCE_CHANGED'); await walk(child, rel); }
+        try {
+          const held = await child.stat({ bigint: true }); if (identity(st) !== identity(held)) fail('ACQUISITION_SOURCE_CHANGED');
+          if (rel === 'node_modules/.bin') await validateBinDirectory(child); else await walk(child, rel);
+        }
         finally { await child.close(); }
       } else if (st.isFile()) {
         if (st.nlink !== 1n) fail('ACQUISITION_HARDLINK_FORBIDDEN');
