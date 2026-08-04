@@ -75,15 +75,15 @@ Generate a closed `wordle-royale-provider-tool/v1` descriptor and bind all of th
 
 ## Measured bounds
 
-A read-only measurement of the current pinned source, using lock-path Node resolution including present peers, complete package payloads, normalized modes, and canonical v1 entries, produced:
+A production-shaped AN-3 assembly/validation run against a disposable owner-only, permission-normalized clone of the current pinned inventory source produced:
 
 | Provider | closure package paths | manifest nodes | payload bytes | canonical manifest bytes |
 |---|---:|---:|---:|---:|
-| Vercel | 361 | 8,072 | 180,654,226 | 1,297,907 |
-| Railway | 17 | 257 | 26,455,040 | 38,789 |
-| Supabase | 15 | 814 | 216,499,459 | 127,630 |
+| Vercel | 287 | 8,092 | 164,762,096 | 1,299,188 |
+| Railway | 17 | 260 | 26,361,107 | 38,969 |
+| Supabase | 8 | 818 | 216,499,736 | 127,870 |
 
-These measurements do not bless that user-owned tree. AN implementation must reproduce them from two fresh npm-ci sources before the constants are approved. The profile's digest value is fixed-width, so generating its real hash does not change manifest length.
+These measurements prove the production assembler, independent staging scanner, canonical manifest, and descriptor bindings against the inventory bytes; they do not bless that user-owned tree or its normalized clone. AN-5 must reproduce the artifacts from two fresh npm-ci sources before installation input is approved. The profile's digest value is fixed-width, so generating its real hash does not change manifest length.
 
 Use closed provider-specific limits, checked both by assembler and production manifest loader:
 
@@ -93,7 +93,7 @@ Use closed provider-specific limits, checked both by assembler and production ma
 | Railway | 24 | 320 | 32 MiB | 49,152 bytes |
 | Supabase | 24 | 900 | 224 MiB | 147,456 bytes |
 
-Also cap lock bytes at 256 KiB, profile at 256 KiB, descriptor/install metadata at 256 KiB each, path bytes at 1,024, component bytes at 255, and one file at 224 MiB. Crossing any limit fails before publication. The existing generic 1 MiB production manifest cap may be raised **only** to a provider-indexed table after descriptor policy identifies Vercel; Railway and Supabase do not inherit Vercel's exception. The Vercel cap is 12,813 bytes above the measured canonical size, not an unbounded global increase. A package update requires new measurements and review; limits never auto-grow.
+Also cap lock bytes at 256 KiB, profile at 256 KiB, descriptor/install metadata at 256 KiB each, path bytes at 1,024, component bytes at 255, and one file at 224 MiB. Crossing any limit fails before publication. The existing generic 1 MiB production manifest cap may be raised **only** to a provider-indexed table after descriptor policy identifies Vercel; Railway and Supabase do not inherit Vercel's exception. The Vercel cap is 11,532 bytes above the measured canonical size, not an unbounded global increase. A package update requires new measurements and review; limits never auto-grow.
 
 ## Local publication, reproducibility, and no overwrite
 

@@ -227,6 +227,8 @@ export async function validateStagedProviderBundle(input) {
     const profileBytes = captures.get(profile.relativePath); if (!profileBytes?.equals(profile.bytes) || hash(profileBytes) !== profile.sha256) fail('STAGING_PROFILE_PIN_MISMATCH');
     validatePackageJson(captures.get(packagePath), policy.package, policy.version);
     if (policy.native) validatePackageJson(captures.get(`node_modules/${policy.native.package}/package.json`), policy.native.package, policy.native.version);
+    await assertHeld(stagingRoot, rootHeld, 'STAGING_ROOT_CHANGED');
+    await assertHeld(parentPath, parentHeld, 'STAGING_PARENT_CHANGED');
     return deepFreeze({ status: 'STAGING_VALID', provider, stagingRoot, packageCount: second.packageCount, nodeCount: second.nodeCount, payloadBytes: second.payloadBytes, sourceSnapshotSha256: assemblyResult.sourceSnapshotSha256, artifacts });
   } finally {
     await Promise.allSettled([rootHandle?.close(), parentHandle.close()]);
