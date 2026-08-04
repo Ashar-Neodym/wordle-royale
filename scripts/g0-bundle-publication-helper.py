@@ -247,6 +247,16 @@ class Cleaner:
 
     def walk(self, fd, depth):
         held_dir = os.fstat(fd)
+        # Normalized bundle directories are read-only (0555). Once the exact
+        # held, owner/device-checked directory has been selected for cleanup,
+        # temporarily restore owner write permission so verified children can
+        # be unlinked descriptor-relatively.
+        try:
+            os.fchmod(fd, 0o700)
+            held_dir = os.fstat(fd)
+        except OSError:
+            self.lost = True
+            return
         key = identity(held_dir)
         if key in self.seen_dirs:
             self.lost = True
