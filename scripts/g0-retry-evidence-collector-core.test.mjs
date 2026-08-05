@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   G0_RETRY_ADAPTER_ENVELOPE_SCHEMA,
   G0_RETRY_COLLECTOR_POLICY_DIGEST,
+  G0_RETRY_TARGET_SHA,
   G0_RETRY_PROTECTED_BINDINGS_SCHEMA,
   G0RetryEvidenceCollectorError,
   ceilDecimalToFour,
@@ -20,6 +22,17 @@ const interval = {
   start: "2026-08-01T00:00:00.000Z",
   end: "2026-09-01T00:00:00.000Z",
 };
+const OLD_TARGET_SHA = "c1a17f98e555cbf2b291c5a87a6f6311cb8881bb";
+const OLD_POLICY_DIGEST =
+  "sha256:c5777187dd8de9cf272dce287f426af274dc899689fee154330ae08881837683";
+const canonicalJson = (value) => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+};
+const sha256 = (value) =>
+  `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const absent = (kind) => ({
   id: g0RetryCollectorPolicy.createdIds[kind],
   name: g0RetryCollectorPolicy.createdNames[kind],
@@ -38,11 +51,11 @@ function fixture() {
     expiresAt: t(59),
     collectorKeyId: "collector-aj-001",
     qualification: {
-      receiptDigest: "sha256:" + "1".repeat(64),
+      receiptDigest: "sha256:ccf33e8e47709d8213cd01889fb934d48743d75b7995a48e2baff92bb1721ad4",
       targetSha: g0RetryCollectorPolicy.targetSha,
-      sourceArtifactDigest: "sha256:" + "2".repeat(64),
-      manifestDigest: "sha256:" + "3".repeat(64),
-      providerDefaultPolicyDigest: "sha256:" + "4".repeat(64),
+      sourceArtifactDigest: "sha256:6713e86f13f0f9b3b5522eb8cbc15abb5953af40580102f1e08690e0215533da",
+      manifestDigest: "sha256:e69d3757ec29176d9c0f22b7d4552bf979376b0363605a642ac339c41501d137",
+      providerDefaultPolicyDigest: "sha256:d97ebf644ebc033f982e3ba284b0692ce173222fee42207e8beb14ff76b74e40",
     },
     priorConsumedApproval: {
       approvalId: "approval-aj-001",
@@ -148,6 +161,38 @@ const code = (fn, expected) =>
     (error) =>
       error instanceof G0RetryEvidenceCollectorError && error.code === expected,
   );
+
+test("fresh target and derived policy pins reject stale and partial repins", () => {
+  assert.equal(G0_RETRY_TARGET_SHA, "37fe4f030b169e6ad2062c8214268a1b20699947");
+  assert.equal(g0RetryCollectorPolicy.targetSha, G0_RETRY_TARGET_SHA);
+  assert.deepEqual(fixture().challenge.qualification, {
+    receiptDigest: "sha256:ccf33e8e47709d8213cd01889fb934d48743d75b7995a48e2baff92bb1721ad4",
+    targetSha: G0_RETRY_TARGET_SHA,
+    sourceArtifactDigest: "sha256:6713e86f13f0f9b3b5522eb8cbc15abb5953af40580102f1e08690e0215533da",
+    manifestDigest: "sha256:e69d3757ec29176d9c0f22b7d4552bf979376b0363605a642ac339c41501d137",
+    providerDefaultPolicyDigest: "sha256:d97ebf644ebc033f982e3ba284b0692ce173222fee42207e8beb14ff76b74e40",
+  });
+  assert.equal(
+    G0_RETRY_COLLECTOR_POLICY_DIGEST,
+    "sha256:0f0c14a1cde090cac17699887940ee80c820ab85e715f951da546e57368f7d98",
+  );
+  assert.equal(sha256(canonicalJson(g0RetryCollectorPolicy)), G0_RETRY_COLLECTOR_POLICY_DIGEST);
+  {
+    const input = fixture();
+    input.challenge.qualification.targetSha = OLD_TARGET_SHA;
+    code(() => collectG0RetryEvidence(input), "TARGET_SHA_MISMATCH");
+  }
+  {
+    const input = fixture();
+    input.protectedBindings.policyDigest = OLD_POLICY_DIGEST;
+    code(() => collectG0RetryEvidence(input), "PROTECTED_POLICY_MISMATCH");
+  }
+  {
+    const input = fixture();
+    input.vercel.policyDigest = OLD_POLICY_DIGEST;
+    code(() => collectG0RetryEvidence(input), "ADAPTER_POLICY_MISMATCH");
+  }
+});
 
 test("collector accepts the adapter's collector-native Railway quote projection", () => {
   const input = fixture(), account = g0RetryCollectorPolicy.accounts.railway, payload = input.railway.payload;

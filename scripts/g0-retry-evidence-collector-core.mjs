@@ -12,7 +12,7 @@ export const G0_RETRY_EVIDENCE_SCHEMA =
   "wordle-royale-g0-retry-provider-evidence/v1";
 export const G0_RETRY_INVENTORY_SCHEMA = "wordle-provider-inventory/v3";
 export const G0_RETRY_COLLECTOR = "wordle-royale/provider-provenance@3";
-export const G0_RETRY_TARGET_SHA = "c1a17f98e555cbf2b291c5a87a6f6311cb8881bb";
+export const G0_RETRY_TARGET_SHA = "37fe4f030b169e6ad2062c8214268a1b20699947";
 
 const CREATED_IDS = Object.freeze({
   vercelProject: "prj_kTyT8PDyNuBsAs3qCPQBvrRTEb1U",
@@ -51,7 +51,7 @@ const ACCOUNTS = Object.freeze({
 // Canonical SHA-256 of the fixed policy object below. It is a semantic-policy
 // identity, not a trust-bearing signature.
 export const G0_RETRY_COLLECTOR_POLICY_DIGEST =
-  "sha256:c5777187dd8de9cf272dce287f426af274dc899689fee154330ae08881837683";
+  "sha256:0f0c14a1cde090cac17699887940ee80c820ab85e715f951da546e57368f7d98";
 export const g0RetryCollectorPolicy = Object.freeze({
   schemaVersion: G0_RETRY_COLLECTOR_POLICY_SCHEMA,
   targetSha: G0_RETRY_TARGET_SHA,
