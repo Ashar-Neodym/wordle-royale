@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
   canonicalJson, sha256, evaluateRetryEligibility, retryConstants, RetryEligibilityError,
-  CHALLENGE_SCHEMA, EVIDENCE_SCHEMA, PROVIDER_RECEIPT_SCHEMA, COLLECTOR, QUALIFICATION_DIGEST, PRIOR_APPROVAL_ID,
+  CHALLENGE_SCHEMA, EVIDENCE_SCHEMA, PROVIDER_RECEIPT_SCHEMA, COLLECTOR, TARGET_SHA, QUALIFICATION_DIGEST,
+  PRIOR_APPROVAL_ID, PRIOR_APPROVAL_DIGEST, PRIOR_ATTEMPT_DIGEST,
 } from './g0-retry-eligibility-core.mjs';
 
 const artifacts = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'g0-retry-sanitized-history');
@@ -19,6 +20,14 @@ const artifactPaths = {
 };
 const load = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const signed = (value, privateKey) => `ed25519:${sign(null, Buffer.from(canonicalJson(value)), privateKey).toString('base64')}`;
+const OLD_TARGET_SHA = 'c1a17f98e555cbf2b291c5a87a6f6311cb8881bb';
+const OLD_SOURCE_DIGEST = 'sha256:f5bff020a1de79205bf3b71bf3ae0f7c83f86da43d3457b833edafffba01cf79';
+const OLD_QUALIFICATION_DIGEST = 'sha256:4a40fe2bba1d2c20bf15b8b33da1aeccaafff1fe0f34a5d63acea20859e23302';
+function recomputeQualificationDigest(qualification) {
+  const body = {...qualification}; delete body.receiptDigest;
+  qualification.receiptDigest = sha256(canonicalJson(body));
+  return qualification;
+}
 function fixture({ qualification, priorApproval, priorAttempt, now = Date.parse('2026-07-31T12:00:00.000Z'), tombstone = false, mutation = false, railwayCost = '4.9999', vercelCost = '0.0000' }) {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const challenge = {
@@ -69,9 +78,45 @@ async function cliInvocation(input, { outputExists = false, policy = {}, raw = {
 }
 
 test('deterministically emits eligibility-to-request only and binds all immutable artifacts', async () => {
-  const input = fixture(await base()); const first = evaluateRetryEligibility(input); const second = evaluateRetryEligibility(input);
+  const artifacts = await base();
+  assert.equal(artifacts.qualification.targetSha, TARGET_SHA);
+  assert.equal(artifacts.qualification.sourceArtifactDigest, 'sha256:6713e86f13f0f9b3b5522eb8cbc15abb5953af40580102f1e08690e0215533da');
+  assert.equal(artifacts.qualification.manifestDigest, 'sha256:e69d3757ec29176d9c0f22b7d4552bf979376b0363605a642ac339c41501d137');
+  assert.equal(artifacts.qualification.providerDefaultPolicyDigest, 'sha256:d97ebf644ebc033f982e3ba284b0692ce173222fee42207e8beb14ff76b74e40');
+  assert.equal(artifacts.qualification.receiptDigest, QUALIFICATION_DIGEST);
+  assert.equal(recomputeQualificationDigest(structuredClone(artifacts.qualification)).receiptDigest, QUALIFICATION_DIGEST);
+  assert.equal(sha256(canonicalJson(artifacts.priorApproval)), PRIOR_APPROVAL_DIGEST);
+  assert.equal(sha256(canonicalJson(artifacts.priorAttempt)), PRIOR_ATTEMPT_DIGEST);
+  assert.equal(artifacts.priorApproval.hostedMutationAuthorized, false);
+  const input = fixture(artifacts); const first = evaluateRetryEligibility(input); const second = evaluateRetryEligibility(input);
   assert.deepEqual(first, second); assert.equal(first.decision, 'eligible_to_request_fresh_approval'); assert.equal(first.hostedMutationAuthorized, false); assert.equal(first.freshApprovalRequired, true);
   assert.equal(first.qualification.receiptDigest, QUALIFICATION_DIGEST); assert.equal(first.priorAttempt.exactCreatedResources.railwayServiceInstance.name,'wordle-royale-production-api');
+});
+
+test('fresh qualification pins reject stale and partial repins and challenge mismatch', async () => {
+  const artifacts = await base();
+  {
+    const qualification = structuredClone(artifacts.qualification);
+    qualification.targetSha = OLD_TARGET_SHA;
+    qualification.sourceArtifactDigest = OLD_SOURCE_DIGEST;
+    qualification.receiptDigest = OLD_QUALIFICATION_DIGEST;
+    code(() => evaluateRetryEligibility(fixture({...artifacts, qualification})), 'QUALIFICATION_TARGET_MISMATCH');
+  }
+  {
+    const qualification = structuredClone(artifacts.qualification);
+    qualification.receiptDigest = OLD_QUALIFICATION_DIGEST;
+    code(() => evaluateRetryEligibility(fixture({...artifacts, qualification})), 'QUALIFICATION_DIGEST_MISMATCH');
+  }
+  {
+    const qualification = recomputeQualificationDigest({...structuredClone(artifacts.qualification), sourceArtifactDigest:OLD_SOURCE_DIGEST});
+    assert.notEqual(qualification.receiptDigest, QUALIFICATION_DIGEST);
+    code(() => evaluateRetryEligibility(fixture({...artifacts, qualification})), 'QUALIFICATION_NOT_EXACT_MERGED_RECEIPT');
+  }
+  {
+    const input = fixture(artifacts);
+    input.challenge.qualification.receiptDigest = OLD_QUALIFICATION_DIGEST;
+    code(() => evaluateRetryEligibility(input), 'CHALLENGE_QUALIFICATION_MISMATCH');
+  }
 });
 
 test('real recorded Railway tombstone state fails closed', async () => {

@@ -16,7 +16,7 @@ The CLI reads explicitly named local files only. It has no HTTP/provider SDK imp
 
 ## Fixed qualification and historical bindings
 
-The implementation is deliberately specific to merged base `c1a17f98e555cbf2b291c5a87a6f6311cb8881bb`. It accepts only the exact existing merged receipt digest `sha256:4a40fe2bba1d2c20bf15b8b33da1aeccaafff1fe0f34a5d63acea20859e23302`, and validates/recomputes that receipt before use. The output separately carries its:
+The implementation is deliberately specific to qualified target `37fe4f030b169e6ad2062c8214268a1b20699947`. It accepts only the exact fresh qualification receipt digest `sha256:ccf33e8e47709d8213cd01889fb934d48743d75b7995a48e2baff92bb1721ad4`, and validates/recomputes that receipt before use. The exact receipt also binds source artifact `sha256:6713e86f13f0f9b3b5522eb8cbc15abb5953af40580102f1e08690e0215533da`, manifest `sha256:e69d3757ec29176d9c0f22b7d4552bf979376b0363605a642ac339c41501d137`, and provider-default policy `sha256:d97ebf644ebc033f982e3ba284b0692ce173222fee42207e8beb14ff76b74e40`. A stale or partially repinned receipt fails closed. The output separately carries its:
 
 - target SHA;
 - source tree artifact digest;
@@ -33,7 +33,7 @@ The historical approval must be exact approval ID `6898479e-22b1-4fc8-82ec-ea18a
 | Railway service | `4b24c070-12d2-45b1-83c1-2a101cc75fa8` |
 | Railway service instance | `6ea19602-5f0d-42f8-ad9a-83ac12533ee1` (`serviceName: wordle-royale-production-api`) |
 
-The attempt digest and exact IDs are included in the output. Portable, sanitized copies of the three historical records are committed under `scripts/fixtures/g0-retry-sanitized-history/`; they contain no credentials or raw provider payloads. The approval and attempt canonical digests are respectively `sha256:9d46f17ab28f56ef7c42515dd610de582e818f0d760b69bbde693c9bb038f5f3` and `sha256:cf6fb4cf49f1a6b40a59e048f0dc5106fada9d5e9c3a51d7e5f7cd11a4f55338`. They are challenge-bound to fresh signed provider facts.
+The attempt digest and exact IDs are included in the output. Portable, sanitized copies of the qualification and the two historical records are committed under `scripts/fixtures/g0-retry-sanitized-history/`; they contain no credentials or raw provider payloads. Only the qualification fixture is repinned; the consumed approval and rolled-back attempt remain immutable historical audit artifacts. Their canonical digests remain respectively `sha256:9d46f17ab28f56ef7c42515dd610de582e818f0d760b69bbde693c9bb038f5f3` and `sha256:cf6fb4cf49f1a6b40a59e048f0dc5106fada9d5e9c3a51d7e5f7cd11a4f55338`. They are challenge-bound to fresh signed provider facts.
 
 ## Fresh signed provider bundle
 
