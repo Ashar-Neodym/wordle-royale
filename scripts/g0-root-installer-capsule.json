@@ -1,0 +1,1 @@
+{"capsulePath":"/opt/wordle-royale/installer-tools/ao-v1/g0-root-immutable-installer.py","installerSha256":"sha256:1cdadd186f5f4256b89664f24f613d47a79f55c458aa1eb84ed5488f36b1fba8","python":"/usr/bin/python3","pythonFlags":["-I","-S","-B"],"schemaVersion":"wordle-royale-g0-root-installer-capsule/v1","sourceRevision":"6cc4944a6f4051d5aa72edd6eb7e0a9b2e2e941f"}
