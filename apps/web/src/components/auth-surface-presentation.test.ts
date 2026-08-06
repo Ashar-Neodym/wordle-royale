@@ -5,6 +5,7 @@ import { authLimitedPresentation } from '../lib/auth-presentation.ts';
 
 const sources = {
   nav: readFileSync(new URL('./SiteNav.tsx', import.meta.url), 'utf8'),
+  navModel: readFileSync(new URL('./site-nav-model.ts', import.meta.url), 'utf8'),
   home: readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8'),
   play: readFileSync(new URL('../app/play/page.tsx', import.meta.url), 'utf8'),
   lobby: readFileSync(new URL('./LobbyScreens.tsx', import.meta.url), 'utf8'),
@@ -63,7 +64,8 @@ describe('signed-out auth surface presentation', () => {
     assert.match(sources.history, /AuthRequiredPanel surface="History" authPresentationMode=\{presentation\.mode\}/);
     assert.match(sources.profileHistory, /presentation\.action === 'preview_demo'/);
     assert.match(sources.profileHistory, /presentation\.action === 'sign_in'/);
-    assert.match(sources.nav, /presentation\.mode === 'preview_demo'/);
+    assert.match(sources.nav, /siteNavModel\(presentation\)/);
+    assert.match(sources.navModel, /presentation\.mode === 'preview_demo'/);
     assert.match(sources.home, /presentation\.mode === 'durable'/);
     assert.match(sources.lobby, /authPresentationMode === 'durable'/);
   });

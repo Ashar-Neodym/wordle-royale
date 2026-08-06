@@ -1,39 +1,9 @@
 import type { ReactElement } from 'react';
 import type { AuthPresentationPublic } from '../lib/auth-presentation';
+import { siteNavModel, type DesktopNavItem, type NavLinkModel } from './site-nav-model';
 import styles from './web-shell.module.css';
 
-type NavLink = {
-  href: string;
-  label: string;
-  note?: string;
-};
-
-const playLinks: NavLink[] = [
-  { href: '/practice', label: 'Practice', note: 'guest · not rated' },
-  { href: '/play', label: 'Play rated', note: 'board and match' },
-  { href: '/lobbies?intent=create', label: 'Create lobby', note: 'rated room' },
-  { href: '/lobbies?intent=join', label: 'Join by code', note: 'room code' },
-];
-
-const learnLinks: NavLink[] = [
-  { href: '/learn/rules', label: 'Rules', note: 'how it works' },
-  { href: '/learn/rules#scoring', label: 'Scoring', note: 'points and rating' },
-  { href: '/learn/rules#fair-play', label: 'Fair play', note: 'spoiler safe' },
-];
-
-function profileLinks(presentation: AuthPresentationPublic): NavLink[] {
-  const accountNote = presentation.mode === 'preview_demo'
-    ? 'temporary demo session'
-    : presentation.mode === 'disabled' ? 'currently unavailable' : 'sign in and session';
-  return [
-    { href: '/account', label: 'Account', note: accountNote },
-    { href: '/profile', label: 'My profile', note: 'mode ratings' },
-    { href: '/history', label: 'Match history', note: 'rated games' },
-    { href: '/settings', label: 'Settings', note: presentation.mode === 'preview_demo' ? 'preview account' : 'preferences' },
-  ];
-}
-
-function MenuLink({ href, label, note }: NavLink): ReactElement {
+function MenuLink({ href, label, note }: NavLinkModel): ReactElement {
   return (
     <a className={styles.menuLink} href={href}>
       <span>{label}</span>
@@ -42,7 +12,7 @@ function MenuLink({ href, label, note }: NavLink): ReactElement {
   );
 }
 
-function NavMenu({ label, links }: { label: string; links: NavLink[] }): ReactElement {
+function NavMenu({ label, links }: { label: string; links: readonly NavLinkModel[] }): ReactElement {
   return (
     <details className={styles.navMenu}>
       <summary aria-label={`${label} menu`}>{label}</summary>
@@ -53,7 +23,16 @@ function NavMenu({ label, links }: { label: string; links: NavLink[] }): ReactEl
   );
 }
 
+function DesktopItem({ item }: { item: DesktopNavItem }): ReactElement {
+  if (item.kind === 'menu') return <NavMenu label={item.label} links={item.links} />;
+  if (item.kind === 'account') return (
+    <a className={styles.profileButton} href={item.href} aria-label="Open account and session"><span aria-hidden="true">♟</span> {item.label}</a>
+  );
+  return <a href={item.href}>{item.label}</a>;
+}
+
 export function SiteNav({ presentation }: { presentation: AuthPresentationPublic }): ReactElement {
+  const model = siteNavModel(presentation);
   return (
     <nav className={styles.nav} aria-label="Primary">
       <a className={styles.brand} href="/">
@@ -61,28 +40,12 @@ export function SiteNav({ presentation }: { presentation: AuthPresentationPublic
         <span>Wordle Royale</span>
       </a>
       <div className={styles.navLinks}>
-        <a href="/practice">Practice</a>
-        <NavMenu label="Play" links={playLinks} />
-        <a href="/lobbies">Lobbies</a>
-        <a href="/leaderboard">Leaderboard</a>
-        <NavMenu label="Learn" links={learnLinks} />
-        <NavMenu label="Profile" links={profileLinks(presentation)} />
-        <a className={styles.profileButton} href="/account" aria-label="Open account and session"><span aria-hidden="true">♟</span> {presentation.mode === 'preview_demo' ? 'Demo session' : 'Account'}</a>
-        <a href="/server">Server</a>
+        {model.desktop.map((item) => <DesktopItem key={`${item.kind}-${item.label}`} item={item} />)}
       </div>
       <details className={styles.mobileMenu}>
         <summary aria-label="Open site menu">Menu</summary>
         <div className={styles.mobileMenuPanel}>
-          <a href="/practice">Practice</a>
-          <a href="/play">Play</a>
-          <a href="/lobbies">Lobbies</a>
-          <a href="/leaderboard">Ratings</a>
-          <a href="/profile">Profile</a>
-          <a href="/account">Account</a>
-          <a href="/learn/rules">Rules</a>
-          <a href="/history">History</a>
-          <a href="/settings">Settings</a>
-          <a href="/server">Server</a>
+          {model.mobile.map((link) => <a key={`${link.href}-${link.label}`} href={link.href}>{link.label}</a>)}
         </div>
       </details>
     </nav>
