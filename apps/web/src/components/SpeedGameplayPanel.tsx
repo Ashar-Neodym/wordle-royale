@@ -422,7 +422,7 @@ export function SpeedGameplayPanel({ initialState }: Props): ReactElement {
             <p>{snapshot.myState.terminalReason ? `Finished: ${snapshot.myState.terminalReason.replaceAll('_', ' ')}` : 'Still playing'}</p>
             <p className={styles.muted}>Opponent words, feedback, and exact solve time remain hidden.</p>
             {canForfeit ? <><button className={styles.dangerButton} type="button" disabled={busy !== null || Boolean(forfeitRequestId.current && retrySafeRequestId !== forfeitRequestId.current)} onClick={() => void forfeit()}>{busy === 'forfeit' ? 'Forfeiting…' : forfeitRequestId.current ? retrySafeRequestId === forfeitRequestId.current ? 'Retry same forfeit' : 'Awaiting authoritative forfeit outcome' : 'Forfeit and concede'}</button><p className={styles.warningText}>After reveal, this immediately awards the opponent a rated win.</p></> : null}
-            {terminal ? <button className={styles.primaryButton} type="button" onClick={() => window.location.reload()}>Load authoritative result</button> : null}
+            {terminal ? <a className={styles.primaryButton} href={`/matches/${encodeURIComponent(snapshot.matchId)}`}>Load authoritative result</a> : null}
           </aside>
         </div>
       ) : null}

@@ -135,7 +135,7 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
   const result = matchResult.data;
   const deltas = new Map(result.ratingEvent?.participants.map((participant) => [participant.userId, participant]) ?? []);
   return (
-    <article className={styles.panelWide}>
+    <article id="report" className={styles.panelWide}>
       <div className={styles.cardTopline}>
         <strong>Result</strong>
         <span>{new Date(result.completedAt).toLocaleString()}</span>
@@ -159,6 +159,12 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
           );
         })}
       </div>
+      {result.rankedMode === 'standard_1v1' ? (
+        <div className={styles.actionRow} aria-label="Result actions">
+          <a className={styles.secondaryButton} href={result.resultActions.links.matchHref}>View full result</a>
+          <a className={styles.primaryButton} href={result.resultActions.links.nextRankedHref}>Play again</a>
+        </div>
+      ) : null}
     </article>
   );
 }
