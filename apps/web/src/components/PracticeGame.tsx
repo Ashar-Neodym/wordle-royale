@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { STANDARD_MAX_GUESSES, STANDARD_WORD_LENGTH, type LetterFeedbackState } from '@wordle-royale/game-engine';
 import {
   aggregateKeyStates,
@@ -8,8 +8,25 @@ import {
   PRACTICE_ANSWERS,
   practiceReducer,
   type PracticeAction,
-  type PracticeState,
 } from '../lib/practice-game';
+import {
+  allocatePracticeRound,
+  copyPracticeResultStatus,
+  emptyPracticeStats,
+  formatPracticeShare,
+  getBrowserStorage,
+  hydratePracticeContinuity,
+  practiceWinPercentage,
+  reduceStartOverConfirmation,
+  recordPracticeResult,
+  resetPracticeStats,
+  savePracticeSession,
+  savePracticeStats,
+  type PracticeSession,
+  type PracticeStats,
+  type StartOverConfirmation,
+  type StorageLike,
+} from '../lib/practice-persistence';
 import styles from './practice.module.css';
 
 const KEYBOARD_ROWS = [
@@ -34,6 +51,16 @@ function chooseAnswer(previous?: string): string {
   return candidates[secureIndex(candidates.length)] ?? PRACTICE_ANSWERS[0];
 }
 
+function createRoundId(): string {
+  const values = new Uint32Array(4);
+  globalThis.crypto.getRandomValues(values);
+  return [...values].map((value) => value.toString(16).padStart(8, '0')).join('');
+}
+
+function newSession(roundSequence: number, previousAnswer?: string): PracticeSession {
+  return { game: createPracticeState(chooseAnswer(previousAnswer)), roundId: createRoundId(), roundSequence, recorded: false };
+}
+
 function keyAction(key: string): PracticeAction | null {
   if (key === 'Enter') return { type: 'submit' };
   if (key === 'Backspace') return { type: 'backspace' };
@@ -48,14 +75,44 @@ function tileLabel(rowIndex: number, columnIndex: number, letter: string, feedba
 }
 
 export function PracticeGame(): ReactElement {
-  const [game, setGame] = useState<PracticeState | null>(null);
+  const [session, setSession] = useState<PracticeSession | null>(null);
+  const [stats, setStats] = useState<PracticeStats>(emptyPracticeStats);
+  const [hydrated, setHydrated] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [startOverConfirm, setStartOverConfirm] = useState<StartOverConfirmation>('idle');
+  const [copyStatus, setCopyStatus] = useState('');
+  const didHydrate = useRef(false);
+  const storageRef = useRef<StorageLike | null>(null);
 
   useEffect(() => {
-    setGame(createPracticeState(chooseAnswer()));
+    if (didHydrate.current) return;
+    didHydrate.current = true;
+    const storage = getBrowserStorage(window);
+    storageRef.current = storage;
+    const restored = hydratePracticeContinuity(storage);
+    if (restored.session) {
+      setStats(restored.stats);
+      setSession(restored.session);
+    } else {
+      const allocated = allocatePracticeRound(restored.stats);
+      if (allocated) {
+        const fresh = newSession(allocated.roundSequence);
+        setStats(allocated.stats);
+        setSession(fresh);
+        savePracticeStats(storage, allocated.stats);
+        savePracticeSession(storage, fresh);
+      }
+    }
+    setHydrated(true);
   }, []);
 
+  useEffect(() => {
+    if (hydrated && session) savePracticeSession(storageRef.current, session);
+  }, [hydrated, session]);
+
   const dispatch = useCallback((action: PracticeAction) => {
-    setGame((current) => current ? practiceReducer(current, action) : current);
+    setSession((current) => current ? { ...current, game: practiceReducer(current.game, action) } : current);
   }, []);
 
   useEffect(() => {
@@ -72,13 +129,73 @@ export function PracticeGame(): ReactElement {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [dispatch]);
 
-  const keyStates = useMemo(() => aggregateKeyStates(game?.rows ?? []), [game?.rows]);
+  const game = session?.game ?? null;
   const terminal = game?.status === 'won' || game?.status === 'lost';
 
+  useEffect(() => {
+    if (!hydrated || !session || !terminal || session.recorded) return;
+    const nextStats = recordPracticeResult(stats, session.roundId, session.roundSequence, session.game.status as 'won' | 'lost', session.game.rows.length);
+    if (nextStats !== stats) savePracticeStats(storageRef.current, nextStats);
+    if (nextStats !== stats) setStats(nextStats);
+    setSession((current) => current?.roundId === session.roundId ? { ...current, recorded: true } : current);
+  }, [hydrated, session, stats, terminal]);
+
+  const keyStates = useMemo(() => aggregateKeyStates(game?.rows ?? []), [game?.rows]);
+  const shareText = useMemo(() => game ? formatPracticeShare(game) : null, [game]);
+  const showStats = statsOpen || Boolean(terminal);
+
   const playAgain = (): void => {
-    const answer = chooseAnswer(game?.answer);
-    if (game) dispatch({ type: 'reset', answer });
-    else setGame(createPracticeState(answer));
+    const allocated = allocatePracticeRound(stats);
+    if (!allocated) return;
+    const fresh = newSession(allocated.roundSequence, game?.answer);
+    setStats(allocated.stats);
+    setSession(fresh);
+    savePracticeStats(storageRef.current, allocated.stats);
+    savePracticeSession(storageRef.current, fresh);
+    setCopyStatus('');
+    setResetConfirm(false);
+    setStartOverConfirm('idle');
+  };
+
+  const confirmStartOver = (): void => {
+    const allocated = allocatePracticeRound(stats);
+    if (!allocated) return;
+    const fresh = newSession(allocated.roundSequence, game?.answer);
+    setStats(allocated.stats);
+    setSession(fresh);
+    savePracticeStats(storageRef.current, allocated.stats);
+    savePracticeSession(storageRef.current, fresh);
+    setCopyStatus('Started a fresh practice round.');
+    setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'complete'));
+  };
+
+  const copyResult = async (): Promise<void> => {
+    if (!shareText) return;
+    setCopyStatus('Copying…');
+    let clipboard: Clipboard | undefined;
+    try {
+      clipboard = navigator.clipboard;
+    } catch {
+      clipboard = undefined;
+    }
+    setCopyStatus(await copyPracticeResultStatus(clipboard, shareText));
+  };
+
+  const resetStats = (): void => {
+    if (!resetConfirm) {
+      setResetConfirm(true);
+      return;
+    }
+    const cleared = resetPracticeStats(stats, terminal && session ? session.roundSequence : stats.highestRecordedSequence);
+    if (storageRef.current && !savePracticeStats(storageRef.current, cleared)) {
+      setCopyStatus('Could not reset stats in this browser.');
+      setResetConfirm(false);
+      return;
+    }
+    setStats(cleared);
+    setResetConfirm(false);
+    if (terminal) setSession((current) => current ? { ...current, recorded: true } : current);
+    setCopyStatus('Practice stats reset.');
   };
 
   return (
@@ -87,18 +204,33 @@ export function PracticeGame(): ReactElement {
         <div>
           <p className={styles.mode}>Practice · guest · not rated</p>
           <h1 id="practice-heading">Wordle Practice</h1>
-          <p>Find the five-letter word in six guesses.</p>
+          <p>A new random word each round—not a daily puzzle.</p>
         </div>
         <div className={styles.headerActions}>
-          <span>{game ? `${game.rows.length}/${STANDARD_MAX_GUESSES} guesses` : 'Starting game…'}</span>
+          <span>{game ? `${game.rows.length}/${STANDARD_MAX_GUESSES} guesses` : 'Restoring game…'}</span>
+          <button type="button" className={styles.textButton} aria-expanded={showStats} aria-controls="practice-stats" onClick={() => setStatsOpen((open) => !open)}>Stats</button>
           <a href="/play">Ranked play</a>
         </div>
       </header>
 
       <div className={styles.playArea} aria-busy={!game}>
         <div className={styles.message} role="status" aria-live="polite">
-          {game?.message ?? 'Choosing a word…'}
+          {game?.message ?? 'Restoring your practice round…'}
         </div>
+
+        {game?.status === 'playing' ? (
+          <div className={styles.startOver} aria-label="Start over controls">
+            {startOverConfirm === 'confirming' ? (
+              <>
+                <span role="status">Start a fresh round? Your current guesses will be cleared.</span>
+                <button type="button" onClick={confirmStartOver}>Confirm start over</button>
+                <button type="button" onClick={() => setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'cancel'))}>Cancel</button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'request'))}>Start over</button>
+            )}
+          </div>
+        ) : null}
 
         <div className={styles.board} role="grid" aria-label="Wordle practice board" aria-rowcount={STANDARD_MAX_GUESSES} aria-colcount={STANDARD_WORD_LENGTH}>
           {Array.from({ length: STANDARD_MAX_GUESSES }, (_, rowIndex) => {
@@ -111,14 +243,7 @@ export function PracticeGame(): ReactElement {
                   const letter = letters[columnIndex] ?? '';
                   const feedback = submitted?.feedback[columnIndex]?.state;
                   return (
-                    <div
-                      className={styles.tile}
-                      data-filled={Boolean(letter)}
-                      data-state={feedback ?? 'empty'}
-                      role="gridcell"
-                      aria-label={tileLabel(rowIndex, columnIndex, letter, feedback)}
-                      key={columnIndex}
-                    >
+                    <div className={styles.tile} data-filled={Boolean(letter)} data-state={feedback ?? 'empty'} role="gridcell" aria-label={tileLabel(rowIndex, columnIndex, letter, feedback)} key={columnIndex}>
                       {letter}
                     </div>
                   );
@@ -130,10 +255,38 @@ export function PracticeGame(): ReactElement {
 
         {terminal && game ? (
           <div className={styles.result} data-result={game.status}>
-            <strong>{game.status === 'won' ? 'You found it.' : 'Round over.'}</strong>
-            <span>The word was <b>{game.answer.toUpperCase()}</b>.</span>
-            <button type="button" onClick={playAgain}>Play again</button>
+            <div><strong>{game.status === 'won' ? 'You found it.' : 'Round over.'}</strong> <span>The word was <b>{game.answer.toUpperCase()}</b>.</span></div>
+            <div className={styles.resultActions}>
+              <button type="button" onClick={() => void copyResult()}>Copy result</button>
+              <button type="button" onClick={playAgain}>Play again</button>
+            </div>
           </div>
+        ) : null}
+
+        <div className={styles.copyStatus} role="status" aria-live="polite">{copyStatus}</div>
+
+        {showStats ? (
+          <section className={styles.stats} id="practice-stats" aria-labelledby="practice-stats-heading">
+            <div className={styles.statsHeading}>
+              <h2 id="practice-stats-heading">Practice stats</h2>
+              {!terminal ? <button type="button" className={styles.closeStats} onClick={() => setStatsOpen(false)} aria-label="Hide practice stats">×</button> : null}
+            </div>
+            <div className={styles.statGrid} aria-label="Practice statistics">
+              <div><strong>{stats.gamesPlayed}</strong><span>Played</span></div>
+              <div><strong>{practiceWinPercentage(stats)}%</strong><span>Won</span></div>
+              <div><strong>{stats.currentStreak}</strong><span>Win streak</span></div>
+              <div><strong>{stats.bestStreak}</strong><span>Best</span></div>
+            </div>
+            <div className={styles.distribution}>
+              <h3>Guesses in wins</h3>
+              <div>{([1, 2, 3, 4, 5, 6] as const).map((guess) => <span key={guess}><b>{guess}</b> {stats.distribution[String(guess) as '1' | '2' | '3' | '4' | '5' | '6']}</span>)}</div>
+            </div>
+            <div className={styles.resetRow}>
+              {resetConfirm ? <span>Reset all practice stats?</span> : null}
+              <button type="button" onClick={resetStats}>{resetConfirm ? 'Yes, reset' : 'Reset stats'}</button>
+              {resetConfirm ? <button type="button" onClick={() => setResetConfirm(false)}>Cancel</button> : null}
+            </div>
+          </section>
         ) : null}
 
         <div className={styles.keyboard} aria-label="On-screen keyboard">
@@ -143,19 +296,10 @@ export function PracticeGame(): ReactElement {
                 const state = key.length === 1 ? keyStates.get(key) : undefined;
                 const label = key === 'Backspace' ? 'Delete letter' : key === 'Enter' ? 'Submit guess' : `Letter ${key.toUpperCase()}`;
                 return (
-                  <button
-                    className={styles.key}
-                    data-state={state ?? 'unused'}
-                    data-wide={key.length > 1}
-                    disabled={!game || terminal}
-                    aria-label={label}
-                    type="button"
-                    onClick={() => {
-                      const action = keyAction(key);
-                      if (action) dispatch(action);
-                    }}
-                    key={key}
-                  >
+                  <button className={styles.key} data-state={state ?? 'unused'} data-wide={key.length > 1} disabled={!game || terminal} aria-label={label} type="button" onClick={() => {
+                    const action = keyAction(key);
+                    if (action) dispatch(action);
+                  }} key={key}>
                     {key === 'Backspace' ? '⌫' : key}
                   </button>
                 );
@@ -165,7 +309,7 @@ export function PracticeGame(): ReactElement {
         </div>
       </div>
 
-      <footer className={styles.note}>This game stays in this tab. No account, storage, rating, or network request is used.</footer>
+      <footer className={styles.note}>Progress and stats stay in this browser. Practice gameplay sends no account or API requests.</footer>
     </section>
   );
 }

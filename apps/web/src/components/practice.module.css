@@ -22,10 +22,13 @@
 .header p:not(.mode) { margin: 7px 0 0; color: #b9b3a8; }
 .mode { margin: 0 0 6px; color: #9dbc7c; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .headerActions { display: grid; gap: 7px; flex: 0 0 auto; color: #b9b3a8; font-size: 13px; text-align: right; }
-.headerActions a { color: #b8d39c; text-decoration: underline; text-underline-offset: 3px; }
+.headerActions a, .textButton { color: #b8d39c; text-decoration: underline; text-underline-offset: 3px; }
+.textButton { min-height: 32px; border: 0; padding: 0; background: transparent; font: inherit; cursor: pointer; }
 
 .playArea { display: grid; justify-items: center; }
 .message { min-height: 42px; padding: 13px 8px 7px; color: #d8d3ca; font-size: 14px; font-weight: 600; text-align: center; }
+.startOver { display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap; min-height: 40px; margin-bottom: 7px; color: #c6c0b6; font-size: 12px; text-align: center; }
+.startOver button { min-height: 34px; border: 1px solid #706b63; border-radius: 3px; padding: 0 10px; background: #383530; color: #eee9df; cursor: pointer; }
 .board { --tile-size: min(58px, calc((100vw - 50px) / 5)); display: grid; gap: 6px; }
 .row { display: grid; grid-template-columns: repeat(5, var(--tile-size)); gap: 6px; }
 .tile {
@@ -64,8 +67,9 @@
 }
 .result[data-result='lost'] { border-color: #8a7650; background: #352f22; color: #e5d9c1; }
 .result b { letter-spacing: .09em; }
-.result button {
-  min-height: 34px;
+.resultActions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.result button, .resetRow button {
+  min-height: 40px;
   border: 1px solid #799c5e;
   border-radius: 3px;
   padding: 0 11px;
@@ -74,6 +78,29 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+.copyStatus { min-height: 22px; padding: 5px 8px 0; color: #c6c0b6; font-size: 12px; text-align: center; }
+.stats {
+  width: min(100%, 430px);
+  margin: 8px 0 2px;
+  border: 1px solid var(--practice-border);
+  border-radius: 5px;
+  padding: 12px;
+  background: var(--practice-surface);
+}
+.statsHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.statsHeading h2 { margin: 0; font-size: 1rem; }
+.closeStats { width: 40px; min-height: 40px; border: 0; background: transparent; color: #d8d3ca; font-size: 1.45rem; cursor: pointer; }
+.statGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
+.statGrid div { display: grid; justify-items: center; min-width: 0; }
+.statGrid strong { font-size: 1.25rem; }
+.statGrid span { color: #b9b3a8; font-size: 10px; text-align: center; }
+.distribution { margin-top: 12px; }
+.distribution h3 { margin: 0 0 6px; color: #c9c3b9; font-size: 12px; }
+.distribution > div { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.distribution span { padding: 5px 2px; border-radius: 3px; background: #383530; color: #c9c3b9; font-size: 11px; text-align: center; }
+.resetRow { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: 10px; color: #e5d9c1; font-size: 12px; }
+.resetRow button { border: 1px solid #706b63; border-radius: 3px; padding: 0 10px; background: #383530; color: #eee9df; cursor: pointer; }
 
 .keyboard { display: grid; gap: 6px; width: min(100%, 520px); margin-top: 18px; user-select: none; }
 .keyRow { display: flex; justify-content: center; gap: 5px; }
@@ -97,7 +124,7 @@
 .key[data-state='present'] { background: var(--practice-present); }
 .key[data-state='absent'] { background: var(--practice-absent); color: #d0ccc5; }
 .key:disabled { cursor: default; opacity: .72; }
-.key:focus-visible, .result button:focus-visible, .headerActions a:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
+.key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
 .note { margin: 18px auto 0; padding-top: 12px; border-top: 1px solid var(--practice-border); color: #a9a398; font-size: 12px; line-height: 1.45; text-align: center; }
 
 @media (max-width: 520px) {
