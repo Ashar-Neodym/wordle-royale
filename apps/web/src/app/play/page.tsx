@@ -12,6 +12,7 @@ import { completeRankedMatchAction, createRankedLobbyAction, joinLobbyAction, jo
 import { rankedActionState, resolveSearchParams, searchValue, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { resolvePlayPagePresentation } from './play-page-presentation';
 
 export const dynamic = 'force-dynamic';
 // Next route-segment config requires a statically analyzable literal. The policy test
@@ -30,12 +31,43 @@ type PlayPageProps = {
 };
 
 export default async function PlayPage({ searchParams }: PlayPageProps): Promise<ReactElement> {
-  const params = await resolveSearchParams(searchParams);
-  const api = await getWebApiSnapshot();
   const presentation = requireAuthPresentationConfiguration();
-  const matchId = searchValue(params, 'matchId');
-  const matchState = matchId ? await getRankedMatchState(matchId) : null;
-  const matchResult = matchId ? await getRankedMatchResult(matchId) : null;
+  const pagePresentation = await resolvePlayPagePresentation(presentation.mode, {
+    resolveSearchParams: () => resolveSearchParams(searchParams),
+    readRankedWorkspace: async (params) => {
+      const api = await getWebApiSnapshot();
+      const matchId = searchValue(params, 'matchId');
+      const matchState = matchId ? await getRankedMatchState(matchId) : null;
+      const matchResult = matchId ? await getRankedMatchResult(matchId) : null;
+      return { api, matchId, matchState, matchResult, params };
+    },
+  });
+
+  if (pagePresentation.kind === 'practice') {
+    const { content } = pagePresentation;
+    return (
+      <PageFrame>
+        <section className={styles.matchBanner} aria-labelledby="practice-play-heading">
+          <div>
+            <p className={styles.eyebrow}>{content.eyebrow}</p>
+            <h1 id="practice-play-heading">{content.title}</h1>
+            <p>{content.description}</p>
+            <ul>
+              {content.facts.map((fact) => <li key={fact}>{fact}</li>)}
+            </ul>
+            <div className={styles.actionRow}>
+              <a className={styles.primaryButton} href={content.primaryAction.href}>{content.primaryAction.label}</a>
+              {content.secondaryActions.map((action) => (
+                <a className={styles.secondaryButton} href={action.href} key={action.href}>{action.label}</a>
+              ))}
+            </div>
+          </div>
+        </section>
+      </PageFrame>
+    );
+  }
+
+  const { api, matchId, matchState, matchResult, params } = pagePresentation.workspace;
   const actionState = rankedActionState(params);
   const hasLiveMatch = Boolean(matchId);
   const speedQueueEnabled = api.authority.status === 'enabled';
