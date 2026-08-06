@@ -21,7 +21,17 @@ function submit(state: PracticeState, word: string): PracticeState {
 describe('practice game state', () => {
   it('uses a varied answer list and accepts every answer as a guess', () => {
     assert.ok(PRACTICE_ANSWERS.length >= 30);
+    assert.ok(PRACTICE_VALID_GUESSES.size >= 1_000);
     assert.ok(PRACTICE_ANSWERS.every((answer) => PRACTICE_VALID_GUESSES.has(answer)));
+  });
+
+  it('accepts common five-letter words and rejects malformed dictionary entries', () => {
+    for (const word of ['about', 'other', 'words', 'their', 'there', 'which', 'could', 'first', 'crane', 'plant']) {
+      assert.equal(PRACTICE_VALID_GUESSES.has(word), true, `${word} should be accepted`);
+    }
+    for (const malformed of ['', 'four', 'longer', 'abc1e', "can't", 'CRANE', ' plant']) {
+      assert.equal(PRACTICE_VALID_GUESSES.has(malformed), false, `${malformed} should be rejected`);
+    }
   });
 
   it('handles letter input, its limit, and backspace', () => {

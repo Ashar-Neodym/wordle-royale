@@ -7,9 +7,10 @@ import {
   type LetterFeedback,
   type LetterFeedbackState,
 } from '@wordle-royale/game-engine';
+import { GENERATED_FIVE_LETTER_WORDS } from './generated/practice-five-letter-words.ts';
 
-// Seeded from the repository's safe English test fixtures, then expanded with
-// reviewed, common five-letter words so practice games have useful variety.
+// Keep the smaller answer pool curated separately from the generated guess
+// dictionary so adding an accepted guess never silently makes it an answer.
 export const PRACTICE_ANSWERS = [
   'allee', 'arena', 'array', 'bloom', 'brave', 'chair', 'civic', 'crane',
   'crown', 'flame', 'knoll', 'level', 'light', 'mamma', 'model', 'plant',
@@ -19,15 +20,8 @@ export const PRACTICE_ANSWERS = [
   'train', 'water', 'world', 'youth',
 ] as const;
 
-const FIXTURE_GUESSES = [
-  'adieu', 'awake', 'blush', 'cigar', 'dwarf', 'evade', 'focal', 'heath',
-  'humph', 'karma', 'later', 'naval', 'raise', 'rates', 'rebut', 'roate',
-  'serve', 'sissy', 'stare', 'tears',
-] as const;
-
 export const PRACTICE_VALID_GUESSES: ReadonlySet<string> = new Set([
-  ...PRACTICE_ANSWERS,
-  ...FIXTURE_GUESSES,
+  ...GENERATED_FIVE_LETTER_WORDS,
 ]);
 
 export type PracticeStatus = 'playing' | 'won' | 'lost';
