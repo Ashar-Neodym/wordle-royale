@@ -25,6 +25,8 @@ describe('practice surface boundaries', () => {
   it('gates the visible answer behind terminal state', () => {
     assert.match(gameSource, /terminal && game[\s\S]*The word was[\s\S]*game\.answer\.toUpperCase\(\)/);
     assert.match(gameSource, /Practice · guest · not rated/);
+    assert.match(gameSource, /href="\/play">Play options<\/a>/);
+    assert.doesNotMatch(gameSource, />Ranked play<\/a>/);
     assert.match(gameSource, /aria-label="Wordle practice board"/);
     assert.match(gameSource, /aria-label="On-screen keyboard"/);
     assert.match(gameSource, /Copy result/);
