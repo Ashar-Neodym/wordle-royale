@@ -278,7 +278,9 @@ export async function completeRankedMatchAction(formData: FormData): Promise<voi
 
   const result = await completeRankedMatch({ clientRequestId: randomUUID(), matchId, reason: 'all_players_final' });
   if (result.status === 'connected' && result.data) {
-    resultRedirect({ action: 'complete_match', status: 'success', matchId, message: 'Match completed and ratings finalized.' }, 'report');
+    const resultPath = `/matches/${encodeURIComponent(matchId)}`;
+    revalidatePath(resultPath);
+    redirect(resultPath);
   }
   resultRedirect({ action: 'complete_match', status: 'error', matchId, message: result.error ?? 'Match is not ready to complete yet.' }, 'gameplay');
 }
