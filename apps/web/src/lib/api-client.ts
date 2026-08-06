@@ -2,6 +2,7 @@ import {
   apiHealthPayloadSchema,
   apiReadinessPayloadSchema,
   errorEnvelopeSchema,
+  rankedMatchResultSummarySchema,
   rankedModesPayloadSchema,
   runtimeCompatibilityPayloadSchema,
   unknownSuccessEnvelopeSchema,
@@ -30,15 +31,15 @@ import {
   type MarkSpeedMatchReadyRequest,
   type ForfeitSpeedMatchRequest,
 } from '@wordle-royale/contracts';
-import { cookies } from 'next/headers';
-import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy';
-import { SPEED_MUTATION_POLICY } from './speed-mutation-policy';
+import { cookies } from 'next/headers.js';
+import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy.ts';
+import { SPEED_MUTATION_POLICY } from './speed-mutation-policy.ts';
 import {
   assessWebApiAuthority,
   resolveApiOriginConfiguration,
   webDeploymentRevision,
   type WebApiAuthority,
-} from './api-authority';
+} from './api-authority.ts';
 
 export const defaultApiUrl = 'http://127.0.0.1:3001';
 export type { ApiHealthPayload, ApiReadinessPayload, RankedModesPayload, RuntimeCompatibilityPayload };
@@ -167,9 +168,14 @@ export const HOSTED_READ_POLICY: ReadPolicy = Object.freeze({
 });
 
 class ApiRequestFailure extends Error {
-  constructor(message: string, readonly retryableRead: boolean, readonly code: string | null = null) {
+  readonly retryableRead: boolean;
+  readonly code: string | null;
+
+  constructor(message: string, retryableRead: boolean, code: string | null = null) {
     super(message);
     this.name = 'ApiRequestFailure';
+    this.retryableRead = retryableRead;
+    this.code = code;
   }
 }
 
@@ -459,11 +465,14 @@ export async function completeRankedMatch(body: CompleteRankedMatchRequest): Pro
   return requestEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(body.matchId)}/complete`, {
     method: 'POST',
     body: JSON.stringify(body),
+    responseSchema: rankedMatchResultSummarySchema,
   });
 }
 
 export async function getRankedMatchResult(matchId: string): Promise<ApiClientResult<RankedMatchResultSummary>> {
-  return requestReadEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(matchId)}/result`);
+  return requestReadEnvelope<RankedMatchResultSummary>(`/matches/${encodeURIComponent(matchId)}/result`, {
+    responseSchema: rankedMatchResultSummarySchema,
+  });
 }
 
 export async function getLeaderboard(limit = 20, mode: LeaderboardPayload['mode'] = 'standard_1v1'): Promise<ApiClientResult<LeaderboardPayload>> {
