@@ -257,6 +257,11 @@ describe('runtime-oriented practice actions', () => {
     assert.equal(await copyPracticeResult({ writeText: async (text) => { copied = text; } }, 'result'), true);
     assert.equal(copied, 'result');
   });
+
+  it('times out a clipboard write that never settles', async () => {
+    const pending = { writeText: async () => await new Promise<void>(() => undefined) };
+    assert.equal(await copyPracticeResult(pending, 'result', 5), false);
+  });
 });
 
 describe('spoiler-free practice sharing', () => {

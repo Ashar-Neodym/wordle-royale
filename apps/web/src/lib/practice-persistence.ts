@@ -321,13 +321,20 @@ export function formatPracticeShare(game: PracticeState): string | null {
   return `Wordle Practice ${score}/${STANDARD_MAX_GUESSES}\n\n${grid}`;
 }
 
-export async function copyPracticeResult(clipboard: ClipboardLike | undefined, text: string): Promise<boolean> {
+export async function copyPracticeResult(clipboard: ClipboardLike | undefined, text: string, timeoutMs = 2_000): Promise<boolean> {
   if (!clipboard) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await clipboard.writeText(text);
-    return true;
+    return await Promise.race([
+      clipboard.writeText(text).then(() => true, () => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
