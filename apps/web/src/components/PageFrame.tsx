@@ -3,12 +3,12 @@ import { SiteNav } from './SiteNav';
 import styles from './web-shell.module.css';
 import { publicAuthPresentation, requireAuthPresentationConfiguration, type AuthPresentationPublic } from '../lib/auth-presentation';
 
-export function PageFrame({ children }: { children: ReactNode }): ReactElement {
+export function PageFrame({ children, showEnvironmentNotice = true }: { children: ReactNode; showEnvironmentNotice?: boolean }): ReactElement {
   const presentation = publicAuthPresentation(requireAuthPresentationConfiguration());
   return (
     <main className={styles.shell}>
       <SiteNav presentation={presentation} />
-      <EnvironmentNotice presentation={presentation} />
+      {showEnvironmentNotice ? <EnvironmentNotice presentation={presentation} /> : null}
       {children}
     </main>
   );

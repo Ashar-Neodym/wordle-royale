@@ -9,6 +9,7 @@ type NavLink = {
 };
 
 const playLinks: NavLink[] = [
+  { href: '/practice', label: 'Practice', note: 'guest · not rated' },
   { href: '/play', label: 'Play rated', note: 'board and match' },
   { href: '/lobbies?intent=create', label: 'Create lobby', note: 'rated room' },
   { href: '/lobbies?intent=join', label: 'Join by code', note: 'room code' },
@@ -60,6 +61,7 @@ export function SiteNav({ presentation }: { presentation: AuthPresentationPublic
         <span>Wordle Royale</span>
       </a>
       <div className={styles.navLinks}>
+        <a href="/practice">Practice</a>
         <NavMenu label="Play" links={playLinks} />
         <a href="/lobbies">Lobbies</a>
         <a href="/leaderboard">Leaderboard</a>
@@ -71,6 +73,7 @@ export function SiteNav({ presentation }: { presentation: AuthPresentationPublic
       <details className={styles.mobileMenu}>
         <summary aria-label="Open site menu">Menu</summary>
         <div className={styles.mobileMenuPanel}>
+          <a href="/practice">Practice</a>
           <a href="/play">Play</a>
           <a href="/lobbies">Lobbies</a>
           <a href="/leaderboard">Ratings</a>

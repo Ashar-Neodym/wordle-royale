@@ -108,6 +108,9 @@ importers:
       '@wordle-royale/fixtures':
         specifier: workspace:*
         version: link:../../packages/fixtures
+      '@wordle-royale/game-engine':
+        specifier: workspace:*
+        version: link:../../packages/game-engine
       next:
         specifier: ^16.2.9
         version: 16.2.9(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

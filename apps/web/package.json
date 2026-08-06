@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "test": "node --test src/lib/practice-game.test.ts src/components/practice-surface.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "next build"
   },
@@ -13,6 +14,7 @@
     "@wordle-royale/contracts": "workspace:*",
     "@wordle-royale/design-tokens": "workspace:*",
     "@wordle-royale/fixtures": "workspace:*",
+    "@wordle-royale/game-engine": "workspace:*",
     "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
