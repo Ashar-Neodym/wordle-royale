@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "test": "node --test src/lib/practice-game.test.ts src/lib/practice-persistence.test.ts src/lib/api-client-result-validation.test.ts src/lib/home-presentation.test.ts src/components/practice-surface.test.ts src/components/ranked-completion-flow.test.ts src/components/home-navigation.test.ts src/app/play/play-page-presentation.test.ts",
+    "test": "node --test src/lib/practice-game.test.ts src/lib/practice-persistence.test.ts src/lib/api-client-result-validation.test.ts src/lib/home-presentation.test.ts src/lib/rules-presentation.test.ts src/components/practice-surface.test.ts src/components/ranked-completion-flow.test.ts src/components/home-navigation.test.ts src/app/play/play-page-presentation.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "next build"
   },
