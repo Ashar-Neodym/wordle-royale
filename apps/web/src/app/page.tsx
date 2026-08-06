@@ -22,7 +22,7 @@ export default async function HomePage(): Promise<ReactElement> {
           <h1 id="home-heading">Play Wordle Royale.</h1>
           <p>Create or join a room, play a server-scored ranked round, and track rating without active-play spoilers.</p>
           <div className={styles.heroActions}>
-            <a className={styles.primaryButton} href="/play">Play rated</a>
+            <a className={styles.primaryButton} href="/practice">Play practice</a>
             <a className={styles.secondaryButton} href="/lobbies">Find lobby</a>
             <a className={styles.secondaryButton} href="/learn/rules">Rules</a>
           </div>
@@ -56,6 +56,7 @@ export default async function HomePage(): Promise<ReactElement> {
           <p>Wordle Royale now uses real routes instead of one long page. Live-vs-fixture state remains visible and secondary.</p>
         </div>
         <div className={styles.routeGrid}>
+          <a className={styles.routeCard} href="/practice"><strong>Practice</strong><span>Play now · guest · not rated</span></a>
           <a className={styles.routeCard} href="/play"><strong>Play</strong><span>Board-first match workspace</span></a>
           <a className={styles.routeCard} href="/lobbies"><strong>Lobbies</strong><span>Create, join, and start rated rooms</span></a>
           <a className={styles.routeCard} href="/leaderboard"><strong>Leaderboard</strong><span>Ratings and provisional status</span></a>

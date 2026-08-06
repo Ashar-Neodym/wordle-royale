@@ -76,6 +76,16 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
         </section>
       )}
 
+      {!hasLiveMatch ? (
+        <aside className={styles.practiceCta} aria-label="Guest practice">
+          <div>
+            <strong>Play now without an account</strong>
+            <span>Practice · guest · not rated. A complete local game with no server writes.</span>
+          </div>
+          <a className={styles.primaryButton} href="/practice">Play practice</a>
+        </aside>
+      ) : null}
+
       <section className={styles.section} aria-labelledby="ranked-mode-heading">
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Ranked modes</p>
