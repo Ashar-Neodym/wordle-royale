@@ -3,15 +3,19 @@ import { getWebApiSnapshot } from '../lib/api-client';
 import { gameplayFixtures } from '../lib/fixtures';
 import { startPreviewDemoSessionAction } from './actions';
 import { PageFrame } from '../components/PageFrame';
+import { DisabledHome } from '../components/DisabledHome';
 import { StatusStrip } from '../components/StatusPanels';
 import styles from '../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../lib/auth-presentation';
+import { resolveHomePresentation } from '../lib/home-presentation';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage(): Promise<ReactElement> {
-  const api = await getWebApiSnapshot();
-  const presentation = requireAuthPresentationConfiguration();
+  const home = await resolveHomePresentation(requireAuthPresentationConfiguration, getWebApiSnapshot);
+  if (home.kind === 'disabled') return <DisabledHome />;
+
+  const { api, presentation } = home;
   const localPlayer = gameplayFixtures.solvedRound.players[0];
   const currentUser = api.currentUser.status === 'connected' ? api.currentUser.data : null;
   return (

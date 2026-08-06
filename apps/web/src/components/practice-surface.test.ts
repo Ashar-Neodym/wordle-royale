@@ -9,6 +9,7 @@ const pageFrameSource = readFileSync(new URL('./PageFrame.tsx', import.meta.url)
 const homeSource = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
 const playSource = readFileSync(new URL('../app/play/page.tsx', import.meta.url), 'utf8');
 const navSource = readFileSync(new URL('./SiteNav.tsx', import.meta.url), 'utf8');
+const navModelSource = readFileSync(new URL('./site-nav-model.ts', import.meta.url), 'utf8');
 
 describe('practice surface boundaries', () => {
   it('keeps the game browser-local and uses the shared engine', () => {
@@ -24,6 +25,8 @@ describe('practice surface boundaries', () => {
   it('gates the visible answer behind terminal state', () => {
     assert.match(gameSource, /terminal && game[\s\S]*The word was[\s\S]*game\.answer\.toUpperCase\(\)/);
     assert.match(gameSource, /Practice · guest · not rated/);
+    assert.match(gameSource, /href="\/play">Play options<\/a>/);
+    assert.doesNotMatch(gameSource, />Ranked play<\/a>/);
     assert.match(gameSource, /aria-label="Wordle practice board"/);
     assert.match(gameSource, /aria-label="On-screen keyboard"/);
     assert.match(gameSource, /Copy result/);
@@ -40,8 +43,8 @@ describe('practice surface boundaries', () => {
   it('makes practice reachable from home, ranked play, and navigation', () => {
     assert.match(homeSource, /href="\/practice">Play practice/);
     assert.match(playSource, /Guest practice[\s\S]*href="\/practice">Play practice/);
-    assert.match(navSource, /href: '\/practice', label: 'Practice'/);
-    assert.match(navSource, /<a href="\/practice">Practice<\/a>/);
+    assert.match(navModelSource, /href: '\/practice', label: 'Practice'/);
+    assert.match(navSource, /siteNavModel\(presentation\)/);
   });
 
   it('keeps account deployment notices off the account-free practice surface', () => {

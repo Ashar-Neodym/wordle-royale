@@ -209,7 +209,7 @@ export function PracticeGame(): ReactElement {
         <div className={styles.headerActions}>
           <span>{game ? `${game.rows.length}/${STANDARD_MAX_GUESSES} guesses` : 'Restoring game…'}</span>
           <button type="button" className={styles.textButton} aria-expanded={showStats} aria-controls="practice-stats" onClick={() => setStatsOpen((open) => !open)}>Stats</button>
-          <a href="/play">Ranked play</a>
+          <a href="/play">Play options</a>
         </div>
       </header>
 
