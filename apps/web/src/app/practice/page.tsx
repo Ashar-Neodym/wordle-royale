@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PracticePage(): ReactElement {
   return (
-    <PageFrame>
+    <PageFrame showEnvironmentNotice={false}>
       <PracticeGame />
     </PageFrame>
   );
