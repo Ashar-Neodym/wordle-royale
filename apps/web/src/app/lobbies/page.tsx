@@ -7,6 +7,8 @@ import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startP
 import { rankedActionState, resolveSearchParams, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { DisabledRoute } from '../../components/DisabledRoute';
+import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,11 +17,11 @@ type LobbiesPageProps = {
 };
 
 export default async function LobbiesPage({ searchParams }: LobbiesPageProps): Promise<ReactElement> {
-  const params = await resolveSearchParams(searchParams);
-  const api = await getWebApiSnapshot();
-  const presentation = requireAuthPresentationConfiguration();
-  const actionState = rankedActionState(params);
-  return (
+  const route = await resolveRestrictedRoute('lobbies', async (presentation) => {
+    const params = await resolveSearchParams(searchParams);
+    const api = await getWebApiSnapshot();
+    const actionState = rankedActionState(params);
+    return (
     <PageFrame>
       <PageHeader eyebrow="Lobbies" title="Create or join a rated room">
         <p>Room discovery is separated from the board so the product feels like a game site, not one long demo page.</p>
@@ -46,5 +48,7 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
       </div>
       <WaitingRoom />
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="lobbies" /> : route.value;
 }

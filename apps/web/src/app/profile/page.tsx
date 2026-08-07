@@ -7,17 +7,18 @@ import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
 import { currentProfilePageTitle } from '../../lib/profile-read-presentation';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { DisabledRoute } from '../../components/DisabledRoute';
+import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProfilePage(): Promise<ReactElement> {
-  const [api, profileSummary] = await Promise.all([getWebApiSnapshot(), getCurrentProfileSummary()]);
-  const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
-  const authLimited = isAuthLimited(profileSummary.error);
-  const title = currentProfilePageTitle(profile, authLimited);
-  const presentation = requireAuthPresentationConfiguration();
-
-  return (
+  const route = await resolveRestrictedRoute('profile', async (presentation) => {
+    const [api, profileSummary] = await Promise.all([getWebApiSnapshot(), getCurrentProfileSummary()]);
+    const profile = profileSummary.status === 'connected' ? profileSummary.data : null;
+    const authLimited = isAuthLimited(profileSummary.error);
+    const title = currentProfilePageTitle(profile, authLimited);
+    return (
     <PageFrame>
       <PageHeader eyebrow="Profile" title={title}>
         <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating · ${profile.rating.matchesPlayed} rated games` : authLimited ? presentation.mode === 'preview_demo' ? 'Current-player profile requires a real session in preview; fixture sign-in is not silently assumed.' : presentation.mode === 'durable' ? 'Current-player profile requires a durable account session.' : 'Current-player profile is unavailable because accounts are disabled.' : 'Live profile summary appears here when the API read model is available.'}</p>
@@ -54,5 +55,7 @@ export default async function ProfilePage(): Promise<ReactElement> {
       </section>
       <ProfileLeaderboard leaderboard={api.leaderboard} />
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="profile" /> : route.value;
 }

@@ -3,13 +3,17 @@ import { getWebApiSnapshot } from '../../lib/api-client';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import { StatusStrip } from '../../components/StatusPanels';
 import styles from '../../components/web-shell.module.css';
+import { DisabledRoute } from '../../components/DisabledRoute';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ServerPage(): Promise<ReactElement> {
-  const api = await getWebApiSnapshot();
-  const dependencies = api.readiness.data?.dependencies ?? {};
-  return (
+  const route = await resolveRestrictedRoute('server', async () => {
+    const api = await getWebApiSnapshot();
+    const dependencies = api.readiness.data?.dependencies ?? {};
+    return (
     <PageFrame>
       <PageHeader eyebrow="Server" title="Live and fallback state">
         <p>This page keeps local demo health visible without making every product page feel technical.</p>
@@ -43,5 +47,7 @@ export default async function ServerPage(): Promise<ReactElement> {
         </article>
       </section>
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="server" /> : route.value;
 }

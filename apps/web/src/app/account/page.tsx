@@ -66,7 +66,7 @@ function DisabledAccount(): ReactElement {
       <section className={styles.accountUnavailable} aria-labelledby="disabled-account-heading">
         <h2 id="disabled-account-heading">No account actions are available</h2>
         <p>Sign-in and registration controls are intentionally hidden while account access is disabled.</p>
-        <div className={styles.actionRow}><a className={styles.secondaryButton} href="/">Return home</a><a className={styles.secondaryButton} href="/server">Server status</a></div>
+        <div className={styles.actionRow}><a className={styles.primaryButton} href="/practice">Play Practice</a><a className={styles.secondaryButton} href="/learn/rules">Read the rules</a><a className={styles.secondaryButton} href="/">Return home</a></div>
       </section>
     </PageFrame>
   );
