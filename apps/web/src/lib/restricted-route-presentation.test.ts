@@ -78,7 +78,7 @@ describe('public page routing coverage', () => {
     const manifestPatterns = [...LOCAL_PUBLIC_PAGE_PATTERNS, ...GATED_PUBLIC_PAGE_ROUTES.map(({ pattern }) => pattern)].sort();
     assert.deepEqual(actualPatterns, manifestPatterns);
     assert.equal(new Set(manifestPatterns).size, manifestPatterns.length);
-    assert.equal(LOCAL_PUBLIC_PAGE_PATTERNS.length, 6);
+    assert.equal(LOCAL_PUBLIC_PAGE_PATTERNS.length, 8);
     assert.equal(GATED_PUBLIC_PAGE_ROUTES.length, 7);
   });
 

@@ -1,0 +1,28 @@
+.hub { max-width: 840px; margin: 0 auto; color: #f1eee8; }
+.intro { padding: 20px 0 16px; border-bottom: 1px solid #4b4740; }
+.intro h1 { margin: 0; font-size: clamp(1.7rem, 6vw, 2.5rem); }
+.intro > p:not(.mode) { max-width: 680px; color: #c6c0b6; line-height: 1.5; }
+.mode { margin: 0 0 7px; color: #9dbc7c; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: lowercase; }
+.disclosure { padding: 10px 12px; border-left: 3px solid #aa8740; background: #352f22; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+.card { min-width: 0; padding: 16px; border: 1px solid #4b4740; border-radius: 5px; background: #262421; }
+.card h2, .card h3 { margin: 0 0 8px; }
+.card p { color: #b9b3a8; line-height: 1.45; }
+.card form { display: grid; gap: 8px; }
+.card label, .manualCopy label { font-size: 13px; font-weight: 700; }
+.card input, .manualCopy textarea { width: 100%; min-width: 0; border: 1px solid #706b63; border-radius: 3px; padding: 9px; background: #1f1d1a; color: #f1eee8; font: inherit; }
+.card input { min-height: 44px; }
+.card button, .card a, .links a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid #799c5e; border-radius: 3px; padding: 0 12px; background: #4f6f37; color: #fff; font-weight: 700; cursor: pointer; }
+.card a, .links a { text-decoration: underline; text-underline-offset: 3px; }
+.generated { display: grid; justify-items: start; gap: 8px; margin-top: 14px; }
+.generated p { margin: 0; }
+.url { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; color: #e5d9c1 !important; }
+.manualCopy { width: 100%; }
+.manualCopy p { margin: 4px 0; font-size: 12px; }
+.manualCopy textarea { min-height: 90px; resize: vertical; overflow-wrap: anywhere; }
+.error { padding: 10px 12px; border: 1px solid #b76a5f; background: #3a2724; color: #ffd9d3; }
+.links { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+.card button:focus-visible, .card a:focus-visible, .card input:focus-visible, .manualCopy textarea:focus-visible, .links a:focus-visible, .generated h3:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
+@media (max-width: 600px) { .cards { grid-template-columns: 1fr; } }
+@media (max-width: 280px) { .hub { min-width: 0; } .cards, .card form, .generated { gap: 8px; } .card { padding: 10px; } .card button, .card a, .links a { width: 100%; padding-inline: 6px; } .links { flex-direction: column; } }
+@media (forced-colors: active) { .disclosure { border-left: 3px solid CanvasText; } }

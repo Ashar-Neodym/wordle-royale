@@ -13,6 +13,7 @@ export type SiteNavModel = Readonly<{
 
 const playLinks: readonly NavLinkModel[] = [
   { href: '/practice', label: 'Practice', note: 'guest · not rated' },
+  { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
   { href: '/play', label: 'Play rated', note: 'board and match' },
   { href: '/lobbies?intent=create', label: 'Create lobby', note: 'rated room' },
   { href: '/lobbies?intent=join', label: 'Join by code', note: 'room code' },
@@ -38,10 +39,12 @@ export function siteNavModel(presentation: AuthPresentationPublic): SiteNavModel
   if (presentation.mode === 'disabled') return {
     desktop: [
       { kind: 'link', href: '/practice', label: 'Practice' },
+      { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'link', href: '/learn/rules', label: 'Rules' },
     ],
     mobile: [
       { href: '/practice', label: 'Practice' },
+      { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/learn/rules', label: 'Rules' },
     ],
   };
@@ -49,6 +52,7 @@ export function siteNavModel(presentation: AuthPresentationPublic): SiteNavModel
   return {
     desktop: [
       { kind: 'link', href: '/practice', label: 'Practice' },
+      { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'menu', label: 'Play', links: playLinks },
       { kind: 'link', href: '/lobbies', label: 'Lobbies' },
       { kind: 'link', href: '/leaderboard', label: 'Leaderboard' },
@@ -59,6 +63,7 @@ export function siteNavModel(presentation: AuthPresentationPublic): SiteNavModel
     ],
     mobile: [
       { href: '/practice', label: 'Practice' },
+      { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/play', label: 'Play' },
       { href: '/lobbies', label: 'Lobbies' },
       { href: '/leaderboard', label: 'Ratings' },

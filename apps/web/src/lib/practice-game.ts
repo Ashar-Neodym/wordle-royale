@@ -7,18 +7,12 @@ import {
   type LetterFeedback,
   type LetterFeedbackState,
 } from '@wordle-royale/game-engine';
+import { CURATED_ANSWERS_V1 } from './curated-answer-pools.ts';
 import { GENERATED_FIVE_LETTER_WORDS } from './generated/practice-five-letter-words.ts';
 
-// Keep the smaller answer pool curated separately from the generated guess
-// dictionary so adding an accepted guess never silently makes it an answer.
-export const PRACTICE_ANSWERS = [
-  'allee', 'arena', 'array', 'bloom', 'brave', 'chair', 'civic', 'crane',
-  'crown', 'flame', 'knoll', 'level', 'light', 'mamma', 'model', 'plant',
-  'press', 'pride', 'slate', 'sound', 'apple', 'beach', 'bread', 'cloud',
-  'dance', 'dream', 'earth', 'field', 'grape', 'green', 'house', 'lemon',
-  'music', 'ocean', 'peach', 'river', 'smile', 'stone', 'table', 'tiger',
-  'train', 'water', 'world', 'youth',
-] as const;
+// Practice intentionally keeps the exact historical answer order. Challenge
+// V1 also addresses this frozen pool by index.
+export const PRACTICE_ANSWERS = CURATED_ANSWERS_V1;
 
 export const PRACTICE_VALID_GUESSES: ReadonlySet<string> = new Set([
   ...GENERATED_FIVE_LETTER_WORDS,
