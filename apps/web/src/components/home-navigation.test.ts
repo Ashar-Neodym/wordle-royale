@@ -13,14 +13,16 @@ const preview = { appEnvironment: 'preview', mode: 'preview_demo', registrationM
 const durable = { appEnvironment: 'production', mode: 'durable', registrationMode: 'closed' } as const;
 
 describe('mode-aware Home and navigation boundaries', () => {
-  it('models disabled desktop and mobile navigation as Brand, Practice, Rules only', () => {
+  it('models disabled desktop and mobile navigation with local Challenges', () => {
     const model = siteNavModel(disabled);
     assert.deepEqual(model.desktop, [
       { kind: 'link', href: '/practice', label: 'Practice' },
+      { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'link', href: '/learn/rules', label: 'Rules' },
     ]);
     assert.deepEqual(model.mobile, [
       { href: '/practice', label: 'Practice' },
+      { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/learn/rules', label: 'Rules' },
     ]);
   });
@@ -28,6 +30,7 @@ describe('mode-aware Home and navigation boundaries', () => {
   it('keeps every pre-existing enabled desktop and mobile link, label, note, order, and account treatment', () => {
     const expectedMobile = [
       { href: '/practice', label: 'Practice' },
+      { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/play', label: 'Play' },
       { href: '/lobbies', label: 'Lobbies' },
       { href: '/leaderboard', label: 'Ratings' },
@@ -40,8 +43,10 @@ describe('mode-aware Home and navigation boundaries', () => {
     ];
     const commonDesktop = [
       { kind: 'link', href: '/practice', label: 'Practice' },
+      { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'menu', label: 'Play', links: [
         { href: '/practice', label: 'Practice', note: 'guest · not rated' },
+        { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
         { href: '/play', label: 'Play rated', note: 'board and match' },
         { href: '/lobbies?intent=create', label: 'Create lobby', note: 'rated room' },
         { href: '/lobbies?intent=join', label: 'Join by code', note: 'room code' },

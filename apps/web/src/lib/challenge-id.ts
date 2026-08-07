@@ -79,6 +79,18 @@ export function parseChallengeId(value: unknown): ChallengeIdResult {
 
 export const decodeChallengeId = parseChallengeId;
 
+/** Validate and canonicalize an ID without deriving or reading its answer. */
+export function canonicalizeChallengeId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = CHALLENGE_ID_PATTERN.exec(value);
+  if (!match) return null;
+  const version = Number.parseInt(match[1]!, 16);
+  const nonce = Number.parseInt(match[2]!, 16);
+  const suppliedChecksum = Number.parseInt(match[3]!, 16);
+  if (checksum(version, nonce) !== suppliedChecksum || version !== CHALLENGE_VERSION) return null;
+  return formatChallengeId(nonce);
+}
+
 /**
  * Create an unbiased V1 identifier using an injected browser-compatible
  * getRandomValues implementation. No fallback to weaker randomness is allowed.

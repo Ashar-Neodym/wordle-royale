@@ -4,6 +4,7 @@ import { CURATED_ANSWERS_V1 } from './curated-answer-pools.ts';
 import { PRACTICE_ANSWERS } from './practice-game.ts';
 import {
   CHALLENGE_RANDOM_ATTEMPT_LIMIT,
+  canonicalizeChallengeId,
   createChallengeId,
   decodeChallengeId,
   formatChallengeId,
@@ -83,6 +84,13 @@ describe('V1 challenge identifiers', () => {
     assert.deepEqual(unsupported, { ok: false, reason: 'unsupported_version' });
     assert.equal('answer' in unsupported, false);
     assert.deepEqual(parseChallengeId('c01-00000001-64'), { ok: false, reason: 'checksum_mismatch' });
+  });
+
+  it('canonicalizes only exact supported IDs for answer-free open-link validation', () => {
+    assert.equal(canonicalizeChallengeId('c01-00000000-62'), 'c01-00000000-62');
+    for (const value of [' c01-00000000-62', 'c01-00000000-00', 'c02-00000000-c4', null]) {
+      assert.equal(canonicalizeChallengeId(value), null);
+    }
   });
 
   it('creates IDs with injected cryptographic values and rejects the biased tail', () => {

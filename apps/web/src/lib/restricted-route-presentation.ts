@@ -47,6 +47,8 @@ export type RestrictedRouteId = keyof typeof RESTRICTED_ROUTE_CONTENT;
 export const LOCAL_PUBLIC_PAGE_PATTERNS = [
   '/',
   '/practice',
+  '/challenge',
+  '/challenge/[challengeId]',
   '/learn/rules',
   '/play',
   '/account',
