@@ -1,12 +1,12 @@
 # Wordle Royale
 
-Wordle Royale is a pnpm monorepo for the first local build wave.
+Wordle Royale is a pnpm monorepo with a public, account-free Practice game at `/practice`. Practice runs entirely in the browser, persists the current round and stats locally when storage is available, and provides spoiler-free result sharing. Production-disabled deployments keep Practice available while ranked play and durable accounts remain separately gated for explicit production activation.
 
 ## Workspace layout
 
-- `apps/api` — future NestJS backend/API/Socket.IO/worker code.
-- `apps/web` — future Next.js web app.
-- `apps/mobile` — future Expo React Native app.
+- `apps/api` — NestJS backend/API/Socket.IO/worker code.
+- `apps/web` — Next.js web app, including browser-local Practice.
+- `apps/mobile` — Expo React Native app.
 - `packages/contracts` — shared TypeScript/Zod contracts, enums, API envelopes, event names.
 - `packages/game-engine` — pure deterministic gameplay/scoring/rating logic.
 - `packages/design-tokens` — Crown Grid Arena design token exports.
@@ -14,7 +14,7 @@ Wordle Royale is a pnpm monorepo for the first local build wave.
 - `packages/word-tools` — dictionary fixture/import/validation tooling.
 - `packages/rating-tools` — MMR simulation tooling.
 
-## Current scaffold commands
+## Current workspace commands
 
 ```bash
 pnpm install
@@ -22,7 +22,7 @@ pnpm typecheck
 pnpm -r list --depth -1
 ```
 
-`pnpm typecheck` currently runs a workspace validation script because the app/package implementations are placeholders. Future tickets should replace or extend package-level `typecheck` scripts with real TypeScript checks as code is added.
+`pnpm typecheck` runs workspace validation; packages also provide focused checks and tests where implemented.
 
 ## Local development infrastructure
 

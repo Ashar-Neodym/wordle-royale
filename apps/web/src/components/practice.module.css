@@ -1,7 +1,7 @@
 .game {
   --practice-surface: #262421;
   --practice-border: #4b4740;
-  --practice-correct: #5f8445;
+  --practice-correct: #517438;
   --practice-present: #aa8740;
   --practice-absent: #4b4843;
   max-width: 720px;
@@ -27,6 +27,8 @@
 .statsLabel { display: inline-flex; align-items: center; min-height: 44px; }
 
 .playArea { display: grid; justify-items: center; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.storageWarning { width: min(100%, 520px); margin-top: 10px; padding: 9px 11px; border: 1px solid #b89245; border-radius: 4px; background: #352f22; color: #f1dfbb; font-size: 13px; line-height: 1.4; text-align: center; }
 .message { min-height: 42px; padding: 13px 8px 7px; color: #d8d3ca; font-size: 14px; font-weight: 600; text-align: center; }
 .startOver { display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap; min-height: 40px; margin-bottom: 7px; color: #c6c0b6; font-size: 12px; text-align: center; }
 .startOver button { min-height: 44px; border: 1px solid #706b63; border-radius: 3px; padding: 0 12px; background: #383530; color: #eee9df; cursor: pointer; }
@@ -83,6 +85,10 @@
 }
 
 .copyStatus { min-height: 22px; padding: 5px 8px 0; color: #c6c0b6; font-size: 12px; text-align: center; }
+.manualCopy { width: min(100%, 430px); margin: 4px 0 8px; padding: 10px; border: 1px solid #8a7650; border-radius: 4px; background: #352f22; }
+.manualCopy label { display: block; color: #f1eee8; font-size: 13px; font-weight: 700; }
+.manualCopy p { margin: 5px 0 8px; color: #d5c9b1; font-size: 12px; line-height: 1.4; }
+.manualCopy textarea { width: 100%; min-height: 108px; padding: 8px; border: 1px solid #706b63; border-radius: 3px; background: #1f1d1a; color: #f1eee8; font: 13px/1.4 var(--wr-typography-family-body); resize: vertical; }
 .stats {
   width: min(100%, 430px);
   margin: 8px 0 2px;
@@ -125,11 +131,11 @@
 }
 .key[data-wide='true'] { flex: 1.55 1 0; font-size: .72rem; }
 .key[data-state='correct'] { background: var(--practice-correct); }
-.key[data-state='present'] { background: var(--practice-present); }
+.key[data-state='present'] { background: var(--practice-present); color: #171512; }
 .key[data-state='absent'] { background: var(--practice-absent); color: #d0ccc5; }
 .keyStateMark { position: absolute; right: 2px; bottom: 2px; font-size: .55rem; line-height: 1; }
-.key:disabled { cursor: default; opacity: .72; }
-.key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
+.key:disabled { cursor: default; }
+.key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible, .manualCopy textarea:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
 .note { margin: 18px auto 0; padding-top: 12px; border-top: 1px solid var(--practice-border); color: #a9a398; font-size: 12px; line-height: 1.45; text-align: center; }
 
 @media (max-width: 520px) {

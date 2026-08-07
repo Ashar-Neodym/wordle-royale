@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { tileStates, type TileFeedbackState } from '../lib/tokens';
+import { wordTileLabel } from './ranked-accessibility';
 import styles from './web-shell.module.css';
 
 const markerByState: Record<TileFeedbackState, string> = {
@@ -15,13 +16,23 @@ const markerByState: Record<TileFeedbackState, string> = {
   disabled: '',
 };
 
-export function WordTile({ letter, state }: { letter: string; state: TileFeedbackState }): ReactElement {
+type WordTileProps = {
+  letter: string;
+  state: TileFeedbackState;
+  row: number;
+  column: number;
+};
+
+export function WordTile({ letter, state, row, column }: WordTileProps): ReactElement {
   const token = tileStates[state];
   return (
     <span
       className={`${styles.tile} ${styles[`tile_${token.pattern.replaceAll('-', '_')}`] ?? ''}`}
       style={{ backgroundColor: token.bg, borderColor: token.border, color: token.text }}
-      aria-label={`${letter || 'blank'}: ${token.label}`}
+      role="gridcell"
+      aria-rowindex={row}
+      aria-colindex={column}
+      aria-label={wordTileLabel(letter, token.label, row, column)}
       title={token.accessibilityNote}
     >
       <span>{letter}</span>
@@ -30,6 +41,6 @@ export function WordTile({ letter, state }: { letter: string; state: TileFeedbac
   );
 }
 
-export function EmptyTileRow({ count }: { count: number }): ReactElement[] {
-  return Array.from({ length: count }, (_, index) => <WordTile key={index} letter="" state="empty" />);
+export function EmptyTileRow({ count, row }: { count: number; row: number }): ReactElement[] {
+  return Array.from({ length: count }, (_, index) => <WordTile key={index} letter="" state="empty" row={row} column={index + 1} />);
 }

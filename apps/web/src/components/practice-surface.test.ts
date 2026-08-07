@@ -34,10 +34,11 @@ describe('practice surface boundaries', () => {
     assert.match(gameSource, /Copy result/);
     assert.match(gameSource, /Win streak/);
     assert.match(gameSource, /Reset all practice stats/);
-    assert.match(gameSource, /Progress and stats stay in this browser\. Practice gameplay sends no account or API requests\./);
+    assert.match(gameSource, /Progress and stats stay in this browser across reloads\./);
+    assert.match(gameSource, /Progress and stats are memory-only for this visit\./);
     assert.match(gameSource, /random word each round—not a daily puzzle/);
     assert.match(gameSource, /game\?\.status === 'playing'[\s\S]*Start over[\s\S]*Confirm start over[\s\S]*Cancel/);
-    assert.match(gameSource, /Started a fresh practice round\./);
+    assert.match(gameSource, /FRESH_ROUND_ANNOUNCEMENT/);
     assert.doesNotMatch(gameSource.match(/game\?\.status === 'playing'[\s\S]*?<div className=\{styles\.board\}/)?.[0] ?? '', /game\.answer\.toUpperCase/);
     assert.doesNotMatch(practicePageSource, /PRACTICE_ANSWERS|answer/i);
   });
@@ -70,10 +71,24 @@ describe('practice surface boundaries', () => {
     assert.match(gameSource, /ref=\{confirmStartOverRef\}[\s\S]*Confirm start over/);
     assert.match(gameSource, /restoreStartOverFocus\.current = true/);
     assert.match(gameSource, /restoreStatsFocus\.current = true/);
+    assert.match(gameSource, /ref=\{manualCopyRef\}[\s\S]*aria-describedby="practice-manual-copy-instructions"[\s\S]*readOnly[\s\S]*value=\{manualCopyText\}/);
+    assert.match(gameSource, /manualCopyText !== null[\s\S]*manualCopyRef\.current\?\.focus\(\)/);
+    assert.doesNotMatch(gameSource, /manualCopyRef\.current\?\.select\(\)/);
     assert.match(gameSource, /terminal \? <span className=\{styles\.statsLabel\}>Stats shown below/);
     assert.match(gameSource, /className=\{styles\.stateMark\} aria-hidden="true"/);
     assert.match(gameSource, /className=\{styles\.keyStateMark\} aria-hidden="true"/);
     assert.match(practiceStyles, /@media \(forced-colors: active\)/);
+  });
+
+  it('composes manual-copy failure, success cleanup, and stale-round reset behavior', () => {
+    assert.match(gameSource, /copyPracticeResultOutcome\(clipboard, shareText\)/);
+    assert.match(gameSource, /setCopyStatus\(outcome\.status\);\s*setManualCopyText\(outcome\.manualCopyText\)/);
+    assert.match(gameSource, /const attempt = \+\+copyAttemptRef\.current/);
+    assert.match(gameSource, /attempt !== copyAttemptRef\.current/);
+    assert.ok((gameSource.match(/copyAttemptRef\.current \+= 1;\s*setCopyStatus\(''\);\s*setManualCopyText\(null\)/g) ?? []).length >= 2);
+    assert.match(gameSource, /Copy result manually/);
+    assert.match(gameSource, /Select the text below, then use your device's copy command\./);
+    assert.match(practiceStyles, /\.manualCopy textarea:focus-visible/);
   });
 
   it('keeps compact controls tall and the ten-key row viable at 280px', () => {

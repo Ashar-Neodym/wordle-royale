@@ -403,9 +403,12 @@ export function SpeedGameplayPanel({ initialState }: Props): ReactElement {
       {['in_progress', 'finalizing', 'completed', 'voided'].includes(snapshot.state) ? (
         <div className={styles.gameShellCompact}>
           <div>
-            <div className={styles.wordGrid} role="grid" aria-label="Your live Speed guesses with server feedback">
-              {snapshot.myState.acceptedGuesses.map((entry) => <div className={styles.wordRow} role="row" key={entry.guessNumber}>{entry.feedback.map((tile, index) => <WordTile key={`${entry.guessNumber}-${index}`} letter={tile.letter} state={tile.state} />)}</div>)}
-              {Array.from({ length: Math.max(0, 6 - snapshot.myState.acceptedGuesses.length) }, (_, index) => <div className={styles.wordRow} role="row" key={`speed-empty-${index}`}><EmptyTileRow count={5} /></div>)}
+            <div className={styles.wordGrid} role="grid" aria-label="Your live Speed guesses with server feedback" aria-rowcount={6} aria-colcount={5}>
+              {snapshot.myState.acceptedGuesses.map((entry, rowIndex) => <div className={styles.wordRow} role="row" aria-rowindex={rowIndex + 1} key={entry.guessNumber}>{entry.feedback.map((tile, index) => <WordTile key={`${entry.guessNumber}-${index}`} letter={tile.letter} state={tile.state} row={rowIndex + 1} column={index + 1} />)}</div>)}
+              {Array.from({ length: Math.max(0, 6 - snapshot.myState.acceptedGuesses.length) }, (_, index) => {
+                const row = snapshot.myState.acceptedGuesses.length + index + 1;
+                return <div className={styles.wordRow} role="row" aria-rowindex={row} key={`speed-empty-${index}`}><EmptyTileRow count={5} row={row} /></div>;
+              })}
             </div>
             <form className={styles.guessForm} onSubmit={(event) => void submit(event)}>
               <label htmlFor="speed-guess">Your five-letter word</label>
