@@ -85,6 +85,10 @@
 }
 
 .copyStatus { min-height: 22px; padding: 5px 8px 0; color: #c6c0b6; font-size: 12px; text-align: center; }
+.manualCopy { width: min(100%, 430px); margin: 4px 0 8px; padding: 10px; border: 1px solid #8a7650; border-radius: 4px; background: #352f22; }
+.manualCopy label { display: block; color: #f1eee8; font-size: 13px; font-weight: 700; }
+.manualCopy p { margin: 5px 0 8px; color: #d5c9b1; font-size: 12px; line-height: 1.4; }
+.manualCopy textarea { width: 100%; min-height: 108px; padding: 8px; border: 1px solid #706b63; border-radius: 3px; background: #1f1d1a; color: #f1eee8; font: 13px/1.4 var(--wr-typography-family-body); resize: vertical; }
 .stats {
   width: min(100%, 430px);
   margin: 8px 0 2px;
@@ -131,7 +135,7 @@
 .key[data-state='absent'] { background: var(--practice-absent); color: #d0ccc5; }
 .keyStateMark { position: absolute; right: 2px; bottom: 2px; font-size: .55rem; line-height: 1; }
 .key:disabled { cursor: default; }
-.key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
+.key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible, .manualCopy textarea:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
 .note { margin: 18px auto 0; padding-top: 12px; border-top: 1px solid var(--practice-border); color: #a9a398; font-size: 12px; line-height: 1.45; text-align: center; }
 
 @media (max-width: 520px) {

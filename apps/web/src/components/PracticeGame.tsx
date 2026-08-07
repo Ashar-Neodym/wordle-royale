@@ -11,7 +11,7 @@ import {
 } from '../lib/practice-game';
 import {
   allocatePracticeRound,
-  copyPracticeResultStatus,
+  copyPracticeResultOutcome,
   emptyPracticeStats,
   formatPracticeShare,
   getBrowserStorage,
@@ -83,6 +83,7 @@ export function PracticeGame(): ReactElement {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [startOverConfirm, setStartOverConfirm] = useState<StartOverConfirmation>('idle');
   const [copyStatus, setCopyStatus] = useState('');
+  const [manualCopyText, setManualCopyText] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [memoryOnly, setMemoryOnly] = useState(false);
   const didHydrate = useRef(false);
@@ -94,6 +95,8 @@ export function PracticeGame(): ReactElement {
   const statsHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const resetStatsRef = useRef<HTMLButtonElement | null>(null);
   const confirmResetRef = useRef<HTMLButtonElement | null>(null);
+  const manualCopyRef = useRef<HTMLTextAreaElement | null>(null);
+  const copyAttemptRef = useRef(0);
   const restoreStartOverFocus = useRef(false);
   const focusHeadingAfterStartOver = useRef(false);
   const restoreStatsFocus = useRef(false);
@@ -205,6 +208,10 @@ export function PracticeGame(): ReactElement {
   }, [resetConfirm]);
 
   useEffect(() => {
+    if (manualCopyText !== null) manualCopyRef.current?.focus();
+  }, [manualCopyText]);
+
+  useEffect(() => {
     if (!hydrated || !session || !terminal || session.recorded) return;
     const nextStats = recordPracticeResult(stats, session.roundId, session.roundSequence, session.game.status as 'won' | 'lost', session.game.rows.length);
     if (nextStats !== stats) noteStorageFailure(savePracticeStats(storageRef.current, nextStats));
@@ -225,7 +232,9 @@ export function PracticeGame(): ReactElement {
     setSession(fresh);
     noteStorageFailure(savePracticeStats(storageRef.current, allocated.stats));
     noteStorageFailure(savePracticeSession(storageRef.current, fresh));
+    copyAttemptRef.current += 1;
     setCopyStatus('');
+    setManualCopyText(null);
     setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
     setResetConfirm(false);
     setStartOverConfirm('idle');
@@ -240,21 +249,28 @@ export function PracticeGame(): ReactElement {
     setSession(fresh);
     noteStorageFailure(savePracticeStats(storageRef.current, allocated.stats));
     noteStorageFailure(savePracticeSession(storageRef.current, fresh));
+    copyAttemptRef.current += 1;
     setCopyStatus('');
+    setManualCopyText(null);
     setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
     setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'complete'));
   };
 
   const copyResult = async (): Promise<void> => {
     if (!shareText) return;
+    const attempt = ++copyAttemptRef.current;
     setCopyStatus('Copying…');
+    setManualCopyText(null);
     let clipboard: Clipboard | undefined;
     try {
       clipboard = navigator.clipboard;
     } catch {
       clipboard = undefined;
     }
-    setCopyStatus(await copyPracticeResultStatus(clipboard, shareText));
+    const outcome = await copyPracticeResultOutcome(clipboard, shareText);
+    if (attempt !== copyAttemptRef.current) return;
+    setCopyStatus(outcome.status);
+    setManualCopyText(outcome.manualCopyText);
   };
 
   const resetStats = (): void => {
@@ -345,6 +361,20 @@ export function PracticeGame(): ReactElement {
         ) : null}
 
         <div className={styles.copyStatus} role="status" aria-live="polite">{copyStatus}</div>
+
+        {manualCopyText !== null ? (
+          <div className={styles.manualCopy}>
+            <label htmlFor="practice-manual-copy">Copy result manually</label>
+            <p id="practice-manual-copy-instructions">Select the text below, then use your device's copy command.</p>
+            <textarea
+              id="practice-manual-copy"
+              ref={manualCopyRef}
+              aria-describedby="practice-manual-copy-instructions"
+              readOnly
+              value={manualCopyText}
+            />
+          </div>
+        ) : null}
 
         {showStats ? (
           <section className={styles.stats} id="practice-stats" aria-labelledby="practice-stats-heading">

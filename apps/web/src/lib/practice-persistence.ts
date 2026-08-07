@@ -53,6 +53,11 @@ export interface ClipboardLike {
   writeText(text: string): Promise<void>;
 }
 
+export interface PracticeCopyOutcome {
+  status: string;
+  manualCopyText: string | null;
+}
+
 /** Accessing the localStorage property itself can throw a SecurityError. */
 export function getBrowserStorage(globalLike: BrowserStorageGlobalLike): StorageLike | null {
   try {
@@ -338,10 +343,18 @@ export async function copyPracticeResult(clipboard: ClipboardLike | undefined, t
   }
 }
 
+export async function copyPracticeResultOutcome(
+  clipboard: ClipboardLike | undefined,
+  text: string,
+  timeoutMs = 2_000,
+): Promise<PracticeCopyOutcome> {
+  return await copyPracticeResult(clipboard, text, timeoutMs)
+    ? { status: 'Result copied.', manualCopyText: null }
+    : { status: 'Could not copy. Manual copy is available below.', manualCopyText: text };
+}
+
 export async function copyPracticeResultStatus(clipboard: ClipboardLike | undefined, text: string): Promise<string> {
-  return await copyPracticeResult(clipboard, text)
-    ? 'Result copied.'
-    : 'Could not copy. You can keep playing normally.';
+  return (await copyPracticeResultOutcome(clipboard, text)).status;
 }
 
 export type StartOverConfirmation = 'idle' | 'confirming';

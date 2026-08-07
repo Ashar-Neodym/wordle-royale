@@ -71,10 +71,24 @@ describe('practice surface boundaries', () => {
     assert.match(gameSource, /ref=\{confirmStartOverRef\}[\s\S]*Confirm start over/);
     assert.match(gameSource, /restoreStartOverFocus\.current = true/);
     assert.match(gameSource, /restoreStatsFocus\.current = true/);
+    assert.match(gameSource, /ref=\{manualCopyRef\}[\s\S]*aria-describedby="practice-manual-copy-instructions"[\s\S]*readOnly[\s\S]*value=\{manualCopyText\}/);
+    assert.match(gameSource, /manualCopyText !== null[\s\S]*manualCopyRef\.current\?\.focus\(\)/);
+    assert.doesNotMatch(gameSource, /manualCopyRef\.current\?\.select\(\)/);
     assert.match(gameSource, /terminal \? <span className=\{styles\.statsLabel\}>Stats shown below/);
     assert.match(gameSource, /className=\{styles\.stateMark\} aria-hidden="true"/);
     assert.match(gameSource, /className=\{styles\.keyStateMark\} aria-hidden="true"/);
     assert.match(practiceStyles, /@media \(forced-colors: active\)/);
+  });
+
+  it('composes manual-copy failure, success cleanup, and stale-round reset behavior', () => {
+    assert.match(gameSource, /copyPracticeResultOutcome\(clipboard, shareText\)/);
+    assert.match(gameSource, /setCopyStatus\(outcome\.status\);\s*setManualCopyText\(outcome\.manualCopyText\)/);
+    assert.match(gameSource, /const attempt = \+\+copyAttemptRef\.current/);
+    assert.match(gameSource, /attempt !== copyAttemptRef\.current/);
+    assert.ok((gameSource.match(/copyAttemptRef\.current \+= 1;\s*setCopyStatus\(''\);\s*setManualCopyText\(null\)/g) ?? []).length >= 2);
+    assert.match(gameSource, /Copy result manually/);
+    assert.match(gameSource, /Select the text below, then use your device's copy command\./);
+    assert.match(practiceStyles, /\.manualCopy textarea:focus-visible/);
   });
 
   it('keeps compact controls tall and the ten-key row viable at 280px', () => {

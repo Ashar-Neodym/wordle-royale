@@ -4,6 +4,7 @@ import { createPracticeState, practiceReducer, type PracticeState } from './prac
 import {
   allocatePracticeRound,
   copyPracticeResult,
+  copyPracticeResultOutcome,
   copyPracticeResultStatus,
   emptyPracticeStats,
   formatPracticeShare,
@@ -249,9 +250,12 @@ describe('runtime-oriented practice actions', () => {
     assert.equal(reduceStartOverConfirmation('confirming', 'complete'), 'idle');
   });
 
-  it('reports clipboard rejection with the exact accessible status', async () => {
+  it('offers the exact payload for manual copy when the Clipboard API is missing or rejects', async () => {
     const rejected = { writeText: async () => { throw new Error('denied'); } };
-    assert.equal(await copyPracticeResultStatus(rejected, 'result'), 'Could not copy. You can keep playing normally.');
+    const expected = { status: 'Could not copy. Manual copy is available below.', manualCopyText: 'result' };
+    assert.deepEqual(await copyPracticeResultOutcome(undefined, 'result'), expected);
+    assert.deepEqual(await copyPracticeResultOutcome(rejected, 'result'), expected);
+    assert.equal(await copyPracticeResultStatus(rejected, 'result'), expected.status);
     assert.equal(await copyPracticeResult(undefined, 'result'), false);
     let copied = '';
     assert.equal(await copyPracticeResult({ writeText: async (text) => { copied = text; } }, 'result'), true);
@@ -261,6 +265,19 @@ describe('runtime-oriented practice actions', () => {
   it('times out a clipboard write that never settles', async () => {
     const pending = { writeText: async () => await new Promise<void>(() => undefined) };
     assert.equal(await copyPracticeResult(pending, 'result', 5), false);
+    assert.deepEqual(await copyPracticeResultOutcome(pending, 'result', 5), {
+      status: 'Could not copy. Manual copy is available below.',
+      manualCopyText: 'result',
+    });
+  });
+
+  it('does not expose a manual fallback after successful copy', async () => {
+    let copied = '';
+    assert.deepEqual(await copyPracticeResultOutcome({ writeText: async (text) => { copied = text; } }, 'safe share'), {
+      status: 'Result copied.',
+      manualCopyText: null,
+    });
+    assert.equal(copied, 'safe share');
   });
 });
 
@@ -281,5 +298,14 @@ describe('spoiler-free practice sharing', () => {
 
   it('does not format an active round', () => {
     assert.equal(formatPracticeShare(createPracticeState('crane')), null);
+  });
+
+  it('uses the same spoiler-free share payload for a failed copy fallback', async () => {
+    const win = submit(submit(createPracticeState('crane'), 'slate'), 'crane');
+    const share = formatPracticeShare(win);
+    assert.ok(share);
+    const outcome = await copyPracticeResultOutcome(undefined, share);
+    assert.equal(outcome.manualCopyText, share);
+    assert.doesNotMatch(outcome.manualCopyText ?? '', /crane/i);
   });
 });

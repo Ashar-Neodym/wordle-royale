@@ -1,6 +1,6 @@
 # @wordle-royale/web
 
-Minimal Next.js web shell for the Wordle Royale Crown Grid Arena frontend.
+Next.js frontend for Wordle Royale. The public `/practice` route is an account-free, browser-local game with local round/stat persistence and spoiler-free result sharing. It remains available in production-disabled deployments; ranked play and durable-account production activation are separately gated.
 
 ## Local commands
 
@@ -12,7 +12,7 @@ pnpm --filter @wordle-royale/web build
 
 ## Local API integration
 
-The shell can read the local API skeleton/stubs when available and falls back to shared fixtures when unavailable.
+Ranked and account surfaces can read the local API when available and fall back to shared fixtures where designed.
 
 1. Copy the app-specific example if you want to override the default API URL:
 
