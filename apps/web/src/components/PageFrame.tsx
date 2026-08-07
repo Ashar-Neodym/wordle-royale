@@ -6,11 +6,14 @@ import { publicAuthPresentation, requireAuthPresentationConfiguration, type Auth
 export function PageFrame({ children, showEnvironmentNotice = true }: { children: ReactNode; showEnvironmentNotice?: boolean }): ReactElement {
   const presentation = publicAuthPresentation(requireAuthPresentationConfiguration());
   return (
-    <main className={styles.shell}>
+    <div className={styles.shell}>
+      <a className={styles.skipLink} href="#main-content">Skip to main content</a>
       <SiteNav presentation={presentation} />
-      {showEnvironmentNotice ? <EnvironmentNotice presentation={presentation} /> : null}
-      {children}
-    </main>
+      <main id="main-content" className={styles.mainContent} tabIndex={-1}>
+        {showEnvironmentNotice ? <EnvironmentNotice presentation={presentation} /> : null}
+        {children}
+      </main>
+    </div>
   );
 }
 
