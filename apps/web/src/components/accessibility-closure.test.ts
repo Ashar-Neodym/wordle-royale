@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   acceptedGuessAnnouncement,
+  advancePracticeAnnouncement,
+  EMPTY_PRACTICE_ANNOUNCEMENT,
   FRESH_ROUND_ANNOUNCEMENT,
   MEMORY_ONLY_WARNING,
   practiceAnnouncementForTransition,
@@ -58,6 +60,39 @@ describe('Practice accessibility behavior', () => {
     );
     assert.match(practiceSource, /practiceAnnouncementForTransition\(session\.game, game, action\)/);
     assert.doesNotMatch(practiceSource, /action\.type === 'letter'[\s\S]{0,100}setAnnouncement/);
+  });
+
+  it('announces fresh empty and repeated unchanged short submit rejections', () => {
+    const fresh = createPracticeState('crane');
+    const emptyRejection = practiceReducer(fresh, { type: 'submit' });
+    assert.equal(emptyRejection.message, fresh.message);
+    assert.equal(
+      practiceAnnouncementForTransition(fresh, emptyRejection, { type: 'submit' }),
+      'Type a five-letter word.',
+    );
+
+    let short = practiceReducer(fresh, { type: 'letter', letter: 'a' });
+    short = practiceReducer(short, { type: 'letter', letter: 'b' });
+    const firstRejection = practiceReducer(short, { type: 'submit' });
+    const repeatedRejection = practiceReducer(firstRejection, { type: 'submit' });
+    assert.equal(repeatedRejection.message, firstRejection.message);
+    assert.equal(
+      practiceAnnouncementForTransition(firstRejection, repeatedRejection, { type: 'submit' }),
+      'Not enough letters.',
+    );
+  });
+
+  it('replaces the live-region child for consecutive identical rejection announcements', () => {
+    const first = advancePracticeAnnouncement(EMPTY_PRACTICE_ANNOUNCEMENT, 'Not enough letters.');
+    const second = advancePracticeAnnouncement(first, 'Not enough letters.');
+
+    assert.equal(first.message, second.message);
+    assert.notEqual(first.revision, second.revision);
+    assert.deepEqual([first.revision, second.revision], [1, 2]);
+    assert.match(
+      practiceSource,
+      /role="status" aria-live="polite" aria-atomic="true">\s*<span key=\{announcement\.revision\}>\{announcement\.message\}<\/span>/,
+    );
   });
 
   it('announces a first-guess win atomically without a remaining count or extra answer disclosure', () => {
@@ -119,7 +154,7 @@ describe('Practice accessibility behavior', () => {
   });
 
   it('moves focus and announces Play again, Stats, and reset-confirm transitions', () => {
-    assert.match(practiceSource, /const playAgain[\s\S]*focusHeadingAfterStartOver\.current = true;[\s\S]*setAnnouncement\(FRESH_ROUND_ANNOUNCEMENT\)/);
+    assert.match(practiceSource, /const playAgain[\s\S]*focusHeadingAfterStartOver\.current = true;[\s\S]*announce\(FRESH_ROUND_ANNOUNCEMENT\)/);
     assert.match(practiceSource, /if \(focusHeadingAfterStartOver\.current\)[\s\S]{0,180}headingRef\.current\?\.focus\(\)/);
     assert.match(practiceSource, /if \(statsOpen\) statsHeadingRef\.current\?\.focus\(\)/);
     assert.match(practiceSource, /restoreStatsFocus\.current = true;[\s\S]{0,150}setStatsOpen\(false\)/);
