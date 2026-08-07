@@ -22,16 +22,18 @@
 .header p:not(.mode) { margin: 7px 0 0; color: #b9b3a8; }
 .mode { margin: 0 0 6px; color: #9dbc7c; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .headerActions { display: grid; gap: 7px; flex: 0 0 auto; color: #b9b3a8; font-size: 13px; text-align: right; }
-.headerActions a, .textButton { color: #b8d39c; text-decoration: underline; text-underline-offset: 3px; }
-.textButton { min-height: 32px; border: 0; padding: 0; background: transparent; font: inherit; cursor: pointer; }
+.headerActions a, .textButton { display: inline-flex; align-items: center; justify-content: flex-end; min-height: 44px; color: #b8d39c; text-decoration: underline; text-underline-offset: 3px; }
+.textButton { border: 0; padding: 0; background: transparent; font: inherit; cursor: pointer; }
+.statsLabel { display: inline-flex; align-items: center; min-height: 44px; }
 
 .playArea { display: grid; justify-items: center; }
 .message { min-height: 42px; padding: 13px 8px 7px; color: #d8d3ca; font-size: 14px; font-weight: 600; text-align: center; }
 .startOver { display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap; min-height: 40px; margin-bottom: 7px; color: #c6c0b6; font-size: 12px; text-align: center; }
-.startOver button { min-height: 34px; border: 1px solid #706b63; border-radius: 3px; padding: 0 10px; background: #383530; color: #eee9df; cursor: pointer; }
+.startOver button { min-height: 44px; border: 1px solid #706b63; border-radius: 3px; padding: 0 12px; background: #383530; color: #eee9df; cursor: pointer; }
 .board { --tile-size: min(58px, calc((100vw - 50px) / 5)); display: grid; gap: 6px; }
 .row { display: grid; grid-template-columns: repeat(5, var(--tile-size)); gap: 6px; }
 .tile {
+  position: relative;
   display: grid;
   place-items: center;
   width: var(--tile-size);
@@ -49,6 +51,7 @@
 .tile[data-state='correct'] { border-color: var(--practice-correct); background: var(--practice-correct); }
 .tile[data-state='present'] { border-color: var(--practice-present); background: var(--practice-present); }
 .tile[data-state='absent'] { border-color: var(--practice-absent); background: var(--practice-absent); }
+.stateMark { position: absolute; right: 3px; bottom: 2px; font-size: .65rem; line-height: 1; }
 
 .result {
   display: flex;
@@ -69,7 +72,7 @@
 .result b { letter-spacing: .09em; }
 .resultActions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .result button, .resetRow button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid #799c5e;
   border-radius: 3px;
   padding: 0 11px;
@@ -90,7 +93,7 @@
 }
 .statsHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .statsHeading h2 { margin: 0; font-size: 1rem; }
-.closeStats { width: 40px; min-height: 40px; border: 0; background: transparent; color: #d8d3ca; font-size: 1.45rem; cursor: pointer; }
+.closeStats { width: 44px; min-height: 44px; border: 0; background: transparent; color: #d8d3ca; font-size: 1.45rem; cursor: pointer; }
 .statGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
 .statGrid div { display: grid; justify-items: center; min-width: 0; }
 .statGrid strong { font-size: 1.25rem; }
@@ -105,9 +108,10 @@
 .keyboard { display: grid; gap: 6px; width: min(100%, 520px); margin-top: 18px; user-select: none; }
 .keyRow { display: flex; justify-content: center; gap: 5px; }
 .key {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
-  height: 48px;
+  min-height: 48px;
   border: 0;
   border-radius: 3px;
   padding: 0 2px;
@@ -123,6 +127,7 @@
 .key[data-state='correct'] { background: var(--practice-correct); }
 .key[data-state='present'] { background: var(--practice-present); }
 .key[data-state='absent'] { background: var(--practice-absent); color: #d0ccc5; }
+.keyStateMark { position: absolute; right: 2px; bottom: 2px; font-size: .55rem; line-height: 1; }
 .key:disabled { cursor: default; opacity: .72; }
 .key:focus-visible, .result button:focus-visible, .resetRow button:focus-visible, .startOver button:focus-visible, .closeStats:focus-visible, .textButton:focus-visible, .headerActions a:focus-visible { outline: 2px solid #b8d39c; outline-offset: 2px; }
 .note { margin: 18px auto 0; padding-top: 12px; border-top: 1px solid var(--practice-border); color: #a9a398; font-size: 12px; line-height: 1.45; text-align: center; }
@@ -130,9 +135,9 @@
 @media (max-width: 520px) {
   .header { align-items: flex-start; }
   .headerActions span { display: none; }
-  .keyRow { gap: 3px; }
+  .keyRow { gap: 2px; }
   .keyboard { gap: 5px; }
-  .key { height: 46px; }
+  .key { min-height: 46px; }
 }
 
 @media (max-width: 350px) {
@@ -140,5 +145,12 @@
   .headerActions { font-size: 12px; }
   .board { gap: 5px; }
   .row { gap: 5px; }
-  .key { height: 44px; }
+  .key { min-height: 44px; }
+}
+
+@media (forced-colors: active) {
+  .tile[data-state='correct'], .key[data-state='correct'] { border: 3px double ButtonText; }
+  .tile[data-state='present'], .key[data-state='present'] { border: 2px dashed ButtonText; }
+  .tile[data-state='absent'], .key[data-state='absent'] { border: 2px solid GrayText; }
+  .stateMark, .keyStateMark { forced-color-adjust: none; color: CanvasText; background: Canvas; }
 }

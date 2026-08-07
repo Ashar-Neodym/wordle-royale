@@ -28,6 +28,7 @@ import {
   type StorageLike,
 } from '../lib/practice-persistence';
 import styles from './practice.module.css';
+import { practiceActionForKey, shouldHandlePracticeKeydown } from './practice-keyboard';
 
 const KEYBOARD_ROWS = [
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
@@ -61,13 +62,6 @@ function newSession(roundSequence: number, previousAnswer?: string): PracticeSes
   return { game: createPracticeState(chooseAnswer(previousAnswer)), roundId: createRoundId(), roundSequence, recorded: false };
 }
 
-function keyAction(key: string): PracticeAction | null {
-  if (key === 'Enter') return { type: 'submit' };
-  if (key === 'Backspace') return { type: 'backspace' };
-  if (/^[a-z]$/i.test(key)) return { type: 'letter', letter: key };
-  return null;
-}
-
 function tileLabel(rowIndex: number, columnIndex: number, letter: string, feedback?: LetterFeedbackState): string {
   const position = `Row ${rowIndex + 1}, column ${columnIndex + 1}`;
   if (!letter) return `${position}, empty`;
@@ -84,6 +78,13 @@ export function PracticeGame(): ReactElement {
   const [copyStatus, setCopyStatus] = useState('');
   const didHydrate = useRef(false);
   const storageRef = useRef<StorageLike | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const startOverRef = useRef<HTMLButtonElement | null>(null);
+  const confirmStartOverRef = useRef<HTMLButtonElement | null>(null);
+  const statsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreStartOverFocus = useRef(false);
+  const focusHeadingAfterStartOver = useRef(false);
+  const restoreStatsFocus = useRef(false);
 
   useEffect(() => {
     if (didHydrate.current) return;
@@ -115,22 +116,51 @@ export function PracticeGame(): ReactElement {
     setSession((current) => current ? { ...current, game: practiceReducer(current.game, action) } : current);
   }, []);
 
+  const game = session?.game ?? null;
+  const terminal = game?.status === 'won' || game?.status === 'lost';
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const action = keyAction(event.key);
+      const targetIsElement = event.target instanceof Element;
+      const targetIsInteractive = targetIsElement && Boolean(event.target.closest('a, button, input, textarea, select, summary, [contenteditable]'));
+      if (!shouldHandlePracticeKeydown({
+        key: event.key,
+        gamePlaying: game?.status === 'playing',
+        targetIsElement,
+        targetIsInteractive,
+        defaultPrevented: event.defaultPrevented,
+        isComposing: event.isComposing,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      })) return;
+      const action = practiceActionForKey(event.key);
       if (!action) return;
       event.preventDefault();
       dispatch(action);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [dispatch]);
+  }, [dispatch, game?.status]);
 
-  const game = session?.game ?? null;
-  const terminal = game?.status === 'won' || game?.status === 'lost';
+  useEffect(() => {
+    if (startOverConfirm === 'confirming') confirmStartOverRef.current?.focus();
+    if (startOverConfirm === 'idle' && restoreStartOverFocus.current) {
+      restoreStartOverFocus.current = false;
+      startOverRef.current?.focus();
+    } else if (startOverConfirm === 'idle' && focusHeadingAfterStartOver.current) {
+      focusHeadingAfterStartOver.current = false;
+      headingRef.current?.focus();
+    }
+  }, [startOverConfirm]);
+
+  useEffect(() => {
+    if (!statsOpen && restoreStatsFocus.current) {
+      restoreStatsFocus.current = false;
+      statsTriggerRef.current?.focus();
+    }
+  }, [statsOpen]);
 
   useEffect(() => {
     if (!hydrated || !session || !terminal || session.recorded) return;
@@ -166,6 +196,7 @@ export function PracticeGame(): ReactElement {
     savePracticeStats(storageRef.current, allocated.stats);
     savePracticeSession(storageRef.current, fresh);
     setCopyStatus('Started a fresh practice round.');
+    focusHeadingAfterStartOver.current = true;
     setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'complete'));
   };
 
@@ -203,12 +234,14 @@ export function PracticeGame(): ReactElement {
       <header className={styles.header}>
         <div>
           <p className={styles.mode}>Practice · guest · not rated</p>
-          <h1 id="practice-heading">Wordle Practice</h1>
+          <h1 id="practice-heading" ref={headingRef} tabIndex={-1}>Wordle Practice</h1>
           <p>A new random word each round—not a daily puzzle.</p>
         </div>
         <div className={styles.headerActions}>
           <span>{game ? `${game.rows.length}/${STANDARD_MAX_GUESSES} guesses` : 'Restoring game…'}</span>
-          <button type="button" className={styles.textButton} aria-expanded={showStats} aria-controls="practice-stats" onClick={() => setStatsOpen((open) => !open)}>Stats</button>
+          {terminal ? <span className={styles.statsLabel}>Stats shown below</span> : (
+            <button ref={statsTriggerRef} type="button" className={styles.textButton} aria-expanded={statsOpen} aria-controls="practice-stats" onClick={() => setStatsOpen((open) => !open)}>Stats</button>
+          )}
           <a href="/play">Play options</a>
         </div>
       </header>
@@ -223,11 +256,14 @@ export function PracticeGame(): ReactElement {
             {startOverConfirm === 'confirming' ? (
               <>
                 <span role="status">Start a fresh round? Your current guesses will be cleared.</span>
-                <button type="button" onClick={confirmStartOver}>Confirm start over</button>
-                <button type="button" onClick={() => setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'cancel'))}>Cancel</button>
+                <button ref={confirmStartOverRef} type="button" onClick={confirmStartOver}>Confirm start over</button>
+                <button type="button" onClick={() => {
+                  restoreStartOverFocus.current = true;
+                  setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'cancel'));
+                }}>Cancel</button>
               </>
             ) : (
-              <button type="button" onClick={() => setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'request'))}>Start over</button>
+              <button ref={startOverRef} type="button" onClick={() => setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'request'))}>Start over</button>
             )}
           </div>
         ) : null}
@@ -244,7 +280,8 @@ export function PracticeGame(): ReactElement {
                   const feedback = submitted?.feedback[columnIndex]?.state;
                   return (
                     <div className={styles.tile} data-filled={Boolean(letter)} data-state={feedback ?? 'empty'} role="gridcell" aria-label={tileLabel(rowIndex, columnIndex, letter, feedback)} key={columnIndex}>
-                      {letter}
+                      <span>{letter}</span>
+                      {feedback ? <span className={styles.stateMark} aria-hidden="true">{feedback === 'correct' ? '✓' : feedback === 'present' ? '◇' : '—'}</span> : null}
                     </div>
                   );
                 })}
@@ -269,7 +306,10 @@ export function PracticeGame(): ReactElement {
           <section className={styles.stats} id="practice-stats" aria-labelledby="practice-stats-heading">
             <div className={styles.statsHeading}>
               <h2 id="practice-stats-heading">Practice stats</h2>
-              {!terminal ? <button type="button" className={styles.closeStats} onClick={() => setStatsOpen(false)} aria-label="Hide practice stats">×</button> : null}
+              {!terminal ? <button type="button" className={styles.closeStats} onClick={() => {
+                restoreStatsFocus.current = true;
+                setStatsOpen(false);
+              }} aria-label="Hide practice stats">×</button> : null}
             </div>
             <div className={styles.statGrid} aria-label="Practice statistics">
               <div><strong>{stats.gamesPlayed}</strong><span>Played</span></div>
@@ -297,10 +337,11 @@ export function PracticeGame(): ReactElement {
                 const label = key === 'Backspace' ? 'Delete letter' : key === 'Enter' ? 'Submit guess' : `Letter ${key.toUpperCase()}`;
                 return (
                   <button className={styles.key} data-state={state ?? 'unused'} data-wide={key.length > 1} disabled={!game || terminal} aria-label={label} type="button" onClick={() => {
-                    const action = keyAction(key);
+                    const action = practiceActionForKey(key);
                     if (action) dispatch(action);
                   }} key={key}>
-                    {key === 'Backspace' ? '⌫' : key}
+                    <span>{key === 'Backspace' ? '⌫' : key}</span>
+                    {state ? <span className={styles.keyStateMark} aria-hidden="true">{state === 'correct' ? '✓' : state === 'present' ? '◇' : '—'}</span> : null}
                   </button>
                 );
               })}
