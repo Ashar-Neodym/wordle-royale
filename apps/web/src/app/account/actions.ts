@@ -9,6 +9,7 @@ import {
   type DurableAuthOperation,
   type DurableAuthResult,
 } from '../../lib/durable-auth-bff';
+import { ACCOUNT_ACTIONS_DISABLED_PATH, runOperationalServerAction } from '../../lib/server-action-presentation';
 
 function text(formData: FormData, key: string, trim = true): string {
   const value = formData.get(key);
@@ -45,21 +46,21 @@ async function run(operation: Exclude<DurableAuthOperation, 'me'>, body: Record<
 }
 
 export async function registerAccountAction(formData: FormData): Promise<never> {
-  return run('register', {
+  return runOperationalServerAction(() => run('register', {
     email: text(formData, 'email').toLowerCase(),
     password: text(formData, 'password', false),
     handle: text(formData, 'handle').toLowerCase(),
     displayName: text(formData, 'displayName'),
-  });
+  }), () => redirect(ACCOUNT_ACTIONS_DISABLED_PATH));
 }
 
 export async function loginAccountAction(formData: FormData): Promise<never> {
-  return run('login', {
+  return runOperationalServerAction(() => run('login', {
     email: text(formData, 'email').toLowerCase(),
     password: text(formData, 'password', false),
-  });
+  }), () => redirect(ACCOUNT_ACTIONS_DISABLED_PATH));
 }
 
 export async function logoutAccountAction(): Promise<never> {
-  return run('logout', {});
+  return runOperationalServerAction(() => run('logout', {}), () => redirect(ACCOUNT_ACTIONS_DISABLED_PATH));
 }
