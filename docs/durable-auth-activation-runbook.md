@@ -1,5 +1,7 @@
 # Durable authentication activation runbook
 
+> Current state: the Practice MVP runs intentionally as a Vercel-only, browser-local `production`/`disabled` deployment. Railway, the API, and PostgreSQL are not required for that MVP. The ranked and durable-account implementation described below is preserved dormant; use this runbook only for a separately approved future activation.
+
 Status: local operator contract only. This document grants **no hosted authorization**. Preview remains unchanged and no command below may be run against hosted resources without the separately named gate.
 
 ## Invariants

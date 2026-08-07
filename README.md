@@ -1,6 +1,6 @@
 # Wordle Royale
 
-Wordle Royale is a pnpm monorepo with a public, account-free Practice game at `/practice`. Practice runs entirely in the browser, persists the current round and stats locally when storage is available, and provides spoiler-free result sharing. Production-disabled deployments keep Practice available while ranked play and durable accounts remain separately gated for explicit production activation.
+Wordle Royale is a pnpm monorepo with a public, account-free Practice game at `/practice`. Practice runs entirely in the browser, persists the current round and stats locally when storage is available, and provides spoiler-free result sharing. The current `production`/`disabled` MVP is intentionally Vercel-only and browser-local: it does not require Railway, an API, or PostgreSQL. Ranked play, server reads, durable accounts, and their data paths remain preserved but dormant for an explicit future activation.
 
 ## Workspace layout
 

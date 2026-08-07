@@ -4,6 +4,8 @@ import { MatchHistoryRows, ModeRatingCards, ProfileSummaryCard } from '../../../
 import { PageFrame, PageHeader } from '../../../components/PageFrame';
 import styles from '../../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../../lib/auth-presentation';
+import { DisabledRoute } from '../../../components/DisabledRoute';
+import { resolveRestrictedRoute } from '../../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,11 +14,11 @@ type PublicProfilePageProps = {
 };
 
 export default async function PublicProfilePage({ params }: PublicProfilePageProps): Promise<ReactElement> {
-  const { handle } = await params;
-  const profileResult = await getPublicProfileSummary(handle);
-  const profile = profileResult.status === 'connected' ? profileResult.data : null;
-  const presentation = requireAuthPresentationConfiguration();
-  return (
+  const route = await resolveRestrictedRoute('publicProfile', async (presentation) => {
+    const { handle } = await params;
+    const profileResult = await getPublicProfileSummary(handle);
+    const profile = profileResult.status === 'connected' ? profileResult.data : null;
+    return (
     <PageFrame>
       <PageHeader eyebrow="Profile" title={profile ? profile.displayName : `@${handle}`}>
         <p>{profile ? `@${profile.handle} · ${profile.rating.rating} rating` : 'Public profile summary is unavailable.'}</p>
@@ -46,5 +48,7 @@ export default async function PublicProfilePage({ params }: PublicProfilePagePro
         <MatchHistoryRows matches={profile?.recentMatches ?? []} emptyLabel={profile ? 'No public recent matches yet.' : 'Profile unavailable, so match rows are hidden rather than faked.'} />
       </section>
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="publicProfile" /> : route.value;
 }

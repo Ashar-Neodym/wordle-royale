@@ -5,6 +5,9 @@ import { TokenBadge } from '../../../components/StatusPanels';
 import { rank, score } from '../../../lib/tokens';
 import styles from '../../../components/web-shell.module.css';
 import type { CurrentRankedMatchStateResponseData } from '@wordle-royale/contracts';
+import { DisabledRoute } from '../../../components/DisabledRoute';
+import { requireAuthPresentationConfiguration } from '../../../lib/auth-presentation';
+import { resolveRestrictedRoute } from '../../../lib/restricted-route-presentation';
 
 type MatchDetailPageProps = {
   params: Promise<{ matchId: string }> | { matchId: string };
@@ -20,18 +23,18 @@ function absoluteShareUrl(path: string): string {
 }
 
 export default async function MatchDetailPage({ params }: MatchDetailPageProps): Promise<ReactElement> {
-  const { matchId } = await params;
-  const [result, state] = await Promise.all([getRankedMatchResult(matchId), getRankedMatchState(matchId)]);
-  const liveResult = result.status === 'connected' ? result.data : null;
-  const liveState = state.status === 'connected' ? state.data : null;
-  const status = liveResult ? 'completed' : liveState ? liveState.state : 'unavailable';
-  const speedState = liveState && 'roundId' in liveState ? liveState : null;
-  const standardState = liveState && !speedState ? liveState as CurrentRankedMatchStateResponseData : null;
-  const deltas = new Map(liveResult?.ratingEvent?.participants.map((participant) => [participant.userId, participant]) ?? []);
-  const resultActions = liveResult?.resultActions ?? null;
-  const shareSummary = resultActions ? `${resultActions.share.text} ${absoluteShareUrl(resultActions.share.path)}` : '';
-
-  return (
+  const route = await resolveRestrictedRoute('match', async () => {
+    const { matchId } = await params;
+    const [result, state] = await Promise.all([getRankedMatchResult(matchId), getRankedMatchState(matchId)]);
+    const liveResult = result.status === 'connected' ? result.data : null;
+    const liveState = state.status === 'connected' ? state.data : null;
+    const status = liveResult ? 'completed' : liveState ? liveState.state : 'unavailable';
+    const speedState = liveState && 'roundId' in liveState ? liveState : null;
+    const standardState = liveState && !speedState ? liveState as CurrentRankedMatchStateResponseData : null;
+    const deltas = new Map(liveResult?.ratingEvent?.participants.map((participant) => [participant.userId, participant]) ?? []);
+    const resultActions = liveResult?.resultActions ?? null;
+    const shareSummary = resultActions ? `${resultActions.share.text} ${absoluteShareUrl(resultActions.share.path)}` : '';
+    return (
     <PageFrame>
       <PageHeader eyebrow="Match" title={`Match ${matchId.slice(0, 8)}`}>
         <p>Spoiler-safe match detail. Completed results show rating movement; active state uses the server snapshot without exposing answer authority.</p>
@@ -119,5 +122,7 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
         ) : null}
       </section>
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="match" /> : route.value;
 }

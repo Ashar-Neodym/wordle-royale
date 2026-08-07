@@ -29,6 +29,8 @@ import {
 } from '../lib/practice-persistence';
 import styles from './practice.module.css';
 import {
+  advancePracticeAnnouncement,
+  EMPTY_PRACTICE_ANNOUNCEMENT,
   FRESH_ROUND_ANNOUNCEMENT,
   MEMORY_ONLY_WARNING,
   practiceAnnouncementForTransition,
@@ -84,7 +86,7 @@ export function PracticeGame(): ReactElement {
   const [startOverConfirm, setStartOverConfirm] = useState<StartOverConfirmation>('idle');
   const [copyStatus, setCopyStatus] = useState('');
   const [manualCopyText, setManualCopyText] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState('');
+  const [announcement, setAnnouncement] = useState(EMPTY_PRACTICE_ANNOUNCEMENT);
   const [memoryOnly, setMemoryOnly] = useState(false);
   const didHydrate = useRef(false);
   const storageRef = useRef<StorageLike | null>(null);
@@ -107,6 +109,10 @@ export function PracticeGame(): ReactElement {
     return saved;
   }, []);
 
+  const announce = useCallback((message: string): void => {
+    setAnnouncement((current) => advancePracticeAnnouncement(current, message));
+  }, []);
+
   useEffect(() => {
     if (didHydrate.current) return;
     didHydrate.current = true;
@@ -118,7 +124,7 @@ export function PracticeGame(): ReactElement {
       setStats(restored.stats);
       setSession(restored.session);
       if (restored.session.game.status === 'playing') {
-        setAnnouncement(restoredRoundAnnouncement(restored.session.game.rows.length, restored.session.game.currentGuess.length));
+        announce(restoredRoundAnnouncement(restored.session.game.rows.length, restored.session.game.currentGuess.length));
       }
     } else {
       const allocated = allocatePracticeRound(restored.stats);
@@ -131,7 +137,7 @@ export function PracticeGame(): ReactElement {
       }
     }
     setHydrated(true);
-  }, [noteStorageFailure]);
+  }, [announce, noteStorageFailure]);
 
   useEffect(() => {
     if (hydrated && session) noteStorageFailure(savePracticeSession(storageRef.current, session));
@@ -141,9 +147,9 @@ export function PracticeGame(): ReactElement {
     if (!session) return;
     const game = practiceReducer(session.game, action);
     const nextAnnouncement = practiceAnnouncementForTransition(session.game, game, action);
-    if (nextAnnouncement !== null) setAnnouncement(nextAnnouncement);
+    if (nextAnnouncement !== null) announce(nextAnnouncement);
     setSession({ ...session, game });
-  }, [session]);
+  }, [announce, session]);
 
   const game = session?.game ?? null;
   const terminal = game?.status === 'won' || game?.status === 'lost';
@@ -235,7 +241,7 @@ export function PracticeGame(): ReactElement {
     copyAttemptRef.current += 1;
     setCopyStatus('');
     setManualCopyText(null);
-    setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
+    announce(FRESH_ROUND_ANNOUNCEMENT);
     setResetConfirm(false);
     setStartOverConfirm('idle');
   };
@@ -252,7 +258,7 @@ export function PracticeGame(): ReactElement {
     copyAttemptRef.current += 1;
     setCopyStatus('');
     setManualCopyText(null);
-    setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
+    announce(FRESH_ROUND_ANNOUNCEMENT);
     setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'complete'));
   };
 
@@ -305,7 +311,9 @@ export function PracticeGame(): ReactElement {
       </header>
 
       <div className={styles.playArea} aria-busy={!game}>
-        <p className={styles.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{announcement}</p>
+        <p className={styles.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">
+          <span key={announcement.revision}>{announcement.message}</span>
+        </p>
         {memoryOnly ? <div className={styles.storageWarning} role="status" aria-live="polite">{MEMORY_ONLY_WARNING}</div> : null}
         <div className={styles.message}>
           {game?.message ?? 'Restoring your practice round…'}

@@ -3,6 +3,20 @@ import type { PracticeAction, PracticeRow, PracticeState } from '../lib/practice
 
 export type PracticeKeyState = LetterFeedbackState | 'unused';
 
+export interface PracticeAnnouncement {
+  message: string;
+  revision: number;
+}
+
+export const EMPTY_PRACTICE_ANNOUNCEMENT: PracticeAnnouncement = { message: '', revision: 0 };
+
+export function advancePracticeAnnouncement(
+  previous: PracticeAnnouncement,
+  message: string,
+): PracticeAnnouncement {
+  return { message, revision: previous.revision + 1 };
+}
+
 export function practiceKeyLabel(key: string, state: PracticeKeyState = 'unused'): string {
   if (key === 'Backspace') return 'Delete letter';
   if (key === 'Enter') return 'Submit guess';
@@ -38,7 +52,7 @@ export function practiceAnnouncementForTransition(
     const row = next.rows.at(-1);
     return row ? acceptedGuessAnnouncement(row, next) : null;
   }
-  if (action.type === 'submit' && next.message !== previous.message) return next.message;
+  if (action.type === 'submit' && previous.status === 'playing') return next.message;
   return null;
 }
 

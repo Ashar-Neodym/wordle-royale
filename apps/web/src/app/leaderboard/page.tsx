@@ -4,19 +4,23 @@ import { ProfileLeaderboard } from '../../components/ReportAndProfile';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import { resolveSearchParams, searchValue, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
+import { DisabledRoute } from '../../components/DisabledRoute';
+import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
 type Props = { searchParams?: SearchParamsInput };
 
 export default async function LeaderboardPage({ searchParams }: Props): Promise<ReactElement> {
-  const params = await resolveSearchParams(searchParams);
-  const requested = searchValue(params, 'mode');
-  const mode: LeaderboardPayload['mode'] = requested === 'speed_1v1' ? 'speed_1v1' : 'standard_1v1';
-  const [api, leaderboard] = await Promise.all([getWebApiSnapshot(), getLeaderboard(20, mode)]);
-  const speedLive = api.authority.status === 'enabled';
-  const speedUnavailable = api.authority.status === 'unavailable';
-  return (
+  const route = await resolveRestrictedRoute('leaderboard', async () => {
+    const params = await resolveSearchParams(searchParams);
+    const requested = searchValue(params, 'mode');
+    const mode: LeaderboardPayload['mode'] = requested === 'speed_1v1' ? 'speed_1v1' : 'standard_1v1';
+    const [api, leaderboard] = await Promise.all([getWebApiSnapshot(), getLeaderboard(20, mode)]);
+    const speedLive = api.authority.status === 'enabled';
+    const speedUnavailable = api.authority.status === 'unavailable';
+    return (
     <PageFrame>
       <PageHeader eyebrow="Ratings" title={`${mode === 'speed_1v1' ? 'Speed' : 'Standard'} leaderboard`}>
         <p>Mode-isolated rows and rating identities come from the live server. Fixture rows stay explicitly labeled and appear only after a connected empty read.</p>
@@ -36,5 +40,7 @@ export default async function LeaderboardPage({ searchParams }: Props): Promise<
         </article>
       </section>
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="leaderboard" /> : route.value;
 }

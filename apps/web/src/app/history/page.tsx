@@ -5,15 +5,17 @@ import { startPreviewDemoSessionAction } from '../actions';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import styles from '../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
+import { DisabledRoute } from '../../components/DisabledRoute';
+import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 
 export const dynamic = 'force-dynamic';
 
 export default async function HistoryPage(): Promise<ReactElement> {
-  const history = await getMatchHistory(20);
-  const matches = history.status === 'connected' ? history.data?.items ?? [] : [];
-  const authLimited = isAuthLimited(history.error);
-  const presentation = requireAuthPresentationConfiguration();
-  return (
+  const route = await resolveRestrictedRoute('history', async (presentation) => {
+    const history = await getMatchHistory(20);
+    const matches = history.status === 'connected' ? history.data?.items ?? [] : [];
+    const authLimited = isAuthLimited(history.error);
+    return (
     <PageFrame>
       <PageHeader eyebrow="History" title="Match history">
         <p>{authLimited ? presentation.mode === 'preview_demo' ? 'Your history requires a real session in preview. Public match detail links remain spoiler-safe when shared.' : presentation.mode === 'durable' ? 'Your history requires a durable account session. Public match detail links remain spoiler-safe when shared.' : 'Current-player history is unavailable because accounts are disabled. Public match detail links remain spoiler-safe when shared.' : 'Recent ranked matches for the local player. Active answers, hashes, salts, and hidden guesses stay out of this route.'}</p>
@@ -30,5 +32,7 @@ export default async function HistoryPage(): Promise<ReactElement> {
         {history.status === 'connected' && history.data?.pagination.nextCursor ? <p className={styles.muted}>More matches are available after cursor {history.data.pagination.nextCursor}.</p> : null}
       </section>
     </PageFrame>
-  );
+    );
+  }, requireAuthPresentationConfiguration);
+  return route.kind === 'disabled' ? <DisabledRoute routeId="history" /> : route.value;
 }
