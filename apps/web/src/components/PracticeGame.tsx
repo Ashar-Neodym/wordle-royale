@@ -29,9 +29,9 @@ import {
 } from '../lib/practice-persistence';
 import styles from './practice.module.css';
 import {
-  acceptedGuessAnnouncement,
   FRESH_ROUND_ANNOUNCEMENT,
   MEMORY_ONLY_WARNING,
+  practiceAnnouncementForTransition,
   practiceKeyLabel,
   restoredRoundAnnouncement,
 } from './practice-accessibility';
@@ -137,12 +137,8 @@ export function PracticeGame(): ReactElement {
   const dispatch = useCallback((action: PracticeAction) => {
     if (!session) return;
     const game = practiceReducer(session.game, action);
-    if (game.rows.length > session.game.rows.length) {
-      const row = game.rows.at(-1);
-      if (row) setAnnouncement(acceptedGuessAnnouncement(row, STANDARD_MAX_GUESSES - game.rows.length));
-    } else if (action.type === 'submit' && game.message !== session.game.message) {
-      setAnnouncement(game.message);
-    }
+    const nextAnnouncement = practiceAnnouncementForTransition(session.game, game, action);
+    if (nextAnnouncement !== null) setAnnouncement(nextAnnouncement);
     setSession({ ...session, game });
   }, [session]);
 

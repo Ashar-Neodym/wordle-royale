@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { scoreGuess } from '@wordle-royale/game-engine';
 import {
   acceptedGuessAnnouncement,
   FRESH_ROUND_ANNOUNCEMENT,
   MEMORY_ONLY_WARNING,
+  practiceAnnouncementForTransition,
   practiceKeyLabel,
   restoredRoundAnnouncement,
 } from './practice-accessibility.ts';
 import { wordTileLabel } from './ranked-accessibility.ts';
+import { createPracticeState, practiceReducer, type PracticeState } from '../lib/practice-game.ts';
 
 const practiceSource = readFileSync(new URL('./PracticeGame.tsx', import.meta.url), 'utf8');
 const practiceStyles = readFileSync(new URL('./practice.module.css', import.meta.url), 'utf8');
@@ -38,15 +39,64 @@ function cssColor(pattern: RegExp): string {
   return value;
 }
 
+function enterGuess(state: PracticeState, guess: string): { previous: PracticeState; next: PracticeState } {
+  let previous = state;
+  for (const letter of guess) previous = practiceReducer(previous, { type: 'letter', letter });
+  return { previous, next: practiceReducer(previous, { type: 'submit' }) };
+}
+
 describe('Practice accessibility behavior', () => {
-  it('formats one ordered accepted-guess announcement with remaining guesses', () => {
-    const feedback = scoreGuess('crane', 'slate');
+  it('composes one ordered nonterminal accepted-guess announcement from the next game state', () => {
+    const { previous, next } = enterGuess(createPracticeState('crane'), 'slate');
     assert.equal(
-      acceptedGuessAnnouncement({ guess: 'slate', feedback }, 5),
+      acceptedGuessAnnouncement(next.rows[0]!, next),
       'Submitted SLATE. S absent, L absent, A correct, T absent, E correct. 5 guesses remaining.',
     );
-    assert.match(practiceSource, /game\.rows\.length > session\.game\.rows\.length[\s\S]*acceptedGuessAnnouncement/);
+    assert.equal(
+      practiceAnnouncementForTransition(previous, next, { type: 'submit' }),
+      'Submitted SLATE. S absent, L absent, A correct, T absent, E correct. 5 guesses remaining.',
+    );
+    assert.match(practiceSource, /practiceAnnouncementForTransition\(session\.game, game, action\)/);
     assert.doesNotMatch(practiceSource, /action\.type === 'letter'[\s\S]{0,100}setAnnouncement/);
+  });
+
+  it('announces a first-guess win atomically without a remaining count or extra answer disclosure', () => {
+    const { previous, next } = enterGuess(createPracticeState('crane'), 'crane');
+    const announcement = practiceAnnouncementForTransition(previous, next, { type: 'submit' });
+    assert.equal(
+      announcement,
+      'Submitted CRANE. C correct, R correct, A correct, N correct, E correct. Solved! You win in 1 attempt.',
+    );
+    assert.doesNotMatch(announcement!, /remaining|answer was/i);
+  });
+
+  it('announces a later win with the post-submit attempt count', () => {
+    const first = enterGuess(createPracticeState('crane'), 'slate').next;
+    const { previous, next } = enterGuess(first, 'crane');
+    const announcement = practiceAnnouncementForTransition(previous, next, { type: 'submit' });
+    assert.equal(
+      announcement,
+      'Submitted CRANE. C correct, R correct, A correct, N correct, E correct. Solved! You win in 2 attempts.',
+    );
+    assert.doesNotMatch(announcement!, /remaining|answer was/i);
+  });
+
+  it('announces the sixth-guess loss and discloses the answer only in that terminal transition', () => {
+    let state = createPracticeState('crane');
+    for (let attempt = 1; attempt < 6; attempt += 1) {
+      const transition = enterGuess(state, 'slate');
+      state = transition.next;
+      assert.equal(state.status, 'playing');
+      assert.doesNotMatch(practiceAnnouncementForTransition(transition.previous, state, { type: 'submit' })!, /answer/i);
+    }
+    const { previous, next } = enterGuess(state, 'slate');
+    const announcement = practiceAnnouncementForTransition(previous, next, { type: 'submit' });
+    assert.equal(next.status, 'lost');
+    assert.equal(
+      announcement,
+      'Submitted SLATE. S absent, L absent, A correct, T absent, E correct. Round ended. You lost after 6 attempts. The answer was CRANE.',
+    );
+    assert.doesNotMatch(announcement!, /remaining/);
   });
 
   it('labels keys with state and preserves precedence-driven state composition', () => {
