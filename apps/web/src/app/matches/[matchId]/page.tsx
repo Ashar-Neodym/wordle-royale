@@ -72,13 +72,15 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
             <div>
               <p className={styles.eyebrow}>Next</p>
               <h2 id="result-actions-heading">What now?</h2>
-              <p className={styles.muted}>Spoiler-safe result actions from the server. Rematch is shown honestly as disabled until the backend supports creating same-settings rematch lobbies.</p>
+              <p className={styles.muted}>Spoiler-safe result actions from the server. Unavailable rematches are shown without an interactive control.</p>
             </div>
             <div className={styles.actionCardGrid}>
               <article className={styles.actionCard}>
                 <h3>{resultActions.rematch.label}</h3>
                 <p>{resultActions.rematch.available ? 'Rematch is ready.' : `Not available yet${resultActions.rematch.reason ? `: ${resultActions.rematch.reason.replace(/_/g, ' ')}` : ''}.`}</p>
-                <a className={resultActions.rematch.available ? styles.primaryButton : styles.secondaryButton} aria-disabled={!resultActions.rematch.available} href={resultActions.links.nextRankedHref}>Play again</a>
+                {resultActions.rematch.available
+                  ? <a className={styles.primaryButton} href={resultActions.links.nextRankedHref}>Play again</a>
+                  : <span className={styles.disabledMode}>Play again unavailable</span>}
               </article>
               <article className={styles.actionCard}>
                 <h3>Share result</h3>

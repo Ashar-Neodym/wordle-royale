@@ -33,6 +33,6 @@ pnpm --filter @wordle-royale/api dev
 pnpm --filter @wordle-royale/web dev
 ```
 
-Current API-backed data is intentionally limited to health/readiness, stub current profile, and lobby list display. Lobby create/join helpers exist in `src/lib/api-client.ts`, but the page does not perform real gameplay/auth flows.
+Practice is a complete browser-local game with reload persistence when browser storage is available and a truthful memory-only fallback otherwise. Ranked screens use the local API for the currently enabled auth, lobby, and gameplay flows.
 
 The shell imports design tokens from `@wordle-royale/design-tokens`, fallback mock data from `@wordle-royale/fixtures`, and type contracts from `@wordle-royale/contracts` where available.

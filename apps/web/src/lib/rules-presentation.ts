@@ -39,7 +39,7 @@ const PRACTICE_RULES: RulesPresentation = {
     },
     {
       title: 'Play locally',
-      body: 'Use your physical keyboard or the on-screen keyboard. Your current round and local stats stay in this browser across reloads, and a finished result can be copied without revealing the word.',
+      body: 'Use your physical keyboard or the on-screen keyboard. When browser storage is available, your current round and local stats stay in this browser across reloads. A finished result can be copied without revealing the word.',
     },
   ],
   actions: [

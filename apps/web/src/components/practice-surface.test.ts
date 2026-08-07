@@ -34,10 +34,11 @@ describe('practice surface boundaries', () => {
     assert.match(gameSource, /Copy result/);
     assert.match(gameSource, /Win streak/);
     assert.match(gameSource, /Reset all practice stats/);
-    assert.match(gameSource, /Progress and stats stay in this browser\. Practice gameplay sends no account or API requests\./);
+    assert.match(gameSource, /Progress and stats stay in this browser across reloads\./);
+    assert.match(gameSource, /Progress and stats are memory-only for this visit\./);
     assert.match(gameSource, /random word each round—not a daily puzzle/);
     assert.match(gameSource, /game\?\.status === 'playing'[\s\S]*Start over[\s\S]*Confirm start over[\s\S]*Cancel/);
-    assert.match(gameSource, /Started a fresh practice round\./);
+    assert.match(gameSource, /FRESH_ROUND_ANNOUNCEMENT/);
     assert.doesNotMatch(gameSource.match(/game\?\.status === 'playing'[\s\S]*?<div className=\{styles\.board\}/)?.[0] ?? '', /game\.answer\.toUpperCase/);
     assert.doesNotMatch(practicePageSource, /PRACTICE_ANSWERS|answer/i);
   });

@@ -72,14 +72,14 @@ function LiveGameplayPanel({
           <div>
             <h3>Match {snapshot.matchId.slice(0, 8)}</h3>
             <p className={styles.muted}>Round {round.roundNumber} · {formatState(round.state)} · {round.wordLength} letters · max {round.maxGuesses} guesses</p>
-            <div className={styles.wordGrid} role="grid" aria-label="Live ranked word grid with server feedback">
-              {(myState?.guesses ?? []).map((guess) => (
-                <div className={styles.wordRow} role="row" key={`${guess.guess}-${guess.guessNumber}`}>
-                  {guess.feedback.map((feedbackTile, tileIndex) => <WordTile key={`${guess.guess}-${tileIndex}`} letter={feedbackTile.letter} state={feedbackTile.state} />)}
+            <div className={styles.wordGrid} role="grid" aria-label="Live ranked word grid with server feedback" aria-rowcount={round.maxGuesses} aria-colcount={round.wordLength}>
+              {(myState?.guesses ?? []).map((guess, rowIndex) => (
+                <div className={styles.wordRow} role="row" aria-rowindex={rowIndex + 1} key={`${guess.guess}-${guess.guessNumber}`}>
+                  {guess.feedback.map((feedbackTile, tileIndex) => <WordTile key={`${guess.guess}-${tileIndex}`} letter={feedbackTile.letter} state={feedbackTile.state} row={rowIndex + 1} column={tileIndex + 1} />)}
                 </div>
               ))}
               {Array.from({ length: Math.max(0, round.maxGuesses - (myState?.guesses.length ?? 0)) }, (_, index) => (
-                <div className={styles.wordRow} role="row" key={`live-empty-${index}`}><EmptyTileRow count={round.wordLength} /></div>
+                <div className={styles.wordRow} role="row" aria-rowindex={(myState?.guesses.length ?? 0) + index + 1} key={`live-empty-${index}`}><EmptyTileRow count={round.wordLength} row={(myState?.guesses.length ?? 0) + index + 1} /></div>
               ))}
             </div>
             <form action={submitRankedGuessAction} className={styles.guessForm}>
@@ -202,16 +202,16 @@ export function GameplayScreen({ matchState, matchResult, actionState, submitRan
               <TokenBadge label={connectionToken.label} bg={connectionToken.bg} border={connectionToken.border} text={connectionToken.text} />
               <span>Round {gameplay.round.roundNumber} · {formatState(gameplay.state)}</span>
             </div>
-            <div className={styles.wordGrid} role="grid" aria-label="Fixture word grid with color and non-color indicators">
+            <div className={styles.wordGrid} role="grid" aria-label="Fixture word grid with color and non-color indicators" aria-rowcount={gameplay.maxGuesses} aria-colcount={gameplay.wordLength}>
               {localPlayer.guesses.map((guess, rowIndex) => (
-                <div className={styles.wordRow} role="row" key={`${guess.guess}-${rowIndex}`}>
+                <div className={styles.wordRow} role="row" aria-rowindex={rowIndex + 1} key={`${guess.guess}-${rowIndex}`}>
                   {guess.feedback.map((state, tileIndex) => (
-                    <WordTile key={`${guess.guess}-${tileIndex}`} letter={guess.guess[tileIndex] ?? ''} state={state} />
+                    <WordTile key={`${guess.guess}-${tileIndex}`} letter={guess.guess[tileIndex] ?? ''} state={state} row={rowIndex + 1} column={tileIndex + 1} />
                   ))}
                 </div>
               ))}
               {Array.from({ length: Math.max(0, gameplay.maxGuesses - localPlayer.guesses.length) }, (_, index) => (
-                <div className={styles.wordRow} role="row" key={`empty-${index}`}><EmptyTileRow count={gameplay.wordLength} /></div>
+                <div className={styles.wordRow} role="row" aria-rowindex={localPlayer.guesses.length + index + 1} key={`empty-${index}`}><EmptyTileRow count={gameplay.wordLength} row={localPlayer.guesses.length + index + 1} /></div>
               ))}
             </div>
           </article>

@@ -28,6 +28,13 @@ import {
   type StorageLike,
 } from '../lib/practice-persistence';
 import styles from './practice.module.css';
+import {
+  acceptedGuessAnnouncement,
+  FRESH_ROUND_ANNOUNCEMENT,
+  MEMORY_ONLY_WARNING,
+  practiceKeyLabel,
+  restoredRoundAnnouncement,
+} from './practice-accessibility';
 import { practiceActionForKey, shouldHandlePracticeKeydown } from './practice-keyboard';
 
 const KEYBOARD_ROWS = [
@@ -76,45 +83,68 @@ export function PracticeGame(): ReactElement {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [startOverConfirm, setStartOverConfirm] = useState<StartOverConfirmation>('idle');
   const [copyStatus, setCopyStatus] = useState('');
+  const [announcement, setAnnouncement] = useState('');
+  const [memoryOnly, setMemoryOnly] = useState(false);
   const didHydrate = useRef(false);
   const storageRef = useRef<StorageLike | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const startOverRef = useRef<HTMLButtonElement | null>(null);
   const confirmStartOverRef = useRef<HTMLButtonElement | null>(null);
   const statsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statsHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const resetStatsRef = useRef<HTMLButtonElement | null>(null);
+  const confirmResetRef = useRef<HTMLButtonElement | null>(null);
   const restoreStartOverFocus = useRef(false);
   const focusHeadingAfterStartOver = useRef(false);
   const restoreStatsFocus = useRef(false);
+  const restoreResetFocus = useRef(false);
+
+  const noteStorageFailure = useCallback((saved: boolean): boolean => {
+    if (!saved) setMemoryOnly(true);
+    return saved;
+  }, []);
 
   useEffect(() => {
     if (didHydrate.current) return;
     didHydrate.current = true;
     const storage = getBrowserStorage(window);
     storageRef.current = storage;
+    if (!storage) setMemoryOnly(true);
     const restored = hydratePracticeContinuity(storage);
     if (restored.session) {
       setStats(restored.stats);
       setSession(restored.session);
+      if (restored.session.game.status === 'playing') {
+        setAnnouncement(restoredRoundAnnouncement(restored.session.game.rows.length, restored.session.game.currentGuess.length));
+      }
     } else {
       const allocated = allocatePracticeRound(restored.stats);
       if (allocated) {
         const fresh = newSession(allocated.roundSequence);
         setStats(allocated.stats);
         setSession(fresh);
-        savePracticeStats(storage, allocated.stats);
-        savePracticeSession(storage, fresh);
+        noteStorageFailure(savePracticeStats(storage, allocated.stats));
+        noteStorageFailure(savePracticeSession(storage, fresh));
       }
     }
     setHydrated(true);
-  }, []);
+  }, [noteStorageFailure]);
 
   useEffect(() => {
-    if (hydrated && session) savePracticeSession(storageRef.current, session);
-  }, [hydrated, session]);
+    if (hydrated && session) noteStorageFailure(savePracticeSession(storageRef.current, session));
+  }, [hydrated, noteStorageFailure, session]);
 
   const dispatch = useCallback((action: PracticeAction) => {
-    setSession((current) => current ? { ...current, game: practiceReducer(current.game, action) } : current);
-  }, []);
+    if (!session) return;
+    const game = practiceReducer(session.game, action);
+    if (game.rows.length > session.game.rows.length) {
+      const row = game.rows.at(-1);
+      if (row) setAnnouncement(acceptedGuessAnnouncement(row, STANDARD_MAX_GUESSES - game.rows.length));
+    } else if (action.type === 'submit' && game.message !== session.game.message) {
+      setAnnouncement(game.message);
+    }
+    setSession({ ...session, game });
+  }, [session]);
 
   const game = session?.game ?? null;
   const terminal = game?.status === 'won' || game?.status === 'lost';
@@ -156,6 +186,14 @@ export function PracticeGame(): ReactElement {
   }, [startOverConfirm]);
 
   useEffect(() => {
+    if (focusHeadingAfterStartOver.current) {
+      focusHeadingAfterStartOver.current = false;
+      headingRef.current?.focus();
+    }
+  }, [session?.roundId]);
+
+  useEffect(() => {
+    if (statsOpen) statsHeadingRef.current?.focus();
     if (!statsOpen && restoreStatsFocus.current) {
       restoreStatsFocus.current = false;
       statsTriggerRef.current?.focus();
@@ -163,12 +201,20 @@ export function PracticeGame(): ReactElement {
   }, [statsOpen]);
 
   useEffect(() => {
+    if (resetConfirm) confirmResetRef.current?.focus();
+    if (!resetConfirm && restoreResetFocus.current) {
+      restoreResetFocus.current = false;
+      resetStatsRef.current?.focus();
+    }
+  }, [resetConfirm]);
+
+  useEffect(() => {
     if (!hydrated || !session || !terminal || session.recorded) return;
     const nextStats = recordPracticeResult(stats, session.roundId, session.roundSequence, session.game.status as 'won' | 'lost', session.game.rows.length);
-    if (nextStats !== stats) savePracticeStats(storageRef.current, nextStats);
+    if (nextStats !== stats) noteStorageFailure(savePracticeStats(storageRef.current, nextStats));
     if (nextStats !== stats) setStats(nextStats);
     setSession((current) => current?.roundId === session.roundId ? { ...current, recorded: true } : current);
-  }, [hydrated, session, stats, terminal]);
+  }, [hydrated, noteStorageFailure, session, stats, terminal]);
 
   const keyStates = useMemo(() => aggregateKeyStates(game?.rows ?? []), [game?.rows]);
   const shareText = useMemo(() => game ? formatPracticeShare(game) : null, [game]);
@@ -178,11 +224,13 @@ export function PracticeGame(): ReactElement {
     const allocated = allocatePracticeRound(stats);
     if (!allocated) return;
     const fresh = newSession(allocated.roundSequence, game?.answer);
+    focusHeadingAfterStartOver.current = true;
     setStats(allocated.stats);
     setSession(fresh);
-    savePracticeStats(storageRef.current, allocated.stats);
-    savePracticeSession(storageRef.current, fresh);
+    noteStorageFailure(savePracticeStats(storageRef.current, allocated.stats));
+    noteStorageFailure(savePracticeSession(storageRef.current, fresh));
     setCopyStatus('');
+    setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
     setResetConfirm(false);
     setStartOverConfirm('idle');
   };
@@ -191,12 +239,13 @@ export function PracticeGame(): ReactElement {
     const allocated = allocatePracticeRound(stats);
     if (!allocated) return;
     const fresh = newSession(allocated.roundSequence, game?.answer);
+    focusHeadingAfterStartOver.current = true;
     setStats(allocated.stats);
     setSession(fresh);
-    savePracticeStats(storageRef.current, allocated.stats);
-    savePracticeSession(storageRef.current, fresh);
-    setCopyStatus('Started a fresh practice round.');
-    focusHeadingAfterStartOver.current = true;
+    noteStorageFailure(savePracticeStats(storageRef.current, allocated.stats));
+    noteStorageFailure(savePracticeSession(storageRef.current, fresh));
+    setCopyStatus('');
+    setAnnouncement(FRESH_ROUND_ANNOUNCEMENT);
     setStartOverConfirm((state) => reduceStartOverConfirmation(state, 'complete'));
   };
 
@@ -215,14 +264,11 @@ export function PracticeGame(): ReactElement {
   const resetStats = (): void => {
     if (!resetConfirm) {
       setResetConfirm(true);
+      setCopyStatus('Confirm reset of all practice stats.');
       return;
     }
     const cleared = resetPracticeStats(stats, terminal && session ? session.roundSequence : stats.highestRecordedSequence);
-    if (storageRef.current && !savePracticeStats(storageRef.current, cleared)) {
-      setCopyStatus('Could not reset stats in this browser.');
-      setResetConfirm(false);
-      return;
-    }
+    noteStorageFailure(savePracticeStats(storageRef.current, cleared));
     setStats(cleared);
     setResetConfirm(false);
     if (terminal) setSession((current) => current ? { ...current, recorded: true } : current);
@@ -247,7 +293,9 @@ export function PracticeGame(): ReactElement {
       </header>
 
       <div className={styles.playArea} aria-busy={!game}>
-        <div className={styles.message} role="status" aria-live="polite">
+        <p className={styles.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{announcement}</p>
+        {memoryOnly ? <div className={styles.storageWarning} role="status" aria-live="polite">{MEMORY_ONLY_WARNING}</div> : null}
+        <div className={styles.message}>
           {game?.message ?? 'Restoring your practice round…'}
         </div>
 
@@ -305,7 +353,7 @@ export function PracticeGame(): ReactElement {
         {showStats ? (
           <section className={styles.stats} id="practice-stats" aria-labelledby="practice-stats-heading">
             <div className={styles.statsHeading}>
-              <h2 id="practice-stats-heading">Practice stats</h2>
+              <h2 id="practice-stats-heading" ref={statsHeadingRef} tabIndex={-1}>Practice stats</h2>
               {!terminal ? <button type="button" className={styles.closeStats} onClick={() => {
                 restoreStatsFocus.current = true;
                 setStatsOpen(false);
@@ -322,9 +370,13 @@ export function PracticeGame(): ReactElement {
               <div>{([1, 2, 3, 4, 5, 6] as const).map((guess) => <span key={guess}><b>{guess}</b> {stats.distribution[String(guess) as '1' | '2' | '3' | '4' | '5' | '6']}</span>)}</div>
             </div>
             <div className={styles.resetRow}>
-              {resetConfirm ? <span>Reset all practice stats?</span> : null}
-              <button type="button" onClick={resetStats}>{resetConfirm ? 'Yes, reset' : 'Reset stats'}</button>
-              {resetConfirm ? <button type="button" onClick={() => setResetConfirm(false)}>Cancel</button> : null}
+              {resetConfirm ? <span role="status">Reset all practice stats?</span> : null}
+              <button ref={resetConfirm ? confirmResetRef : resetStatsRef} type="button" onClick={resetStats}>{resetConfirm ? 'Yes, reset' : 'Reset stats'}</button>
+              {resetConfirm ? <button type="button" onClick={() => {
+                restoreResetFocus.current = true;
+                setResetConfirm(false);
+                setCopyStatus('Stats reset canceled.');
+              }}>Cancel</button> : null}
             </div>
           </section>
         ) : null}
@@ -334,7 +386,7 @@ export function PracticeGame(): ReactElement {
             <div className={styles.keyRow} key={rowIndex}>
               {row.map((key) => {
                 const state = key.length === 1 ? keyStates.get(key) : undefined;
-                const label = key === 'Backspace' ? 'Delete letter' : key === 'Enter' ? 'Submit guess' : `Letter ${key.toUpperCase()}`;
+                const label = practiceKeyLabel(key, state ?? 'unused');
                 return (
                   <button className={styles.key} data-state={state ?? 'unused'} data-wide={key.length > 1} disabled={!game || terminal} aria-label={label} type="button" onClick={() => {
                     const action = practiceActionForKey(key);
@@ -350,7 +402,7 @@ export function PracticeGame(): ReactElement {
         </div>
       </div>
 
-      <footer className={styles.note}>Progress and stats stay in this browser. Practice gameplay sends no account or API requests.</footer>
+      <footer className={styles.note}>{memoryOnly ? 'Progress and stats are memory-only for this visit.' : 'Progress and stats stay in this browser across reloads.'} Practice gameplay sends no account or API requests.</footer>
     </section>
   );
 }
