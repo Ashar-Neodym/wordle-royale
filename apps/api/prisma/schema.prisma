@@ -340,6 +340,7 @@ model Match {
 
   @@index([status, mode, createdAt])
   @@index([rankedMode, status, createdAt])
+  @@index([createdAt, id])
   @@index([dictionaryReleaseId])
 }
 
@@ -395,6 +396,7 @@ model MatchParticipant {
   @@unique([matchId, userId])
   @@unique([matchId, seatNumber])
   @@index([userId, joinedAt])
+  @@index([userId, matchId])
 }
 
 model MatchMutationRequest {

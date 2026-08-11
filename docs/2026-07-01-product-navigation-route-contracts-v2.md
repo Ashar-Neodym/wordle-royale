@@ -237,6 +237,14 @@ type MatchHistorySummary = {
 };
 ```
 
+Pagination is a stable tuple seek in canonical `createdAt DESC, id DESC` order. The
+default page size is 20 and `limit` must be an integer from 1 through 50. Clients
+must treat `nextCursor` as opaque: it is a bounded, versioned token for the exact
+last returned `{createdAt, id}` tuple. A continuation returns only tuples strictly
+older than that boundary, so equal timestamps do not skip or duplicate matches and
+new inserts cannot reappear in an in-progress traversal. Invalid cursors return the
+stable `400 invalid_history_cursor` API error. `nextCursor` is null on the final page.
+
 Spoiler policy:
 
 - For completed matches, show participant results and rating deltas.

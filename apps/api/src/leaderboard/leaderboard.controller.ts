@@ -39,11 +39,11 @@ export class LeaderboardController {
     @Query('cursor') cursor: string | undefined,
     @Req() request: unknown,
   ) {
-    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
     return ok(await this.profiles.listProfileMatchHistoryByHandle(handle, {
       mode: normalizeRankedMode(mode),
-      ...(parsedLimit ? { limit: parsedLimit } : {}),
-      ...(cursor ? { cursor } : {}),
+      ...(parsedLimit !== undefined ? { limit: parsedLimit } : {}),
+      ...(cursor !== undefined ? { cursor } : {}),
     }), request as never);
   }
 
@@ -55,11 +55,11 @@ export class LeaderboardController {
     @Query('cursor') cursor: string | undefined,
     @Req() request: unknown,
   ) {
-    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
     return ok(await this.profiles.listProfileMatchHistoryByHandle(handle, {
       mode: normalizeRankedMode(mode),
-      ...(parsedLimit ? { limit: parsedLimit } : {}),
-      ...(cursor ? { cursor } : {}),
+      ...(parsedLimit !== undefined ? { limit: parsedLimit } : {}),
+      ...(cursor !== undefined ? { cursor } : {}),
     }), request as never);
   }
 }

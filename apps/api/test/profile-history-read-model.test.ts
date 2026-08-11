@@ -9,7 +9,7 @@ import { AppModule } from '../src/app.module.ts';
 import { RedisReadinessService } from '../src/health/redis-readiness.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
 import { ApiExceptionFilter } from '../src/shared/api-exception.filter.ts';
-import { ProfileReadService } from '../src/profile/profile-read.service.ts';
+import { decodeHistoryCursor, ProfileReadService } from '../src/profile/profile-read.service.ts';
 
 const currentUserId = '11111111-1111-4111-8111-111111111111';
 const guestUserId = '22222222-2222-4222-8222-222222222222';
@@ -191,6 +191,77 @@ describe('profile and match history REST read models', () => {
     assert.equal(active.status, 'active');
     assert.equal(active.viewer.ratingDelta, null);
     assert.doesNotMatch(JSON.stringify(response.body), /answerWordHash|answerWordSaltRef|should-never-leak/i);
+  });
+
+  it('returns a stable 400 for malformed and oversized history cursors', async () => {
+    const wrongVersion = Buffer.from(JSON.stringify({ v: 2, createdAt: '2026-07-01T00:00:00.000Z', id: completedMatchId })).toString('base64url');
+    for (const cursor of ['not-json', wrongVersion, 'a'.repeat(513)]) {
+      const response = await request(app.getHttpServer()).get(`/matches/history/me?cursor=${encodeURIComponent(cursor)}`).expect(400);
+      assert.equal(response.body.data, null);
+      assert.equal(response.body.error.code, 'invalid_history_cursor');
+      assert.equal(response.body.error.message, 'History cursor is invalid.');
+    }
+  });
+
+  it('enforces the documented history page-size range', async () => {
+    for (const limit of ['0', '51', '1.5', 'not-a-number']) {
+      const response = await request(app.getHttpServer()).get(`/matches/history/me?limit=${limit}`).expect(400);
+      assert.equal(response.body.error.code, 'invalid_history_limit');
+      assert.deepEqual(response.body.error.details, { min: 1, max: 50 });
+    }
+  });
+
+  it('uses tuple seeks across tied timestamps with no skips and bounded work', async () => {
+    const timestamp = new Date('2026-08-01T00:00:00.000Z');
+    const ids = [
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '99999999-9999-4999-8999-999999999999',
+      '88888888-8888-4888-8888-888888888888',
+      '77777777-7777-4777-8777-777777777777',
+      '66666666-6666-4666-8666-666666666666',
+    ];
+    let rows = ids.map((id) => ({
+      id, mode: 'ranked', rankedMode: 'standard_1v1', status: 'completed', createdAt: timestamp,
+      startedAt: timestamp, completedAt: timestamp, participants: [{
+        id: `participant-${id}`, matchId: id, userId: currentUserId, seatNumber: 1, outcome: 'solved', placement: 1,
+        finalScore: 1, user: { id: currentUserId, displayName: 'Player One', profile: { publicHandle: 'player_one' } }, ratingEvents: [],
+      }],
+    }));
+    const calls: any[] = [];
+    const service = new ProfileReadService({ client: { match: { findMany: async (args: any) => {
+      calls.push(args);
+      let candidates = [...rows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+      const seek = args.where.OR;
+      if (seek) {
+        const cursorDate = seek[0].createdAt.lt as Date;
+        const cursorId = seek[1].id.lt as string;
+        candidates = candidates.filter((row) => row.createdAt < cursorDate || (row.createdAt.getTime() === cursorDate.getTime() && row.id < cursorId));
+      }
+      return candidates.slice(0, args.take);
+    } } } } as any);
+
+    const first = await service.listCurrentUserMatchHistory({ userId: currentUserId, limit: 2 });
+    assert.deepEqual(first.items.map((item) => item.matchId), ids.slice(0, 2));
+    assert.ok(first.pagination.nextCursor);
+    assert.deepEqual(decodeHistoryCursor(first.pagination.nextCursor!), { createdAt: timestamp, id: ids[1] });
+    const insertedId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const insertedAt = new Date('2026-08-01T00:01:00.000Z');
+    rows.unshift({
+      id: insertedId, mode: 'ranked', rankedMode: 'standard_1v1', status: 'completed', createdAt: insertedAt,
+      startedAt: insertedAt, completedAt: insertedAt, participants: [{
+        id: `participant-${insertedId}`, matchId: insertedId, userId: currentUserId, seatNumber: 1, outcome: 'solved', placement: 1,
+        finalScore: 1, user: { id: currentUserId, displayName: 'Player One', profile: { publicHandle: 'player_one' } }, ratingEvents: [],
+      }],
+    });
+
+    const second = await service.listCurrentUserMatchHistory({ userId: currentUserId, limit: 2, cursor: first.pagination.nextCursor! });
+    const third = await service.listCurrentUserMatchHistory({ userId: currentUserId, limit: 2, cursor: second.pagination.nextCursor! });
+    assert.deepEqual([...first.items, ...second.items, ...third.items].map((item) => item.matchId), ids);
+    assert.equal(third.pagination.nextCursor, null);
+    assert.equal(calls.every((call) => call.take === 3), true);
+    assert.deepEqual(calls[0].orderBy, [{ createdAt: 'desc' }, { id: 'desc' }]);
+    assert.equal(calls[0].select.report, undefined);
+    assert.equal(calls[0].select.participants.select.ratingEvents.take, 10);
   });
 
   it('requires authentication for current-user profile summary and match history in preview mode', async () => {

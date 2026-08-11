@@ -57,11 +57,11 @@ export class GameplayController {
     @Query('cursor') cursor: string | undefined,
     @Req() request: unknown,
   ) {
-    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
     const currentUser = await this.currentUsers.resolveCurrentUser(devUserId, request as never);
     const historyInput: { userId: string; limit?: number; cursor?: string } = { userId: currentUser.userId };
-    if (parsedLimit) historyInput.limit = parsedLimit;
-    if (cursor) historyInput.cursor = cursor;
+    if (parsedLimit !== undefined) historyInput.limit = parsedLimit;
+    if (cursor !== undefined) historyInput.cursor = cursor;
     return ok(await this.profileRead.listCurrentUserMatchHistory(historyInput), request as never);
   }
 

@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { authoritativeRatingAlgorithmByMode, currentProfileSummarySchema, defaultProvisionalGames, defaultRankedMode, defaultRating, defaultRatingDeviation, matchHistoryListSchema, matchHistorySummarySchema, publicProfileSummarySchema, rankedModes } from '@wordle-royale/contracts';
 import type { RankedMode } from '@wordle-royale/contracts';
 import type { CurrentProfileSummary, MatchHistoryList, MatchHistorySummary, PublicProfileSummary } from '@wordle-royale/contracts';
@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service.ts';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 50;
+const MAX_HISTORY_CURSOR_LENGTH = 512;
+const HISTORY_CURSOR_VERSION = 1;
 const stubCurrentUserId = '11111111-1111-4111-8111-111111111111';
 const defaultHandle = 'player_one';
 const defaultDisplayName = 'Player One';
@@ -72,8 +74,9 @@ type MatchWithParticipants = {
   completedAt?: Date | string | null;
   createdAt?: Date | string | null;
   participants?: MatchParticipantWithUser[];
-  report?: { publicSummary?: unknown; spoilerSafeShare?: unknown } | null;
 };
+
+type HistoryCursor = { createdAt: Date; id: string };
 
 function isoOrNull(value: Date | string | null | undefined): string | null {
   if (!value) return null;
@@ -81,8 +84,47 @@ function isoOrNull(value: Date | string | null | undefined): string | null {
 }
 
 function normalizeLimit(limit: number | undefined): number {
-  if (!Number.isFinite(limit ?? DEFAULT_HISTORY_LIMIT)) return DEFAULT_HISTORY_LIMIT;
-  return Math.min(MAX_HISTORY_LIMIT, Math.max(1, Math.trunc(limit ?? DEFAULT_HISTORY_LIMIT)));
+  if (limit === undefined) return DEFAULT_HISTORY_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_HISTORY_LIMIT) {
+    throw new BadRequestException({
+      code: 'invalid_history_limit',
+      message: `History limit must be an integer from 1 to ${MAX_HISTORY_LIMIT}.`,
+      details: { min: 1, max: MAX_HISTORY_LIMIT },
+    });
+  }
+  return limit;
+}
+
+function invalidHistoryCursor(): BadRequestException {
+  return new BadRequestException({ code: 'invalid_history_cursor', message: 'History cursor is invalid.', details: null });
+}
+
+export function encodeHistoryCursor(row: { createdAt?: Date | string | null; id: string }): string {
+  const createdAt = isoOrNull(row.createdAt);
+  if (!createdAt) throw invalidHistoryCursor();
+  return Buffer.from(JSON.stringify({ v: HISTORY_CURSOR_VERSION, createdAt, id: row.id }), 'utf8').toString('base64url');
+}
+
+export function decodeHistoryCursor(cursor: string): HistoryCursor {
+  try {
+    if (!cursor || cursor.length > MAX_HISTORY_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error('shape');
+    const decoded = Buffer.from(cursor, 'base64url');
+    if (decoded.toString('base64url') !== cursor) throw new Error('encoding');
+    const value: unknown = JSON.parse(decoded.toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('payload');
+    const record = value as Record<string, unknown>;
+    if (Object.keys(record).sort().join(',') !== 'createdAt,id,v'
+      || record.v !== HISTORY_CURSOR_VERSION
+      || typeof record.createdAt !== 'string'
+      || typeof record.id !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.id)) throw new Error('fields');
+    const createdAt = new Date(record.createdAt);
+    if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== record.createdAt) throw new Error('timestamp');
+    return { createdAt, id: record.id };
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error;
+    throw invalidHistoryCursor();
+  }
 }
 
 function displayNameFor(user: UserWithProfile | null | undefined, fallbackHandle: string | null, fallbackUserId: string): string {
@@ -183,6 +225,7 @@ export class ProfileReadService {
   async listCurrentUserMatchHistory(input: { userId?: string; limit?: number; cursor?: string; mode?: RankedMode }): Promise<MatchHistoryList> {
     const userId = input.userId ?? stubCurrentUserId;
     const limit = normalizeLimit(input.limit);
+    const cursor = input.cursor === undefined ? null : decodeHistoryCursor(input.cursor);
     const authoritativeAlgorithm = input.mode ? authoritativeRatingAlgorithmByMode[input.mode] : null;
     const rows = await (this.prisma.client as any).match.findMany({
       where: {
@@ -197,30 +240,46 @@ export class ProfileReadService {
           } : {}),
         } : {}),
         participants: { some: { userId } },
-        ...(input.cursor ? { createdAt: { lt: new Date(input.cursor) } } : {}),
+        ...(cursor ? { OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ] } : {}),
       },
-      include: {
+      select: {
+        id: true,
+        mode: true,
+        rankedMode: true,
+        rulesetVersion: true,
+        completionReason: true,
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
         participants: {
-          include: {
-            user: { include: { profile: true } },
+          select: {
+            id: true, matchId: true, userId: true, seatNumber: true, outcome: true, placement: true, finalScore: true,
+            result: true, terminalReason: true, guessesUsed: true, solveElapsedMs: true,
+            user: { select: { id: true, displayName: true, profile: { select: { publicHandle: true, avatarUrl: true } } } },
             ratingEvents: {
               where: { type: 'apply', voidedByEventId: null },
               orderBy: { createdAt: 'desc' },
+              take: 10,
+              select: { userId: true, delta: true, algorithm: true, algorithmConfigVersion: true, voidedByEventId: true, metadata: true },
             },
           },
           orderBy: [{ placement: 'asc' }, { seatNumber: 'asc' }],
         },
-        report: true,
       },
-      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     }) as MatchWithParticipants[];
 
     const page = rows.slice(0, limit);
-    const nextRow = rows[limit];
+    const hasMore = rows.length > limit;
+    const lastReturned = page.at(-1);
     return matchHistoryListSchema.parse({
       items: page.map((match) => this.toMatchHistorySummary(match, userId)),
-      pagination: { nextCursor: nextRow ? isoOrNull(nextRow.createdAt) : null },
+      pagination: { nextCursor: hasMore && lastReturned ? encodeHistoryCursor(lastReturned) : null },
     });
   }
 

@@ -7,12 +7,17 @@ import styles from '../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 import { DisabledRoute } from '../../components/DisabledRoute';
 import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
+import { historyContinuationHref } from '../../lib/history-pagination';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HistoryPage(): Promise<ReactElement> {
+type HistoryPageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function HistoryPage({ searchParams }: HistoryPageProps): Promise<ReactElement> {
+  const rawCursor = (await searchParams)?.cursor;
+  const cursor = typeof rawCursor === 'string' ? rawCursor : undefined;
   const route = await resolveRestrictedRoute('history', async (presentation) => {
-    const history = await getMatchHistory(20);
+    const history = await getMatchHistory(20, cursor);
     const matches = history.status === 'connected' ? history.data?.items ?? [] : [];
     const authLimited = isAuthLimited(history.error);
     return (
@@ -29,7 +34,9 @@ export default async function HistoryPage(): Promise<ReactElement> {
         </div>
         <HistoryStatusPanel history={history} />
         <MatchHistoryRows matches={matches} />
-        {history.status === 'connected' && history.data?.pagination.nextCursor ? <p className={styles.muted}>More matches are available after cursor {history.data.pagination.nextCursor}.</p> : null}
+        {history.status === 'connected' && history.data?.pagination.nextCursor ? (
+          <p><a href={historyContinuationHref(history.data.pagination.nextCursor)}>More matches</a></p>
+        ) : null}
       </section>
     </PageFrame>
     );
