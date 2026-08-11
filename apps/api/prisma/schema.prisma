@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
 }
 
 enum UserAccountStatus {
@@ -152,9 +153,24 @@ model UserAccount {
   matchmakingOpponentTickets MatchmakingTicket[] @relation("MatchmakingTicketOpponent")
   passwordCredential         PasswordCredential?
   accountSessions            AccountSession[]
+  externalIdentities         ExternalIdentity[]
 
   @@index([status])
   @@index([createdAt])
+}
+
+model ExternalIdentity {
+  id        String   @id @default(uuid())
+  issuer    String   @db.VarChar(2048)
+  subject   String   @db.VarChar(255)
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, subject])
+  @@index([userId])
 }
 
 model PasswordCredential {

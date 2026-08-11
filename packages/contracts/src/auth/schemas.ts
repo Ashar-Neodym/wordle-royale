@@ -96,7 +96,7 @@ export const authSessionResponseSchema = z.strictObject({
   user: currentUserSchema,
   session: z.strictObject({
     id: idSchema,
-    provider: z.literal('password'),
+    provider: z.enum(['password', 'oidc']),
     createdAt: timestampSchema,
     expiresAt: timestampSchema,
   }),

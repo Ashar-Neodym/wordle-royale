@@ -53,7 +53,7 @@ export class DurableUnsafeRequestMiddleware implements NestMiddleware {
     // durable mutation. This is deliberately enforced before rate limiting,
     // session revocation, or account creation in the controller/service.
     const path = (request.originalUrl ?? request.url ?? '').split('?')[0];
-    if (path === '/auth/register' || path === '/auth/login' || path === '/auth/logout') {
+    if (path === '/auth/register' || path === '/auth/login' || path === '/auth/logout' || path === '/auth/external/session') {
       const rawCookie = request.headers?.cookie;
       const cookieLines = Array.isArray(rawCookie) ? rawCookie : rawCookie ? [rawCookie] : [];
       const names = cookieLines.flatMap((line) => line.split(';').map((part) => {

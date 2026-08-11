@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 
-export type AuthRateAction = 'register_email' | 'register_ip' | 'login_email' | 'login_ip';
+export type AuthRateAction = 'register_email' | 'register_ip' | 'login_email' | 'login_ip' | 'external_ip' | 'external_subject';
 type QueryClient = {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;

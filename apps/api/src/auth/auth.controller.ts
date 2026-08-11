@@ -7,6 +7,9 @@ import { clearDurableSessionCookie, readDurableSessionToken, setDurableSessionCo
 import { durableAuthActive } from './durable-unsafe-request.middleware.ts';
 import { AuthUnavailableError, DurableAuthPersistenceService, InvalidCredentialsError, RegistrationUnavailableError } from './durable-auth-persistence.service.ts';
 import { PreviewDemoSessionService } from './preview-demo-session.service.ts';
+import { ExternalAuthUnavailableError, ExternalIdentityConflictError, ExternalSessionService } from './external-session.service.ts';
+import { ExternalTokenInvalidError } from './external-token-verifier.ts';
+import { normalizeDisplayName, normalizeHandle } from './auth-input.ts';
 import { ProfileReadService } from '../profile/profile-read.service.ts';
 import { ProfileService } from '../profile/profile.service.ts';
 import { ok } from '../shared/envelope.ts';
@@ -28,6 +31,7 @@ export class AuthController {
     @Inject(CurrentUserService) private readonly currentUsers: CurrentUserService,
     @Inject(PreviewDemoSessionService) private readonly previewSessions: PreviewDemoSessionService,
     @Inject(DurableAuthPersistenceService) private readonly durableAuth: DurableAuthPersistenceService,
+    @Inject(ExternalSessionService) private readonly externalSessions: ExternalSessionService,
   ) {}
 
   @Get('auth/me')
@@ -86,6 +90,45 @@ export class AuthController {
     try { logoutRequestSchema.parse(rawBody ?? {}); } catch { throw invalidRequest(); }
     clearDurableSessionCookie(response);
     if (durableAuthActive()) await this.durableAuth.logout(readDurableSessionToken(request));
+  }
+
+  @Post('auth/external/session')
+  @HttpCode(200)
+  async externalSession(@Headers('authorization') authorization: string | string[] | undefined, @Body() rawBody: unknown, @Req() request: RequestLike, @Res({ passthrough: true }) response: ResponseLike) {
+    response.setHeader('Cache-Control', 'no-store');
+    const match = typeof authorization === 'string' ? /^Bearer ([^\s]+)$/u.exec(authorization) : null;
+    if (!match) throw new UnauthorizedException({ code: 'invalid_external_token', message: 'External token is invalid.', details: {} });
+    let body: { handle?: string; displayName?: string };
+    try {
+      if (rawBody == null) body = {};
+      else if (typeof rawBody === 'object' && !Array.isArray(rawBody) && Object.keys(rawBody).every((key) => key === 'handle' || key === 'displayName')) {
+        const candidate = rawBody as Record<string, unknown>;
+        body = {
+          ...(candidate.handle !== undefined ? { handle: normalizeHandle(candidate.handle as string) } : {}),
+          ...(candidate.displayName !== undefined ? { displayName: normalizeDisplayName(candidate.displayName as string) } : {}),
+        };
+      } else throw new TypeError();
+    } catch { throw invalidRequest(); }
+    try {
+      const presentedSessionToken = readDurableSessionToken(request);
+      const result = await this.externalSessions.exchange({
+        token: match[1]!,
+        clientIp: this.clientIp(request),
+        ...(presentedSessionToken ? { presentedSessionToken } : {}),
+        ...body,
+      });
+      setDurableSessionCookie(response, result.token, result.session.expiresAt);
+      return ok(authSessionResponseSchema.parse({
+        user: await this.profiles.getCurrentUser(result.session.userId),
+        session: { id: result.session.id, provider: 'oidc', createdAt: result.session.createdAt.toISOString(), expiresAt: result.session.expiresAt.toISOString() },
+      }), request as never);
+    } catch (error) {
+      if (error instanceof ExternalTokenInvalidError) throw new UnauthorizedException({ code: error.code, message: error.message, details: {} });
+      if (error instanceof ExternalIdentityConflictError) throw new ConflictException({ code: error.code, message: error.message, details: {} });
+      if (error instanceof AuthRateLimitedError) throw new HttpException({ code: error.code, message: error.message, details: {} }, HttpStatus.TOO_MANY_REQUESTS);
+      if (error instanceof ExternalAuthUnavailableError) throw new ServiceUnavailableException({ code: error.code, message: error.message, details: {} });
+      throw new ServiceUnavailableException({ code: 'external_auth_unavailable', message: 'External authentication is unavailable.', details: {} });
+    }
   }
 
   @Post('auth/preview-demo/start')

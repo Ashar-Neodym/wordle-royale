@@ -83,19 +83,30 @@ export class DurableAuthPersistenceService {
     this.options.cryptoObserver?.('verify');
     const verified = await verifyPassword(input.password, verifier);
     if (!verified || !account || account.status !== 'active' || !account.passwordCredential) throw new InvalidCredentialsError();
+    return this.issueSessionForUser(account.id, presentedToken);
+  }
+  async issueSessionForUser(userId: string, presentedToken?: string): Promise<DurableSessionResult> {
     const token = generateSessionToken(), now = this.now(), expiresAt = new Date(now.getTime() + this.ttl), sessionId = randomUUID();
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe(`SELECT id FROM "UserAccount" WHERE id=$1 FOR UPDATE`, account.id);
-      const current = await tx.userAccount.findUnique({ where: { id: account.id }, select: { status: true } });
+      await tx.$queryRawUnsafe(`SELECT id FROM "UserAccount" WHERE id=$1 FOR UPDATE`, userId);
+      const current = await tx.userAccount.findUnique({ where: { id: userId }, select: { status: true } });
       if (current?.status !== 'active') throw new InvalidCredentialsError();
-      await tx.accountSession.create({ data: { id: sessionId, userId: account.id, tokenHash: digestSessionToken(token), createdAt: now, lastSeenAt: now, expiresAt } });
+      await tx.accountSession.create({ data: { id: sessionId, userId, tokenHash: digestSessionToken(token), createdAt: now, lastSeenAt: now, expiresAt } });
       if (presentedToken) {
         let oldHash: string | undefined;
         try { oldHash = digestSessionToken(presentedToken); } catch { /* ignored */ }
-        if (oldHash) await tx.accountSession.updateMany({ where: { tokenHash: oldHash, userId: account.id, revokedAt: null }, data: { revokedAt: now, revocationReason: 'relogin' } });
+        if (oldHash) await tx.accountSession.updateMany({ where: { tokenHash: oldHash, userId, revokedAt: null }, data: { revokedAt: now, revocationReason: 'relogin' } });
       }
     });
-    return { token, session: { id: sessionId, userId: account.id, createdAt: now, expiresAt } };
+    return { token, session: { id: sessionId, userId, createdAt: now, expiresAt } };
+  }
+  async limitExternalIp(ip: string): Promise<void> {
+    this.requireEnabled();
+    await this.limiter!.consume('external_ip', ip, 30);
+  }
+  async limitExternalSubject(issuer: string, subject: string): Promise<void> {
+    this.requireEnabled();
+    await this.limiter!.consume('external_subject', `${issuer}\0${subject}`, 20);
   }
   async logout(token?: string): Promise<void> {
     if (!token) return;

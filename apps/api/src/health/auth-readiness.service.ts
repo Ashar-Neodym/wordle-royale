@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { authRegistrationMode, decodeAuthRateLimitKey } from '../config/runtime-config.ts';
+import { authRegistrationMode, decodeAuthRateLimitKey, externalOidcConfig } from '../config/runtime-config.ts';
 import { durableAuthActive } from '../auth/durable-unsafe-request.middleware.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
@@ -31,6 +31,7 @@ export class AuthReadinessService {
     }
     const key = decodeAuthRateLimitKey(process.env.AUTH_RATE_LIMIT_KEY ?? '');
     const expectedReplicaCount = Number(process.env.EXPECTED_API_REPLICA_COUNT || '1');
+    const externalConfig = externalOidcConfig();
     const configFingerprint = fingerprint(JSON.stringify({
       authMode: process.env.AUTH_MODE,
       registrationMode,
@@ -40,17 +41,24 @@ export class AuthReadinessService {
       lastSeenInterval: process.env.ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS ?? '900',
       cookieSecure: process.env.COOKIE_SECURE ?? '',
       publicWebOrigin: process.env.PUBLIC_WEB_URL ?? '',
+      externalAuthMode: process.env.EXTERNAL_AUTH_MODE ?? 'disabled',
+      externalIssuer: externalConfig?.issuer ?? '',
+      externalAudience: externalConfig?.audience ?? '',
+      externalJwksUrl: externalConfig?.jwksUrl ?? '',
+      externalAlgorithms: externalConfig?.algorithms ?? [],
     }));
     const schema = await this.prisma.checkDurableAuthSchema();
+    const externalSchema = externalConfig ? await this.prisma.checkExternalAuthSchema() : null;
+    const schemaReady = schema.status === 'ok' && (!externalSchema || externalSchema.status === 'ok');
     return {
-      status: schema.status === 'ok' ? 'ok' : 'unavailable',
+      status: schemaReady ? 'ok' : 'unavailable',
       checkedAt,
       ...(schema.latencyMs == null ? {} : { latencyMs: schema.latencyMs }),
       registrationMode,
       keyFingerprint: fingerprint(key),
       configFingerprint,
       expectedReplicaCount,
-      message: schema.status === 'ok' ? 'Durable authentication configuration and schema are ready.' : 'Durable authentication schema is unavailable.',
+      message: schemaReady ? 'Durable authentication configuration and schema are ready.' : 'Durable authentication schema is unavailable.',
     };
   }
 }

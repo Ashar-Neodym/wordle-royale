@@ -1,0 +1,13 @@
+# Supabase / OIDC readiness boundary
+
+This slice does not activate or depend on Supabase. The ranked Nest API, Prisma schema, PostgreSQL data and opaque `AccountSession` cookie remain authoritative. Supabase may later supply PostgreSQL hosting and standards-based OIDC only. There is no browser database client, Supabase JS, Realtime, `auth.users` foreign key, email-based account linking, or direct table access in this change.
+
+Runtime traffic uses `DATABASE_URL` (a pool URL when appropriate). Prisma migrations use `DATABASE_DIRECT_URL`, with local scripts safely falling back to the runtime URL. `ExternalIdentity` maps an exact `(issuer, subject)` to one internal account. OIDC email claims are intentionally ignored.
+
+The route remains routable while `EXTERNAL_AUTH_MODE=disabled` (the default), but it fails closed with `503` before database, JWT, JWKS, or provider work; startup also rejects activation in `APP_ENV=preview`. A future reviewed activation sets `EXTERNAL_AUTH_MODE=oidc` plus exact HTTPS issuer/JWKS metadata, one audience, and an asymmetric algorithm allowlist. `POST /auth/external/session` rate-limits by client IP before JWT/JWKS verification and by exact issuer/opaque OIDC subject after verification, then rotates any presented same-user Wordle session and issues the existing opaque Wordle session cookie. Handle and display name are required only to create the first internal account. Auth readiness requires the exact external identity columns, unique `(issuer, subject)` index, and cascading internal-user foreign key.
+
+The provider-independent integration gate is `pnpm --filter @wordle-royale/api test:postgres:external-oidc` with `EXTERNAL_OIDC_TEST_DATABASE_URL` pointed only at disposable local PostgreSQL. It applies migrations in a unique schema and verifies the real Nest middleware/controller, local asymmetric JWT verification, cookie exchange and reuse, session rotation, exact schema readiness (including malformed index/FK rejection), PostgreSQL rate buckets, first-account races, rollback, and inactive-account behavior before removing the schema.
+
+## Activation gates
+
+Before any hosted activation, independently verify issuer/audience/JWKS values, key rotation and outage behavior. Disable the Supabase Data API for private schemas or otherwise revoke anonymous/authenticated table grants and establish reviewed RLS policies; this repository makes **no RLS coverage claim**. Confirm local Supabase/PostgreSQL migration fidelity, pooled runtime and direct migration connectivity, backup/restore, and concurrent first exchange against disposable infrastructure. Realtime remains out of scope and disabled.

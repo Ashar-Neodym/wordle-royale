@@ -6,7 +6,9 @@ import { CurrentUserService } from './auth/current-user.service.ts';
 import { DurableAuthPersistenceService } from './auth/durable-auth-persistence.service.ts';
 import { DurableUnsafeRequestMiddleware, durableAuthActive } from './auth/durable-unsafe-request.middleware.ts';
 import { PreviewDemoSessionService } from './auth/preview-demo-session.service.ts';
-import { authRegistrationMode, decodeAuthRateLimitKey, decodeAuthRegistrationCanaryDigest, validateRuntimeConfig } from './config/runtime-config.ts';
+import { ExternalSessionService } from './auth/external-session.service.ts';
+import { ExternalTokenVerifier } from './auth/external-token-verifier.ts';
+import { authRegistrationMode, decodeAuthRateLimitKey, decodeAuthRegistrationCanaryDigest, externalOidcConfig, validateRuntimeConfig } from './config/runtime-config.ts';
 import { StandardDictionaryService } from './dictionary/standard-dictionary.service.ts';
 import { GameplayController } from './gameplay/gameplay.controller.ts';
 import { GameplayPersistenceService } from './gameplay/gameplay-persistence.service.ts';
@@ -53,6 +55,14 @@ import { PrismaService } from './prisma/prisma.service.ts';
         sessionTtlMs: Number(process.env.ACCOUNT_SESSION_TTL_SECONDS ?? '2592000') * 1_000,
         lastSeenIntervalMs: Number(process.env.ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS ?? '900') * 1_000,
       }),
+    },
+    {
+      provide: ExternalSessionService,
+      inject: [PrismaService, DurableAuthPersistenceService],
+      useFactory: (prisma: PrismaService, durableAuth: DurableAuthPersistenceService) => {
+        const config = externalOidcConfig();
+        return new ExternalSessionService(prisma.client as unknown as PrismaClient, durableAuth, config ? ExternalTokenVerifier.remote(config) : null);
+      },
     },
     DurableUnsafeRequestMiddleware, CurrentUserService, ProfileService, ProfileReadService, LobbyService,
     GameplayPersistenceService, SpeedGameplayService, LeaderboardReadService, MatchmakingService,

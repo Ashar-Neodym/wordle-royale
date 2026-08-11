@@ -1,5 +1,6 @@
 export type RuntimeConfig = Record<string, string | undefined>;
 export type AuthRegistrationMode = 'closed' | 'canary' | 'open';
+export type ExternalOidcConfig = { issuer: string; audience: string; jwksUrl: string; algorithms: string[] };
 
 const localDatabaseUrl = 'postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public';
 const localRedisUrl = 'redis://localhost:6379';
@@ -64,6 +65,43 @@ export function authRegistrationMode(value = process.env.AUTH_REGISTRATION_MODE)
   return (value || 'closed') as AuthRegistrationMode;
 }
 
+function exactHttpsUrl(value: string, name: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.toString() !== value) throw new Error();
+    return value;
+  } catch {
+    fail(`${name} must be one exact absolute HTTPS URL.`);
+  }
+}
+
+const oidcAlgorithms = new Set(['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA']);
+
+export function externalOidcConfig(config: RuntimeConfig = process.env): ExternalOidcConfig | null {
+  const mode = config.EXTERNAL_AUTH_MODE?.trim() || 'disabled';
+  if (mode !== 'disabled' && mode !== 'oidc') fail('EXTERNAL_AUTH_MODE must be exactly disabled or oidc.');
+  if (mode === 'disabled') return null;
+  if (appEnv(config) === 'preview') fail('External authentication is forbidden in preview mode.');
+  if (config.DURABLE_AUTH_ENABLED !== 'true' || config.AUTH_MODE !== 'session_required') {
+    fail('External OIDC requires durable session authentication.');
+  }
+  const rawIssuer = config.OIDC_ISSUER;
+  if (!rawIssuer?.trim()) fail('OIDC_ISSUER is required. External OIDC requires an exact issuer.');
+  const rawJwksUrl = config.OIDC_JWKS_URL;
+  if (!rawJwksUrl?.trim()) fail('OIDC_JWKS_URL is required. External OIDC requires an exact JWKS endpoint.');
+  const rawAudience = config.OIDC_AUDIENCE;
+  if (!rawAudience?.trim()) fail('OIDC_AUDIENCE is required. External OIDC requires one exact audience.');
+  const issuer = exactHttpsUrl(rawIssuer, 'OIDC_ISSUER');
+  const jwksUrl = exactHttpsUrl(rawJwksUrl, 'OIDC_JWKS_URL');
+  const audience = rawAudience;
+  if (audience !== audience.trim() || audience.length > 255 || /\s/u.test(audience)) fail('OIDC_AUDIENCE must be one non-whitespace value of at most 255 characters.');
+  const algorithms = splitCsv(config.OIDC_ALLOWED_ALGORITHMS ?? 'RS256');
+  if (!algorithms.length || new Set(algorithms).size !== algorithms.length || algorithms.some((algorithm) => !oidcAlgorithms.has(algorithm))) {
+    fail('OIDC_ALLOWED_ALGORITHMS must contain unique allowlisted asymmetric algorithms.');
+  }
+  return { issuer, audience, jwksUrl, algorithms };
+}
+
 export function trustedProxyHops(value = process.env.TRUSTED_PROXY_HOPS): number {
   if (value == null || !/^(?:0|[1-9][0-9]?)$/u.test(value)) fail('TRUSTED_PROXY_HOPS must be an explicit integer from 0 through 32.');
   const parsed = Number(value);
@@ -77,6 +115,11 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
     APP_ENV: appEnv(config),
     AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
     DURABLE_AUTH_ENABLED: config.DURABLE_AUTH_ENABLED ?? 'false',
+    EXTERNAL_AUTH_MODE: config.EXTERNAL_AUTH_MODE ?? 'disabled',
+    OIDC_ISSUER: config.OIDC_ISSUER ?? '',
+    OIDC_AUDIENCE: config.OIDC_AUDIENCE ?? '',
+    OIDC_JWKS_URL: config.OIDC_JWKS_URL ?? '',
+    OIDC_ALLOWED_ALGORITHMS: config.OIDC_ALLOWED_ALGORITHMS ?? 'RS256',
     AUTH_RATE_LIMIT_KEY: config.AUTH_RATE_LIMIT_KEY ?? '',
     AUTH_REGISTRATION_MODE: config.AUTH_REGISTRATION_MODE ?? 'closed',
     AUTH_REGISTRATION_CANARY_DIGEST: config.AUTH_REGISTRATION_CANARY_DIGEST ?? '',
@@ -98,6 +141,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
   };
 
   const durableAuthEnabled = envFlagEnabled(resolved.DURABLE_AUTH_ENABLED, false);
+  externalOidcConfig({ ...config, APP_ENV: resolved.APP_ENV, EXTERNAL_AUTH_MODE: resolved.EXTERNAL_AUTH_MODE });
   const sessionTtlSeconds = strictSeconds(resolved.ACCOUNT_SESSION_TTL_SECONDS!, 'ACCOUNT_SESSION_TTL_SECONDS', 3_600, 2_592_000);
   strictSeconds(resolved.ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS!, 'ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS', 300, sessionTtlSeconds);
   if (durableAuthEnabled) {

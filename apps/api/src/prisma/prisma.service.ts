@@ -47,6 +47,7 @@ const requiredApplicationTables = [
   'MatchMutationRequest',
   'AnalyticsEvent',
   'AuditLog',
+  'ExternalIdentity',
 ] as const;
 
 function sqlStringLiteral(value: string): string {
@@ -249,6 +250,98 @@ export class PrismaService implements OnModuleDestroy {
       return { status: 'ok', checkedAt, latencyMs: Date.now() - startedAt, message: 'Durable authentication tables, indexes, foreign keys, and triggers are ready.' };
     } catch {
       return { status: 'unavailable', checkedAt, latencyMs: Date.now() - startedAt, message: 'Durable authentication schema dependency is unavailable.' };
+    }
+  }
+
+  async checkExternalAuthSchema(queryClient: PrismaQueryClient = this.client): Promise<ReadinessDependency> {
+    const checkedAt = new Date().toISOString();
+    const startedAt = Date.now();
+    try {
+      if (!queryClient.$queryRawUnsafe) return { status: 'not_checked_stub', checkedAt, message: 'External authentication schema check is unavailable.' };
+      const rows = await queryClient.$queryRawUnsafe<Array<{ schema_ok: boolean }>>(
+        `WITH expected_columns(column_name,ordinal_position,data_type,is_nullable,character_maximum_length,datetime_precision,column_default) AS (VALUES
+          ('id',1,'text','NO',NULL::integer,NULL::integer,NULL::text),
+          ('issuer',2,'character varying','NO',2048,NULL,NULL),
+          ('subject',3,'character varying','NO',255,NULL,NULL),
+          ('userId',4,'text','NO',NULL,NULL,NULL),
+          ('createdAt',5,'timestamp without time zone','NO',NULL,3,'CURRENT_TIMESTAMP'),
+          ('updatedAt',6,'timestamp without time zone','NO',NULL,3,NULL)
+        ), expected_indexes(name,is_unique,is_primary,key_columns) AS (VALUES
+          ('ExternalIdentity_pkey',true,true,ARRAY['id']::text[]),
+          ('ExternalIdentity_issuer_subject_key',true,false,ARRAY['issuer','subject']::text[]),
+          ('ExternalIdentity_userId_idx',false,false,ARRAY['userId']::text[])
+        ), actual_indexes AS (
+          SELECT index_class.relname AS name,i.indisunique AS is_unique,i.indisprimary AS is_primary,
+            i.indisvalid,i.indisready,access_method.amname,i.indnkeyatts,i.indnatts,
+            i.indexprs IS NULL AS no_expressions,i.indpred IS NULL AS not_partial,
+            ARRAY(SELECT attribute.attname::text FROM unnest(i.indkey::smallint[]) WITH ORDINALITY key(attnum,ord)
+              JOIN pg_attribute attribute ON attribute.attrelid=i.indrelid AND attribute.attnum=key.attnum ORDER BY key.ord) AS key_columns,
+            ARRAY(SELECT option FROM unnest(i.indoption::smallint[]) WITH ORDINALITY option_row(option,ord) ORDER BY option_row.ord) AS key_options,
+            NOT EXISTS (
+              SELECT 1 FROM generate_subscripts(i.indkey,1) position
+              JOIN pg_attribute attribute ON attribute.attrelid=i.indrelid AND attribute.attnum=i.indkey[position]
+              JOIN pg_opclass operator_class ON operator_class.oid=i.indclass[position]
+              WHERE NOT operator_class.opcdefault OR operator_class.opcmethod<>index_class.relam
+                OR i.indcollation[position]<>attribute.attcollation
+            ) AS default_opclasses_and_collations
+          FROM pg_index i
+          JOIN pg_class table_class ON table_class.oid=i.indrelid
+          JOIN pg_namespace table_schema ON table_schema.oid=table_class.relnamespace
+          JOIN pg_class index_class ON index_class.oid=i.indexrelid
+          JOIN pg_namespace index_schema ON index_schema.oid=index_class.relnamespace
+          JOIN pg_am access_method ON access_method.oid=index_class.relam
+          WHERE table_schema.nspname=current_schema() AND index_schema.nspname=current_schema()
+            AND table_class.relname='ExternalIdentity'
+        ) SELECT
+          (SELECT count(*)=6 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ExternalIdentity')
+          AND NOT EXISTS (
+            SELECT 1 FROM expected_columns expected
+            LEFT JOIN information_schema.columns actual
+              ON actual.table_schema=current_schema() AND actual.table_name='ExternalIdentity' AND actual.column_name=expected.column_name
+            WHERE actual.column_name IS NULL OR actual.ordinal_position<>expected.ordinal_position OR actual.data_type<>expected.data_type
+              OR actual.is_nullable<>expected.is_nullable OR actual.character_maximum_length IS DISTINCT FROM expected.character_maximum_length
+              OR actual.datetime_precision IS DISTINCT FROM expected.datetime_precision OR actual.column_default IS DISTINCT FROM expected.column_default
+          )
+          AND (SELECT count(*)=3 FROM actual_indexes)
+          AND NOT EXISTS (
+            SELECT 1 FROM expected_indexes expected LEFT JOIN actual_indexes actual
+              USING(name,is_unique,is_primary,key_columns)
+            WHERE actual.name IS NULL OR NOT actual.indisvalid OR NOT actual.indisready OR actual.amname<>'btree'
+              OR actual.indnkeyatts<>cardinality(expected.key_columns) OR actual.indnatts<>cardinality(expected.key_columns)
+              OR NOT actual.no_expressions OR NOT actual.not_partial OR NOT actual.default_opclasses_and_collations
+              OR actual.key_options<>array_fill(0::smallint,ARRAY[cardinality(expected.key_columns)])
+          )
+          AND (SELECT count(*)=2 FROM pg_constraint constraint_row
+            JOIN pg_class own_table ON own_table.oid=constraint_row.conrelid
+            JOIN pg_namespace constraint_schema ON constraint_schema.oid=constraint_row.connamespace
+            WHERE constraint_schema.nspname=current_schema() AND own_table.relname='ExternalIdentity')
+          AND (SELECT count(*)=1 FROM pg_constraint constraint_row
+            JOIN pg_class own_table ON own_table.oid=constraint_row.conrelid
+            JOIN pg_namespace constraint_schema ON constraint_schema.oid=constraint_row.connamespace
+            WHERE constraint_schema.nspname=current_schema() AND own_table.relname='ExternalIdentity'
+              AND constraint_row.conname='ExternalIdentity_pkey' AND constraint_row.contype='p'
+              AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY key(attnum,ord)
+                JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key.attnum ORDER BY key.ord)=ARRAY['id']::text[]
+              AND constraint_row.convalidated AND NOT constraint_row.condeferrable AND NOT constraint_row.condeferred)
+          AND (SELECT count(*)=1 FROM pg_constraint constraint_row
+            JOIN pg_class own_table ON own_table.oid=constraint_row.conrelid
+            JOIN pg_class referenced_table ON referenced_table.oid=constraint_row.confrelid
+            JOIN pg_namespace constraint_schema ON constraint_schema.oid=constraint_row.connamespace
+            JOIN pg_namespace referenced_schema ON referenced_schema.oid=referenced_table.relnamespace
+            WHERE constraint_schema.nspname=current_schema() AND referenced_schema.nspname=current_schema()
+              AND own_table.relname='ExternalIdentity' AND constraint_row.conname='ExternalIdentity_userId_fkey' AND constraint_row.contype='f'
+              AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY key(attnum,ord)
+                JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key.attnum ORDER BY key.ord)=ARRAY['userId']::text[]
+              AND referenced_table.relname='UserAccount'
+              AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.confkey) WITH ORDINALITY key(attnum,ord)
+                JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key.attnum ORDER BY key.ord)=ARRAY['id']::text[]
+              AND constraint_row.confupdtype='c' AND constraint_row.confdeltype='c' AND constraint_row.confmatchtype='s'
+              AND constraint_row.convalidated AND NOT constraint_row.condeferrable AND NOT constraint_row.condeferred) AS schema_ok`,
+      );
+      if (!rows[0]?.schema_ok) return { status: 'unavailable', checkedAt, latencyMs: Date.now() - startedAt, message: 'External authentication schema dependency is unavailable.' };
+      return { status: 'ok', checkedAt, latencyMs: Date.now() - startedAt, message: 'External authentication identity schema is ready.' };
+    } catch {
+      return { status: 'unavailable', checkedAt, latencyMs: Date.now() - startedAt, message: 'External authentication schema dependency is unavailable.' };
     }
   }
 
