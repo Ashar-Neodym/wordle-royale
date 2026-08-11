@@ -1,7 +1,8 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { lobbyDtoSchema } from '@wordle-royale/contracts';
+import { idSchema, lobbyDtoSchema, timestampSchema } from '@wordle-royale/contracts';
 import type { CreateLobbyRequest, JoinLobbyByCodeRequest, LobbyDto } from '@wordle-royale/contracts';
+import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
 const stubHostUserId = '11111111-1111-4111-8111-111111111111';
@@ -21,6 +22,32 @@ type StoredLobbySettings = {
   members: LobbyMember[];
   expiresAt: string;
 };
+
+const storedLobbySettingsSchema = z.object({
+  contractSettings: z.object({
+    visibility: z.enum(['public', 'private']),
+    rated: z.boolean(),
+    mode: z.literal('standard'),
+    language: z.literal('en'),
+    wordLength: z.literal(5),
+    difficulty: z.enum(['easy', 'medium', 'hard']),
+    minPlayers: z.number().int().min(2).max(4),
+    maxPlayers: z.number().int().min(2).max(4),
+    roundsCount: z.number().int().min(1).max(10),
+    roundTimeSeconds: z.literal(120),
+    scoringPreset: z.literal('standard_v1'),
+  }).strict().refine((value) => value.minPlayers <= value.maxPlayers),
+  members: z.array(z.object({
+    userId: idSchema,
+    displayName: z.string().min(1).max(100),
+    handle: z.string().max(64).nullable().optional(),
+    role: z.enum(['host', 'player']),
+    state: z.enum(['joined', 'disconnected', 'left', 'kicked']),
+    ready: z.boolean(),
+    joinedAt: timestampSchema,
+  }).strict()).min(1).max(4),
+  expiresAt: timestampSchema,
+}).strict();
 
 type LobbyRecord = {
   id: string;
@@ -62,22 +89,6 @@ function statusToState(status: string): LobbyDto['state'] {
   return 'waiting';
 }
 
-function defaultSettings(): LobbySettings {
-  return {
-    visibility: 'public',
-    rated: false,
-    mode: 'standard',
-    language: 'en',
-    wordLength: 5,
-    difficulty: 'medium',
-    minPlayers: 2,
-    maxPlayers: 4,
-    roundsCount: 3,
-    roundTimeSeconds: 120,
-    scoringPreset: 'standard_v1',
-  };
-}
-
 function member(userId: string, displayName: string, handle: string, role: LobbyMember['role']): LobbyMember {
   return { userId, displayName, handle, role, state: 'joined', ready: false, joinedAt: nowIso() };
 }
@@ -87,12 +98,15 @@ function toStoredSettings(settings: LobbySettings, members: LobbyMember[]): Stor
 }
 
 function readStoredSettings(raw: unknown): StoredLobbySettings {
-  const value = typeof raw === 'object' && raw !== null ? raw as Partial<StoredLobbySettings> : {};
-  return {
-    contractSettings: value.contractSettings ?? defaultSettings(),
-    members: value.members ?? [member(stubHostUserId, stubHostDisplayName, 'player_one', 'host')],
-    expiresAt: value.expiresAt ?? expiresAtIso(),
-  };
+  const parsed = storedLobbySettingsSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ServiceUnavailableException({
+      code: 'lobby_data_unavailable',
+      message: 'Lobby data is temporarily unavailable.',
+      details: {},
+    });
+  }
+  return parsed.data;
 }
 
 function toRecordDate(value: Date | string | undefined): string {
@@ -194,30 +208,39 @@ export class LobbyService {
   }
 
   private toDto(row: LobbyRecord): LobbyDto {
-    const stored = readStoredSettings(row.settings);
-    const playerCount = stored.members.filter((lobbyMember) => lobbyMember.state === 'joined').length;
-    const open = row.status === 'waiting' || row.status === 'ready';
-    const full = playerCount >= row.maxPlayers;
-    const enoughPlayers = playerCount >= stored.contractSettings.minPlayers;
-    const blockerReason = !open ? 'lobby_not_open' : !enoughPlayers ? 'waiting_for_players' : null;
-    return lobbyDtoSchema.parse({
-      id: row.id,
-      code: row.code,
-      hostUserId: row.hostUserId,
-      status: row.status,
-      visibility: row.visibility,
-      mode: row.mode,
-      playerCount,
-      maxPlayers: row.maxPlayers,
-      canJoin: open && !full,
-      canStart: open && enoughPlayers,
-      blockerReason,
-      state: statusToState(row.status),
-      settings: stored.contractSettings,
-      rankedCompatible: row.mode === 'ranked' && stored.contractSettings.visibility === 'public',
-      members: stored.members,
-      createdAt: toRecordDate(row.createdAt),
-      expiresAt: stored.expiresAt,
-    });
+    try {
+      const stored = readStoredSettings(row.settings);
+      const playerCount = stored.members.filter((lobbyMember) => lobbyMember.state === 'joined').length;
+      const open = row.status === 'waiting' || row.status === 'ready';
+      const full = playerCount >= row.maxPlayers;
+      const enoughPlayers = playerCount >= stored.contractSettings.minPlayers;
+      const blockerReason = !open ? 'lobby_not_open' : !enoughPlayers ? 'waiting_for_players' : null;
+      return lobbyDtoSchema.parse({
+        id: row.id,
+        code: row.code,
+        hostUserId: row.hostUserId,
+        status: row.status,
+        visibility: row.visibility,
+        mode: row.mode,
+        playerCount,
+        maxPlayers: row.maxPlayers,
+        canJoin: open && !full,
+        canStart: open && enoughPlayers,
+        blockerReason,
+        state: statusToState(row.status),
+        settings: stored.contractSettings,
+        rankedCompatible: row.mode === 'ranked' && stored.contractSettings.visibility === 'public',
+        members: stored.members,
+        createdAt: toRecordDate(row.createdAt),
+        expiresAt: stored.expiresAt,
+      });
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException({
+        code: 'lobby_data_unavailable',
+        message: 'Lobby data is temporarily unavailable.',
+        details: {},
+      });
+    }
   }
 }
