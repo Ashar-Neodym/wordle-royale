@@ -294,8 +294,8 @@ export class ProfileReadService {
     return await this.listCurrentUserMatchHistory({
       userId: profile.user.id,
       mode: input.mode,
-      ...(input.limit ? { limit: input.limit } : {}),
-      ...(input.cursor ? { cursor: input.cursor } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
     });
   }
 

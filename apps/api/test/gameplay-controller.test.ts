@@ -26,10 +26,16 @@ function createGameplayRestPrismaMock() {
     id: lobbyId,
     status: 'waiting',
     settings: {
+      contractSettings: {
+        visibility: 'public', rated: true, mode: 'standard', language: 'en', wordLength: 5,
+        difficulty: 'medium', minPlayers: 2, maxPlayers: 2, roundsCount: 1,
+        roundTimeSeconds: 120, scoringPreset: 'standard_v1',
+      },
       members: [
         { userId: hostUserId, displayName: 'Player One', handle: 'player_one', role: 'host', state: 'joined', ready: true, joinedAt: '2026-06-29T00:00:00.000Z' },
         { userId: guestUserId, displayName: 'Guest Player', handle: 'guest_player', role: 'player', state: 'joined', ready: true, joinedAt: '2026-06-29T00:00:00.000Z' },
       ],
+      expiresAt: '2026-06-29T00:30:00.000Z',
     },
   };
   const created: {

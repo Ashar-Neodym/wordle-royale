@@ -44,4 +44,19 @@ describe('operational ranked presentation invariants', () => {
     assert.match(standard, /if \(!availabilityVerified\)/u);
     assert.match(standard, /No queue action is offered/u);
   });
+
+  it('never invents Speed outcomes or profile chart values', () => {
+    const gameplay = source('./GameplayScreen.tsx');
+    const matchDetail = source('../app/matches/[matchId]/page.tsx');
+    const profile = source('./ProfileHistory.tsx');
+    for (const rankedSource of [gameplay, matchDetail]) {
+      assert.doesNotMatch(rankedSource, /result \?\? 'void'|terminalReason \?\? 'resolved'/u);
+      assert.match(rankedSource, /result unavailable/u);
+      assert.match(rankedSource, /terminal reason unavailable/u);
+    }
+    assert.doesNotMatch(profile, /ratingDelta \?\? 0|\[rating\.rating, rating\.rating, rating\.rating\]/u);
+    assert.match(profile, /: null;/u);
+    assert.match(profile, /role="img" aria-label=\{`Rating history:/u);
+    assert.match(profile, /aria-hidden="true"/u);
+  });
 });

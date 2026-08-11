@@ -97,7 +97,7 @@ function toStoredSettings(settings: LobbySettings, members: LobbyMember[]): Stor
   return { contractSettings: settings, members, expiresAt: expiresAtIso() };
 }
 
-function readStoredSettings(raw: unknown): StoredLobbySettings {
+export function readStoredLobbySettings(raw: unknown): StoredLobbySettings {
   const parsed = storedLobbySettingsSchema.safeParse(raw);
   if (!parsed.success) {
     throw new ServiceUnavailableException({
@@ -183,7 +183,7 @@ export class LobbyService {
   }
 
   private async addGuest(existing: LobbyRecord, userId = stubGuestUserId): Promise<LobbyDto> {
-    const stored = readStoredSettings(existing.settings);
+    const stored = readStoredLobbySettings(existing.settings);
     const requestedUserAlreadyJoined = stored.members.some((lobbyMember) => lobbyMember.userId === userId);
     const effectiveUserId = requestedUserAlreadyJoined && userId === stubHostUserId ? stubGuestUserId : userId;
     const hasGuest = stored.members.some((lobbyMember) => lobbyMember.userId === effectiveUserId);
@@ -209,7 +209,7 @@ export class LobbyService {
 
   private toDto(row: LobbyRecord): LobbyDto {
     try {
-      const stored = readStoredSettings(row.settings);
+      const stored = readStoredLobbySettings(row.settings);
       const playerCount = stored.members.filter((lobbyMember) => lobbyMember.state === 'joined').length;
       const open = row.status === 'waiting' || row.status === 'ready';
       const full = playerCount >= row.maxPlayers;

@@ -128,4 +128,17 @@ describe('leaderboard REST read models', () => {
     const speedMatches = await request(app.getHttpServer()).get('/profiles/ada/matches?mode=speed_1v1').expect(200);
     assert.deepEqual(speedMatches.body.data.items, []);
   });
+
+  it('rejects invalid pagination identically on both public history routes', async () => {
+    for (const path of ['/profiles/ada/matches', '/profiles/ada/ratings/standard_1v1/history']) {
+      for (const [query, code] of [
+        ['limit=0', 'invalid_history_limit'],
+        ['limit=not-a-number', 'invalid_history_limit'],
+        ['cursor=', 'invalid_history_cursor'],
+      ]) {
+        const response = await request(app.getHttpServer()).get(`${path}?${query}`).expect(400);
+        assert.equal(response.body.error.code, code, `${path}?${query}`);
+      }
+    }
+  });
 });

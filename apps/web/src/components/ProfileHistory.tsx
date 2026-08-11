@@ -108,8 +108,10 @@ const modeFallbacks: ModeDefinition[] = [
 function summarizeLiveMode(profile: ProfileSummary, mode: ModeDefinition['id'], rating: ProfileSummary['rating']): Pick<ModeCard, 'wins' | 'losses' | 'draws' | 'abandons' | 'recentDelta' | 'graph'> {
   const recent = profile.recentMatches.filter((match) => match.rankedMode === mode).slice(0, 8);
   const recentDelta = recent.find((match) => match.viewer?.ratingDelta !== null && match.viewer?.ratingDelta !== undefined)?.viewer?.ratingDelta ?? null;
-  const deltas = recent.map((match) => match.viewer?.ratingDelta ?? 0).reverse();
-  const graph = deltas.length > 0 ? deltas.reduce<number[]>((points, delta) => [...points, points[points.length - 1]! + delta], [rating.rating - deltas.reduce((sum, delta) => sum + delta, 0)]).slice(-6) : [rating.rating, rating.rating, rating.rating];
+  const deltas = recent.flatMap((match) => typeof match.viewer?.ratingDelta === 'number' ? [match.viewer.ratingDelta] : []).reverse();
+  const graph = deltas.length > 0
+    ? deltas.reduce<number[]>((points, delta) => [...points, points[points.length - 1]! + delta], [rating.rating - deltas.reduce((sum, delta) => sum + delta, 0)]).slice(-6)
+    : null;
   return { wins: rating.wins, losses: rating.losses, draws: rating.draws, abandons: rating.abandons, recentDelta, graph };
 }
 
@@ -149,10 +151,10 @@ function graphBars(points: number[]): ReactElement {
   const min = Math.min(...points);
   const max = Math.max(...points);
   return (
-    <div className={styles.ratingSparkline} aria-label="Rating history from live mode read model">
+    <div className={styles.ratingSparkline} role="img" aria-label={`Rating history: ${points.join(', ')}`}>
       {points.map((point, index) => {
         const height = max === min ? 45 : 22 + ((point - min) / (max - min)) * 46;
-        return <span key={`${point}-${index}`} style={{ height: `${height}px` }} title={`${point}`} />;
+        return <span aria-hidden="true" key={`${point}-${index}`} style={{ height: `${height}px` }} title={`${point}`} />;
       })}
     </div>
   );
@@ -163,7 +165,7 @@ export function ModeRatingCards({ profile, authPresentationMode }: { profile: Pr
     <div className={styles.modeGrid}>
       {modeCards(profile).map((mode) => {
         const isLive = mode.status === 'live';
-        const badgeLabel = isLive ? 'Live read model' : mode.status === 'prepared' ? 'Prepared' : 'Awaiting profile';
+        const badgeLabel = isLive ? 'Authoritative rating' : mode.status === 'prepared' ? 'Prepared' : 'Awaiting profile';
         const provisionalLabel = isLive && mode.provisionalGamesPlayed !== null
           ? `Provisional: ${mode.provisionalGamesPlayed}/${mode.provisionalGamesTotal} games complete`
           : null;

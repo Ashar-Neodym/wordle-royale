@@ -6,6 +6,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { CurrentUserService } from '../src/auth/current-user.service.ts';
+import { GameplayPersistenceService } from '../src/gameplay/gameplay-persistence.service.ts';
 import { LobbyController } from '../src/lobby/lobby.controller.ts';
 import { LobbyService } from '../src/lobby/lobby.service.ts';
 import { PrismaService } from '../src/prisma/prisma.service.ts';
@@ -101,6 +102,26 @@ describe('LobbyService durable settings decoding', () => {
     const service = new LobbyService(prisma.service as never);
     await assert.rejects(service.joinLobby(lobbyId), ServiceUnavailableException);
     assert.equal(prisma.updates(), 0);
+  });
+
+  it('rejects malformed ranked-start settings before identity or gameplay writes', async () => {
+    let writes = 0;
+    const client = {
+      lobby: { findUnique: async () => row({ members: [{ userId: hostUserId }] }) },
+      userAccount: { upsert: async () => { writes += 1; } },
+      userProfile: { upsert: async () => { writes += 1; } },
+      match: { create: async () => { writes += 1; } },
+    };
+    const service = new GameplayPersistenceService({ client } as never);
+
+    await assert.rejects(
+      service.startRankedMatchFromLobby({ lobbyId, clientRequestId: 'start-malformed', currentUserId: hostUserId }),
+      (error: unknown) => {
+        const response = (error as { getResponse?: () => unknown }).getResponse?.() as { code?: string } | undefined;
+        return response?.code === 'lobby_data_unavailable';
+      },
+    );
+    assert.equal(writes, 0);
   });
 });
 

@@ -4,6 +4,7 @@ import { acceptedGuessResultSchema, currentRankedMatchStateResponseDataSchema, d
 import type { AcceptedGuessResult, CurrentRankedMatchStateResponseData, GuessResult, RankedMatchResultSummary, RankedMatchStartResponseData, RatingEventContract, RejectedGuessResult } from '@wordle-royale/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.ts';
+import { readStoredLobbySettings } from '../lobby/lobby.service.ts';
 import {
   calculateStandard1v1Settlement,
   STANDARD_1V1_INITIAL_RATING_DEVIATION,
@@ -1032,15 +1033,15 @@ export class GameplayPersistenceService {
       throw new NotFoundException({ code: 'lobby_not_found', message: 'Lobby was not found.', details: { lobbyId: input.lobbyId } });
     }
 
-    const members = this.readLobbyMemberUserIds(lobby.settings);
+    const members = readStoredLobbySettings(lobby.settings).members
+      .filter((member) => member.state === 'joined')
+      .map((member) => member.userId);
     if (!members.includes(input.currentUserId)) {
       throw new ForbiddenException({ code: 'not_lobby_member', message: 'Current local stub user is not a member of this lobby.' });
     }
     if (members.length < 2) {
       throw new BadRequestException({ code: 'not_enough_players', message: 'Ranked matches require at least two lobby members.' });
     }
-    await this.ensureLocalStubParticipants(members);
-
     const dictionaryReleaseId = input.dictionaryReleaseId ?? await this.defaultDictionaryReleaseId();
     const started = await this.startRankedMatch({
       lobbyId: input.lobbyId,
@@ -1143,28 +1144,6 @@ export class GameplayPersistenceService {
     });
   }
 
-  private readLobbyMemberUserIds(settings: unknown): string[] {
-    const value = typeof settings === 'object' && settings !== null ? settings as { members?: Array<{ userId?: unknown }> } : {};
-    return (value.members ?? []).map((member) => member.userId).filter((userId): userId is string => typeof userId === 'string');
-  }
-
-  private async ensureLocalStubParticipants(userIds: string[]): Promise<void> {
-    for (const userId of userIds) {
-      const isGuest = userId.startsWith('22222222-');
-      const displayName = isGuest ? 'Guest Player' : 'Player One';
-      const handle = isGuest ? 'guest_player' : 'player_one';
-      await (this.prisma.client as any).userAccount?.upsert?.({
-        where: { id: userId },
-        update: { displayName, status: 'active' },
-        create: { id: userId, email: null, displayName, status: 'active' },
-      });
-      await (this.prisma.client as any).userProfile?.upsert?.({
-        where: { userId },
-        update: { publicHandle: handle, avatarUrl: null },
-        create: { userId, publicHandle: handle, avatarUrl: null },
-      });
-    }
-  }
 
   private async defaultDictionaryReleaseId(): Promise<string> {
     const release = await (this.prisma.client as any).dictionaryRelease.findFirst({

@@ -62,7 +62,7 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
                   <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
                   <div>
                     <strong>{standing.userId.slice(0, 8)}</strong>
-                    <p>{liveResult.rankedMode === 'speed_1v1' ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}` : `${standing.totalScore} pts`}</p>
+                    <p>{liveResult.rankedMode === 'speed_1v1' ? `${standing.result ?? 'result unavailable'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${standing.terminalReason ? standing.terminalReason.replaceAll('_', ' ') : 'terminal reason unavailable'}` : `${standing.totalScore} pts`}</p>
                   </div>
                   {delta ? <TokenBadge label={`${delta.ratingAfter} (${formatSigned(delta.ratingDelta)})`} bg={token.bg} border={token.text} text={token.text} /> : <TokenBadge label="No rating" bg={rank.color.provisional.bg} border={rank.color.provisional.border} text={rank.color.provisional.text} />}
                 </div>

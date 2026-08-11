@@ -149,7 +149,7 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
               <div>
                 <strong>{standing.userId.slice(0, 8)}</strong>
                 <p>{result.rankedMode === 'speed_1v1'
-                  ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}`
+                  ? `${standing.result ?? 'result unavailable'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${standing.terminalReason ? standing.terminalReason.replaceAll('_', ' ') : 'terminal reason unavailable'}`
                   : `${standing.totalScore} pts`}</p>
               </div>
               <span className={delta && delta.ratingDelta >= 0 ? styles.ratingDeltaPositive : styles.ratingDeltaNegative}>
