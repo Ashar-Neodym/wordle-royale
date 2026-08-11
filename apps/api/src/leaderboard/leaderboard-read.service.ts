@@ -4,6 +4,7 @@ import type { RankedMode, SpeedRankedModeTimeControl } from '@wordle-royale/cont
 import { SpeedOperationalReadinessService } from '../health/speed-operational-readiness.service.ts';
 import { PrismaService } from '../prisma/prisma.service.ts';
 import { speedQueueEnabled } from '../matchmaking/matchmaking-config.ts';
+import { apiSurfaceMode } from '../config/runtime-config.ts';
 
 const DEFAULT_LEADERBOARD_LIMIT = 20;
 const MAX_LEADERBOARD_LIMIT = 100;
@@ -226,6 +227,16 @@ export class LeaderboardReadService {
   ) {}
 
   async listRankedModes(): Promise<{ modes: RankedModeReadModel[] }> {
+    if (apiSurfaceMode() === 'standby') {
+      return {
+        modes: [
+          { id: 'standard_1v1', label: 'Standard', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Backend standby; queue creation and gameplay are unavailable.' },
+          { id: 'speed_1v1', label: 'Speed / Blitz', players: '1v1', rated: true, enabled: false, queueEnabled: false, rulesetVersion: 'speed_1v1_v1_75s', ratingAlgorithmConfigVersion: 'speed_1v1_glicko_v1', provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Backend standby; queue creation and gameplay are unavailable.' },
+          { id: 'classic_1v1', label: 'Classic', players: '1v1', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared ladder; settlement is not live and no authoritative algorithm is exposed.' },
+          { id: 'multiplayer_lobby', label: 'Multiplayer / Lobby', players: '2-4', rated: true, enabled: false, provisionalGames: defaultProvisionalGames, defaultRating, defaultRatingDeviation, notes: 'Prepared as a separate pairwise-placement ladder; keep disabled until abuse policy is locked.' },
+        ],
+      };
+    }
     const speedStatus = await this.speedOperational?.check();
     const speedConfigured = speedQueueEnabled();
     const speedQueueAvailable = speedStatus?.available === true;

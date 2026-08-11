@@ -8,6 +8,7 @@ const apiDistRoot = join(process.cwd(), 'dist');
 const workspacePackages = [
   ['@wordle-royale/contracts', '../../../packages/contracts/src/index.js'],
   ['@wordle-royale/game-engine', '../../../packages/game-engine/src/index.js'],
+  ['@wordle-royale/word-tools', '../../../packages/word-tools/src/index.js'],
 ];
 
 for (const [packageName, main] of workspacePackages) {

@@ -30,6 +30,7 @@ import { MatchmakingService } from './matchmaking/matchmaking.service.ts';
 import { ProfileReadService } from './profile/profile-read.service.ts';
 import { ProfileService } from './profile/profile.service.ts';
 import { PrismaService } from './prisma/prisma.service.ts';
+import { StandbySurfaceMiddleware } from './standby/standby-surface.middleware.ts';
 
 @Module({
   imports: [
@@ -64,12 +65,12 @@ import { PrismaService } from './prisma/prisma.service.ts';
         return new ExternalSessionService(prisma.client as unknown as PrismaClient, durableAuth, config ? ExternalTokenVerifier.remote(config) : null);
       },
     },
-    DurableUnsafeRequestMiddleware, CurrentUserService, ProfileService, ProfileReadService, LobbyService,
+    StandbySurfaceMiddleware, DurableUnsafeRequestMiddleware, CurrentUserService, ProfileService, ProfileReadService, LobbyService,
     GameplayPersistenceService, SpeedGameplayService, LeaderboardReadService, MatchmakingService,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(DurableUnsafeRequestMiddleware).forRoutes('*');
+    consumer.apply(StandbySurfaceMiddleware, DurableUnsafeRequestMiddleware).forRoutes('*');
   }
 }

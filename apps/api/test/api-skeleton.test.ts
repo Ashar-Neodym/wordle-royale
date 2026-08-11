@@ -240,13 +240,14 @@ describe('api skeleton', () => {
 
   it('rejects unsafe hosted preview runtime configuration before startup', () => {
     assert.throws(
-      () => validateRuntimeConfig({ NODE_ENV: 'production', APP_ENV: 'preview' }),
+      () => validateRuntimeConfig({ NODE_ENV: 'production', APP_ENV: 'preview', API_SURFACE_MODE: 'active' }),
       /DATABASE_URL is required/,
     );
     assert.throws(
       () => validateRuntimeConfig({
         NODE_ENV: 'production',
         APP_ENV: 'preview',
+        API_SURFACE_MODE: 'active',
         DATABASE_URL: 'postgresql://preview-db.example/wordle',
         PUBLIC_WEB_URL: 'https://preview.example.com',
         CORS_ALLOWED_ORIGINS: '*',
@@ -261,6 +262,7 @@ describe('api skeleton', () => {
       () => validateRuntimeConfig({
         NODE_ENV: 'production',
         APP_ENV: 'preview',
+        API_SURFACE_MODE: 'active',
         DATABASE_URL: 'postgresql://preview-db.example/wordle',
         PUBLIC_WEB_URL: 'https://preview.example.com',
         CORS_ALLOWED_ORIGINS: 'https://preview.example.com',
@@ -275,6 +277,7 @@ describe('api skeleton', () => {
       () => validateRuntimeConfig({
         NODE_ENV: 'production',
         APP_ENV: 'preview',
+        API_SURFACE_MODE: 'active',
         DATABASE_URL: 'postgresql://preview-db.example/wordle',
         PUBLIC_WEB_URL: 'https://preview.example.com',
         CORS_ALLOWED_ORIGINS: 'https://preview.example.com',
@@ -289,6 +292,7 @@ describe('api skeleton', () => {
     const hostedPreview = validateRuntimeConfig({
       NODE_ENV: 'production',
       APP_ENV: 'preview',
+      API_SURFACE_MODE: 'active',
       DATABASE_URL: 'postgresql://preview-db.example/wordle',
       PUBLIC_WEB_URL: 'https://preview.example.com',
       CORS_ALLOWED_ORIGINS: 'https://preview.example.com',

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service.ts';
 import { RedisReadinessService } from './redis-readiness.service.ts';
 import { SpeedOperationalReadinessService } from './speed-operational-readiness.service.ts';
 import { AuthReadinessService } from './auth-readiness.service.ts';
+import { apiSurfaceMode } from '../config/runtime-config.ts';
 
 @Injectable()
 export class ReadinessService {
@@ -20,6 +21,22 @@ export class ReadinessService {
   ) {}
 
   async getReadiness(): Promise<ReadinessStatus> {
+    if (apiSurfaceMode() === 'standby') {
+      const checkedAt = new Date().toISOString();
+      const disabled = { status: 'not_checked_stub' as const, checkedAt, message: 'Dependency is intentionally disabled while the API surface is in standby.' };
+      return {
+        status: 'unavailable',
+        service: 'wordle-royale-api',
+        environment: process.env.NODE_ENV ?? 'development',
+        revision: publicDeploymentRevision(),
+        checkedAt,
+        dependencies: {
+          database: disabled, applicationSchema: disabled, durableAuth: disabled,
+          standardDictionary: disabled, speedRuntime: disabled,
+          speedLifecycleActivation: disabled, redis: disabled,
+        },
+      };
+    }
     const authReadiness = this.auth;
     const [database, applicationSchema, redis, speedLifecycleSchema, durableAuth] = await Promise.all([
       this.prisma.checkDatabase(),

@@ -14,7 +14,7 @@ import { parseAuthSessionOperatorArgs } from '../scripts/auth-session-operator.t
 const key = Buffer.alloc(32, 7);
 const encodedKey = key.toString('base64url');
 const production = {
-  NODE_ENV: 'production', APP_ENV: 'production', AUTH_MODE: 'session_required', DURABLE_AUTH_ENABLED: 'true',
+  NODE_ENV: 'production', APP_ENV: 'production', API_SURFACE_MODE: 'active', AUTH_MODE: 'session_required', DURABLE_AUTH_ENABLED: 'true',
   AUTH_RATE_LIMIT_KEY: encodedKey, PUBLIC_WEB_URL: 'https://web.example.test', CORS_ALLOWED_ORIGINS: 'https://web.example.test',
   DATABASE_URL: new URL('postgresql://db.invalid/wordle').toString(), ENABLE_DEV_AUTH: 'false', ENABLE_DEV_ROUTES: 'false', COOKIE_SECURE: 'true',
   TRUSTED_PROXY_HOPS: '1', EXPECTED_API_REPLICA_COUNT: '1',
@@ -95,6 +95,28 @@ test('actual Express trust boundary ignores spoofed XFF values outside one confi
     assert.equal(second.body.ip, first.body.ip);
   } finally {
     await app.close();
+    for (const name of Object.keys(process.env)) if (!(name in before)) delete process.env[name];
+    Object.assign(process.env, before);
+  }
+});
+
+test('standby preview treats a normalized blank proxy-hop value as absent', () => {
+  const before = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      APP_ENV: 'preview',
+      DURABLE_AUTH_ENABLED: 'false',
+      TRUSTED_PROXY_HOPS: '',
+    });
+    let adapterReads = 0;
+    configureTrustedProxy({
+      getHttpAdapter() {
+        adapterReads += 1;
+        throw new Error('standby_proxy_adapter_read');
+      },
+    } as never);
+    assert.equal(adapterReads, 0);
+  } finally {
     for (const name of Object.keys(process.env)) if (!(name in before)) delete process.env[name];
     Object.assign(process.env, before);
   }

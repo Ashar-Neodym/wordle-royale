@@ -25,9 +25,10 @@ function configureCors(app: INestApplication) {
 export function configureTrustedProxy(app: INestApplication): void {
   const durable = ['1', 'true', 'yes'].includes((process.env.DURABLE_AUTH_ENABLED ?? '').toLowerCase());
   const productionDurable = durable && process.env.APP_ENV === 'production';
-  if (!productionDurable && process.env.TRUSTED_PROXY_HOPS == null) return;
+  const configuredProxyHops = process.env.TRUSTED_PROXY_HOPS?.trim();
+  if (!productionDurable && !configuredProxyHops) return;
   const express = app.getHttpAdapter().getInstance() as { set(name: string, value: number): void };
-  express.set('trust proxy', trustedProxyHops());
+  express.set('trust proxy', trustedProxyHops(configuredProxyHops));
 }
 
 async function bootstrap() {

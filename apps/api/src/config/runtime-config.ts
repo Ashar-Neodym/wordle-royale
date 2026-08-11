@@ -1,5 +1,6 @@
 export type RuntimeConfig = Record<string, string | undefined>;
 export type AuthRegistrationMode = 'closed' | 'canary' | 'open';
+export type ApiSurfaceMode = 'standby' | 'active';
 export type ExternalOidcConfig = { issuer: string; audience: string; jwksUrl: string; algorithms: string[] };
 
 const localDatabaseUrl = 'postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public';
@@ -34,6 +35,13 @@ function appEnv(config: RuntimeConfig): string {
 function isProdLike(config: RuntimeConfig): boolean {
   const env = appEnv(config);
   return env === 'preview' || env === 'production';
+}
+
+export function apiSurfaceMode(config: RuntimeConfig = process.env): ApiSurfaceMode {
+  const value = config.API_SURFACE_MODE?.trim();
+  if (value === 'standby' || value === 'active') return value;
+  if (!value && !isProdLike(config)) return 'active';
+  fail('API_SURFACE_MODE must be explicitly set to standby or active in preview/production.');
 }
 
 function strictSeconds(value: string, name: string, minimum: number, maximum: number): number {
@@ -113,6 +121,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
   const resolved: Record<string, string> = {
     NODE_ENV: config.NODE_ENV ?? 'development',
     APP_ENV: appEnv(config),
+    API_SURFACE_MODE: apiSurfaceMode(config),
     AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
     DURABLE_AUTH_ENABLED: config.DURABLE_AUTH_ENABLED ?? 'false',
     EXTERNAL_AUTH_MODE: config.EXTERNAL_AUTH_MODE ?? 'disabled',
@@ -141,6 +150,15 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
   };
 
   const durableAuthEnabled = envFlagEnabled(resolved.DURABLE_AUTH_ENABLED, false);
+  if (resolved.API_SURFACE_MODE === 'standby') {
+    if (durableAuthEnabled) fail('DURABLE_AUTH_ENABLED must be false in standby mode.');
+    if (envFlagEnabled(config.STANDARD_1V1_QUEUE_ENABLED, false)) fail('STANDARD_1V1_QUEUE_ENABLED must be false in standby mode.');
+    if (envFlagEnabled(config.SPEED_1V1_QUEUE_ENABLED, false)) fail('SPEED_1V1_QUEUE_ENABLED must be false in standby mode.');
+    if (config.PUBLIC_WEB_URL?.trim() || splitCsv(config.CORS_ALLOWED_ORIGINS).length > 0) {
+      fail('PUBLIC_WEB_URL and CORS_ALLOWED_ORIGINS must be unset in standby mode.');
+    }
+    return resolved;
+  }
   externalOidcConfig({ ...config, APP_ENV: resolved.APP_ENV, EXTERNAL_AUTH_MODE: resolved.EXTERNAL_AUTH_MODE });
   const sessionTtlSeconds = strictSeconds(resolved.ACCOUNT_SESSION_TTL_SECONDS!, 'ACCOUNT_SESSION_TTL_SECONDS', 3_600, 2_592_000);
   strictSeconds(resolved.ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS!, 'ACCOUNT_SESSION_LAST_SEEN_INTERVAL_SECONDS', 300, sessionTtlSeconds);

@@ -2,6 +2,10 @@
 
 NestJS backend/API skeleton for Wordle Royale.
 
+## Locked standby surface
+
+Hosted preview/production requires explicit `API_SURFACE_MODE=standby|active`; local and test default to `active` for compatibility. In `standby`, only exact query-free `GET /healthz`, `GET /readyz`, `GET /.well-known/wordle-runtime-compatibility`, and `GET /ranked/modes` are admitted. Readiness and mode identity preserve their existing envelopes while performing no database, Redis, auth, dictionary, or queue reads; all modes are disabled. Every other method/raw target returns `503 backend_standby` with no details. Migrations are an operator action and are never part of the image entrypoint.
+
 ## Local API skeleton
 
 Implemented local foundational routes:
