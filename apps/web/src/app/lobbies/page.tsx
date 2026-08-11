@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { getWebApiSnapshot } from '../../lib/api-client';
-import { LobbyBrowser, WaitingRoom } from '../../components/LobbyScreens';
+import { LobbyBrowser } from '../../components/LobbyScreens';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction } from '../actions';
@@ -21,6 +21,8 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
     const params = await resolveSearchParams(searchParams);
     const api = await getWebApiSnapshot();
     const actionState = rankedActionState(params);
+    const standardAvailable = api.rankedModes.status === 'connected'
+      && api.rankedModes.data?.modes.some((mode) => mode.id === 'standard_1v1' && mode.enabled) === true;
     return (
     <PageFrame>
       <PageHeader eyebrow="Lobbies" title="Create or join a rated room">
@@ -33,6 +35,7 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
             actionState={actionState}
             previewSessionActive={api.currentUser.status === 'connected'}
             authPresentationMode={presentation.mode}
+            standardAvailable={standardAvailable}
             startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}
@@ -46,7 +49,7 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
           <a className={styles.primaryButton} href="/play">Go to Play</a>
         </aside>
       </div>
-      <WaitingRoom />
+
     </PageFrame>
     );
   }, requireAuthPresentationConfiguration);

@@ -25,6 +25,7 @@ type StandardQueuePanelProps = {
   sessionState: SessionState;
   sessionError?: string | null;
   authPresentationMode: AuthPresentationMode;
+  availabilityVerified: boolean;
 };
 
 function elapsedSeconds(createdAt: string | undefined, now: number): number {
@@ -61,7 +62,7 @@ function queueCopy(state: QueueUiState, authPresentationMode: AuthPresentationMo
   }
 }
 
-export function StandardQueuePanel({ sessionState, sessionError, authPresentationMode }: StandardQueuePanelProps): ReactElement {
+export function StandardQueuePanel({ sessionState, sessionError, authPresentationMode, availabilityVerified }: StandardQueuePanelProps): ReactElement {
   const initialState: QueueUiState = sessionState === 'active' ? 'reconnecting' : sessionState;
   const [state, setState] = useState<QueueUiState>(initialState);
   const [ticket, setTicket] = useState<Standard1v1Ticket | null>(null);
@@ -144,8 +145,8 @@ export function StandardQueuePanel({ sessionState, sessionError, authPresentatio
   }
 
   useEffect(() => {
-    if (sessionState === 'active') void reconnect();
-  }, [sessionState]);
+    if (availabilityVerified && sessionState === 'active') void reconnect();
+  }, [availabilityVerified, sessionState]);
 
   useEffect(() => () => {
     actionAttempt.current += 1;
@@ -206,6 +207,18 @@ export function StandardQueuePanel({ sessionState, sessionError, authPresentatio
   const busy = state === 'joining' || state === 'reconnecting' || state === 'cancelling';
   const elapsed = elapsedSeconds(ticket?.createdAt, now);
   const matchedHref = hrefForMatchedTicket(ticket);
+
+  if (!availabilityVerified) {
+    return (
+      <article id="standard-queue" className={styles.queuePanel} aria-live="polite">
+        <div className={styles.queueStatusBlock} role="status">
+          <p className={styles.eyebrow}>Standard status unavailable</p>
+          <h3>Standard matchmaking could not be verified</h3>
+          <p className={styles.muted}>The authoritative mode catalog did not confirm Standard availability. No queue action is offered.</p>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article id="standard-queue" className={styles.queuePanel} aria-live="polite" aria-busy={busy}>

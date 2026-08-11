@@ -2,12 +2,12 @@ import type { ReactElement } from 'react';
 import type { CurrentRankedMatchStateResponseData, RankedMatchResultSummary } from '@wordle-royale/contracts';
 import type { ApiClientResult, LiveMatchState } from '../lib/api-client';
 import { connectionStates } from '../lib/tokens';
-import { gameplayFixtures } from '../lib/fixtures';
-import { formatState, userById } from './data';
 import { TokenBadge } from './StatusPanels';
 import { EmptyTileRow, WordTile } from './WordTile';
 import { SpeedGameplayPanel } from './SpeedGameplayPanel';
 import styles from './web-shell.module.css';
+
+const formatState = (state: string): string => state.replaceAll('_', ' ');
 
 type GameplayActionState = {
   action: string | undefined;
@@ -100,7 +100,7 @@ function LiveGameplayPanel({
                 <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
                 <div>
                   <strong>{standing.userId.slice(0, 8)}</strong>
-                  <p>{standing.totalScore} pts · {standing.totalValidGuesses} guesses · {standing.roundsSolved} solved</p>
+                  <p>{standing.totalScore} pts</p>
                 </div>
               </div>
             ))}
@@ -112,7 +112,7 @@ function LiveGameplayPanel({
           </aside>
         </div>
       ) : (
-        <p className={styles.warningText}>Could not load ranked state from {matchState.apiUrl}: {matchState.error ?? 'state unavailable'}. Practice fixtures stay hidden in live match mode.</p>
+        <p className={styles.warningText}>Could not load ranked state from the match service: {matchState.error ?? 'state unavailable'}. No substitute board is shown.</p>
       )}
     </article>
   );
@@ -150,7 +150,7 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
                 <strong>{standing.userId.slice(0, 8)}</strong>
                 <p>{result.rankedMode === 'speed_1v1'
                   ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}`
-                  : `${standing.totalScore} pts · ${standing.totalValidGuesses} guesses · ${standing.roundsSolved} solved`}</p>
+                  : `${standing.totalScore} pts`}</p>
               </div>
               <span className={delta && delta.ratingDelta >= 0 ? styles.ratingDeltaPositive : styles.ratingDeltaNegative}>
                 {delta ? `${delta.ratingBefore} → ${delta.ratingAfter} (${delta.ratingDelta >= 0 ? '+' : ''}${delta.ratingDelta})` : 'unrated'}
@@ -170,20 +170,15 @@ function ResultPanel({ matchResult }: { matchResult: ApiClientResult<RankedMatch
 }
 
 export function GameplayScreen({ matchState, matchResult, actionState, submitRankedGuessAction, completeRankedMatchAction }: GameplayScreenProps): ReactElement {
-  const gameplay = gameplayFixtures.solvedRound;
-  const reconnect = gameplayFixtures.reconnecting;
-  const localPlayer = gameplay.players.find((player) => player.userId === gameplay.localUserId) ?? gameplay.players[0];
-  const connectionToken = connectionStates[gameplay.connection];
-  const reconnectToken = connectionStates[reconnect.connection];
   const hasLiveMatch = Boolean(matchState);
   const speedMatch = (matchState?.data as { mode?: string } | null)?.mode === 'speed_1v1';
 
   return (
     <section id="gameplay" className={styles.section} aria-labelledby="gameplay-heading">
       <div className={styles.sectionHeader}>
-        <p className={styles.eyebrow}>{hasLiveMatch ? 'Live board' : 'Board preview'}</p>
+        <p className={styles.eyebrow}>{hasLiveMatch ? 'Live board' : 'No live match'}</p>
         <h2 id="gameplay-heading">Current game</h2>
-        <p>{hasLiveMatch ? 'Server state is shown here when available. Practice boards are kept out of the live match view.' : 'Fixture preview. Live guesses and results appear here when a ranked match is open.'}</p>
+        <p>{hasLiveMatch ? 'Server state is shown here when available. Practice boards are kept out of the live match view.' : 'Open a server-provided match link to load a ranked board, or use Practice for a browser-local game.'}</p>
       </div>
       {matchState ? speedMatch
         ? <SpeedGameplayPanel initialState={matchState} />
@@ -193,48 +188,14 @@ export function GameplayScreen({ matchState, matchResult, actionState, submitRan
       {hasLiveMatch ? (
         <aside className={styles.practiceNote} aria-label="Practice preview hidden">
           <strong>Practice board hidden during live match.</strong>
-          <p>Open the home page without a match link to see fixture/demo boards. This keeps the ranked game view focused on the server match.</p>
+          <p>Use Practice for a separate browser-local game. This ranked view remains focused on server match state.</p>
         </aside>
       ) : (
-        <div className={styles.gameShell}>
-          <article className={styles.boardPanel}>
-            <div className={styles.cardTopline}>
-              <TokenBadge label={connectionToken.label} bg={connectionToken.bg} border={connectionToken.border} text={connectionToken.text} />
-              <span>Round {gameplay.round.roundNumber} · {formatState(gameplay.state)}</span>
-            </div>
-            <div className={styles.wordGrid} role="grid" aria-label="Fixture word grid with color and non-color indicators" aria-rowcount={gameplay.maxGuesses} aria-colcount={gameplay.wordLength}>
-              {localPlayer.guesses.map((guess, rowIndex) => (
-                <div className={styles.wordRow} role="row" aria-rowindex={rowIndex + 1} key={`${guess.guess}-${rowIndex}`}>
-                  {guess.feedback.map((state, tileIndex) => (
-                    <WordTile key={`${guess.guess}-${tileIndex}`} letter={guess.guess[tileIndex] ?? ''} state={state} row={rowIndex + 1} column={tileIndex + 1} />
-                  ))}
-                </div>
-              ))}
-              {Array.from({ length: Math.max(0, gameplay.maxGuesses - localPlayer.guesses.length) }, (_, index) => (
-                <div className={styles.wordRow} role="row" aria-rowindex={localPlayer.guesses.length + index + 1} key={`empty-${index}`}><EmptyTileRow count={gameplay.wordLength} row={localPlayer.guesses.length + index + 1} /></div>
-              ))}
-            </div>
-          </article>
-          <aside className={styles.sidePanel}>
-            <h3>Practice players</h3>
-            {gameplay.players.map((player) => {
-              const user = userById(player.userId);
-              return (
-                <div className={styles.progressRow} key={player.userId}>
-                  <span className={styles.avatar} style={{ backgroundColor: user.avatarColor }}>{user.displayName.slice(0, 1)}</span>
-                  <div>
-                    <strong>{user.displayName}</strong>
-                    <p>{formatState(player.state)} · {player.score} pts · {player.validGuessCount} guesses</p>
-                  </div>
-                </div>
-              );
-            })}
-            <div className={styles.reconnectBox} aria-live={reconnectToken.ariaLive}>
-              <TokenBadge label={reconnectToken.label} bg={reconnectToken.bg} border={reconnectToken.border} text={reconnectToken.text} />
-              <p>Input pauses until server resync completes.</p>
-            </div>
-          </aside>
-        </div>
+        <article className={styles.panelWide}>
+          <h3>No ranked match open</h3>
+          <p className={styles.muted}>This page does not invent a board or result when no live match was requested.</p>
+          <a className={styles.primaryButton} href="/practice">Play practice</a>
+        </article>
       )}
     </section>
   );

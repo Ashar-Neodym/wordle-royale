@@ -1,8 +1,6 @@
 import type { ReactElement } from 'react';
 import { lobbyStates } from '../lib/tokens';
-import { lobbyEnvelopes, lobbyFixtures } from '../lib/fixtures';
 import type { ApiClientResult, LobbyListPayload } from '../lib/api-client';
-import { formatState, userById } from './data';
 import { TokenBadge } from './StatusPanels';
 import styles from './web-shell.module.css';
 
@@ -37,6 +35,7 @@ type LobbyBrowserProps = {
   actionState: LobbyActionState;
   previewSessionActive: boolean;
   authPresentationMode: 'preview_demo' | 'disabled' | 'durable';
+  standardAvailable: boolean;
   startPreviewDemoSessionAction: FormAction;
   createRankedLobbyAction: ButtonAction;
   joinLobbyByCodeAction: FormAction;
@@ -44,20 +43,6 @@ type LobbyBrowserProps = {
   startRankedMatchAction: FormAction;
 };
 
-function fixtureLobbyToDisplay(lobby: NonNullable<typeof lobbyEnvelopes.listOpen.data>[number]): DisplayLobby {
-  return {
-    id: lobby.id,
-    code: lobby.code,
-    state: lobby.state,
-    visibility: lobby.visibility,
-    membersCount: lobby.members.length,
-    maxPlayers: lobby.maxPlayers,
-    roundsCount: lobby.roundsCount,
-    roundTimeSeconds: lobby.roundTimeSeconds,
-    rated: lobby.rated,
-    rankedCompatible: lobby.rankedCompatible,
-  };
-}
 
 function apiLobbyToDisplay(lobby: LobbyListPayload['items'][number]): DisplayLobby {
   return {
@@ -77,7 +62,7 @@ function apiLobbyToDisplay(lobby: LobbyListPayload['items'][number]): DisplayLob
 function actionCopy(actionState: LobbyActionState): string | null {
   if (!actionState.status) return null;
   if (actionState.status === 'error') return actionState.message ?? 'Action failed.';
-  if (actionState.action === 'create_lobby') return `Created live ranked lobby ${actionState.lobbyCode ?? actionState.lobbyId}. Join it once to add the local guest, then start ranked.`;
+  if (actionState.action === 'create_lobby') return `Created ranked lobby ${actionState.lobbyCode ?? actionState.lobbyId}. Join it with your current account, then start ranked when enough players are present.`;
   if (actionState.action === 'join_code' || actionState.action === 'join_lobby') return `Joined live lobby ${actionState.lobbyCode ?? actionState.lobbyId}.`;
   if (actionState.action === 'start_ranked') return `Started ranked match ${actionState.matchId}; round ${actionState.roundId}.`;
   return 'Action completed.';
@@ -94,19 +79,19 @@ export function LobbyBrowser({
   actionState,
   previewSessionActive,
   authPresentationMode,
+  standardAvailable,
   startPreviewDemoSessionAction,
   createRankedLobbyAction,
   joinLobbyByCodeAction,
   joinLobbyAction,
   startRankedMatchAction,
 }: LobbyBrowserProps): ReactElement {
-  const fixtureLobbies = lobbyEnvelopes.listOpen.data ?? [];
   const apiLobbyData = apiLobbies.status === 'connected' ? apiLobbies.data : null;
   const usingApiLobbies = apiLobbyData !== null;
-  const lobbies = apiLobbyData ? apiLobbyData.items.map(apiLobbyToDisplay) : fixtureLobbies.map(fixtureLobbyToDisplay);
-  const sourceLabel = apiLobbies.status === 'connected' ? 'Local API route' : 'Fixture fallback';
+  const lobbies = apiLobbyData ? apiLobbyData.items.map(apiLobbyToDisplay) : [];
+  const sourceLabel = apiLobbies.status === 'connected' ? 'Room service' : 'Room status unavailable';
   const feedback = actionCopy(actionState);
-  const writeActionsEnabled = usingApiLobbies && previewSessionActive && authPresentationMode !== 'disabled';
+  const writeActionsEnabled = usingApiLobbies && standardAvailable && previewSessionActive && authPresentationMode !== 'disabled';
 
   return (
     <section id="lobbies" className={styles.section} aria-labelledby="lobby-browser-heading">
@@ -115,8 +100,8 @@ export function LobbyBrowser({
         <h2 id="lobby-browser-heading">Ranked and casual lobbies</h2>
         <p>
           {usingApiLobbies
-            ? `${lobbies.length} open room(s) on the local server. Rated rooms currently map to Standard 1v1; unranked/casual lobby language is prepared but not fully live yet.`
-            : `Server offline at ${apiLobbies.apiUrl}. Showing fixture rooms; live ranked/unranked actions are disabled.`}
+            ? lobbies.length === 0 ? 'The room service responded successfully. There are no open rooms.' : `${lobbies.length} open room(s).`
+            : 'Room availability could not be loaded. No room list is being substituted.'}
         </p>
       </div>
       {feedback ? (
@@ -145,7 +130,7 @@ export function LobbyBrowser({
       <div className={styles.splitGrid}>
         <article className={styles.panel}>
           <h3>Standard rated</h3>
-          <p className={styles.muted}>{previewSessionActive ? 'Create a public Standard 1v1 rated room. Quick queue, Speed, Classic, and casual lobby choices are visible as product structure but only this Standard lobby path is live today.' : authPresentationMode === 'preview_demo' ? 'Start preview demo mode first; public rooms remain browseable without a current user.' : authPresentationMode === 'durable' ? 'Sign in with a durable account first; public rooms remain browseable.' : 'Account-backed writes are unavailable; public rooms remain browseable.'}</p>
+          <p className={styles.muted}>{!standardAvailable ? 'Standard room availability has not been authoritatively confirmed, so ranked room actions are disabled.' : previewSessionActive ? 'Create a public Standard 1v1 rated room.' : authPresentationMode === 'preview_demo' ? 'Start preview demo mode first; public rooms remain browseable without a current user.' : authPresentationMode === 'durable' ? 'Sign in with a durable account first; public rooms remain browseable.' : 'Account-backed writes are unavailable; public rooms remain browseable.'}</p>
           <form action={createRankedLobbyAction}>
             <button className={styles.primaryButton} type="submit" disabled={!writeActionsEnabled}>Create rated room</button>
           </form>
@@ -154,14 +139,15 @@ export function LobbyBrowser({
             <input id="join-code" name="code" placeholder="ABC123" maxLength={12} />
             <button className={styles.secondaryButton} type="submit" disabled={!writeActionsEnabled}>Join live code</button>
           </form>
-          {!usingApiLobbies ? <p className={styles.warningText}>Server offline. Fixture rooms are view-only.</p> : null}
+          {!usingApiLobbies ? <p className={styles.warningText}>Room service unavailable. No rooms are shown.</p> : null}
+          {usingApiLobbies && !standardAvailable ? <p className={styles.warningText}>Standard availability could not be verified.</p> : null}
           {usingApiLobbies && !previewSessionActive ? <p className={styles.warningText}>{authPresentationMode === 'preview_demo' ? 'Preview demo session required for write actions.' : authPresentationMode === 'durable' ? 'Durable account sign-in required for write actions.' : 'Write actions are disabled in this deployment.'}</p> : null}
         </article>
         <div className={styles.cardGrid}>
           {usingApiLobbies && lobbies.length === 0 ? (
             <article className={styles.panel}>
               <div className={styles.cardTopline}>
-                <TokenBadge label="Live API" bg={lobbyStates.ready.bg} border={lobbyStates.ready.border} text={lobbyStates.ready.text} />
+                <TokenBadge label="Connected" bg={lobbyStates.ready.bg} border={lobbyStates.ready.border} text={lobbyStates.ready.text} />
                 <span>empty</span>
               </div>
               <h3>No open lobbies</h3>
@@ -204,43 +190,6 @@ export function LobbyBrowser({
           })}
         </div>
       </div>
-    </section>
-  );
-}
-
-export function WaitingRoom(): ReactElement {
-  const lobby = lobbyFixtures.privateWaiting;
-  const token = lobbyStates[lobby.state];
-  return (
-    <section id="waiting-room" className={styles.section} aria-labelledby="waiting-room-heading">
-      <div className={styles.sectionHeader}>
-        <p className={styles.eyebrow}>Lobby waiting room</p>
-        <h2 id="waiting-room-heading">Crown room {lobby.code}</h2>
-        <p>Host/readiness UI comes from fixture lobby state and tokenized badges.</p>
-      </div>
-      <article className={styles.panelWide}>
-        <div className={styles.roomSummary}>
-          <TokenBadge label={token.label} bg={token.bg} border={token.border} text={token.text} />
-          <span>{formatState(lobby.disabledStartReason ?? 'ready')}</span>
-          <button className={styles.secondaryButton} type="button" disabled>Start disabled</button>
-        </div>
-        <div className={styles.memberGrid}>
-          {lobby.members.map((member) => {
-            const user = userById(member.userId);
-            const readyToken = lobbyStates[member.ready ? 'ready' : 'waiting'];
-            return (
-              <div className={styles.memberRow} key={member.userId}>
-                <span className={styles.avatar} style={{ backgroundColor: user.avatarColor }}>{user.displayName.slice(0, 1)}</span>
-                <div>
-                  <strong>{user.displayName}</strong>
-                  <p>{member.role === 'host' ? '♛ Host' : 'Player'} · {member.connected ? 'Connected' : 'Disconnected'}</p>
-                </div>
-                <TokenBadge label={readyToken.label} bg={readyToken.bg} border={readyToken.border} text={readyToken.text} />
-              </div>
-            );
-          })}
-        </div>
-      </article>
     </section>
   );
 }

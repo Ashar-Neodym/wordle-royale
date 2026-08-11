@@ -9,7 +9,7 @@ describe('Wordle Royale application metadata', () => {
     assert.equal(APPLICATION_METADATA.title, 'Wordle Royale');
     assert.equal(
       APPLICATION_METADATA.description,
-      'Rated, server-authoritative word games with live Standard matchmaking.',
+      'Word games for practice, challenges, and supported competitive modes.',
     );
     assert.equal(APPLICATION_METADATA.applicationName, 'Wordle Royale');
     assert.equal(APPLICATION_METADATA.icons, undefined);
@@ -22,7 +22,7 @@ describe('Wordle Royale application metadata', () => {
     });
     assert.doesNotMatch(
       publicMetadata,
-      /DATABASE_URL|REDIS_URL|localhost|127\.0\.0\.1|answer|salt|internal environment/i,
+      /DATABASE_URL|REDIS_URL|localhost|127\.0\.0\.1|answer|salt|internal environment|live Standard/i,
     );
   });
 

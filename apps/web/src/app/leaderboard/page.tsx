@@ -20,10 +20,13 @@ export default async function LeaderboardPage({ searchParams }: Props): Promise<
     const [api, leaderboard] = await Promise.all([getWebApiSnapshot(), getLeaderboard(20, mode)]);
     const speedLive = api.authority.status === 'enabled';
     const speedUnavailable = api.authority.status === 'unavailable';
+    const standardAvailable = api.rankedModes.status === 'connected'
+      && api.rankedModes.data?.modes.some((item) => item.id === 'standard_1v1' && item.enabled) === true;
+    const selectedModeAvailable = mode === 'speed_1v1' ? speedLive : standardAvailable;
     return (
     <PageFrame>
       <PageHeader eyebrow="Ratings" title={`${mode === 'speed_1v1' ? 'Speed' : 'Standard'} leaderboard`}>
-        <p>Mode-isolated rows and rating identities come from the live server. Fixture rows stay explicitly labeled and appear only after a connected empty read.</p>
+        <p>Mode-isolated rows and rating identities come from the standings service. An empty response remains empty.</p>
       </PageHeader>
       <nav className={styles.modeTabs} aria-label="Leaderboard mode">
         <a className={mode === 'standard_1v1' ? styles.primaryButton : styles.secondaryButton} aria-current={mode === 'standard_1v1' ? 'page' : undefined} href="/leaderboard?mode=standard_1v1">Standard</a>
@@ -36,7 +39,7 @@ export default async function LeaderboardPage({ searchParams }: Props): Promise<
         <article className={styles.panelWide}>
           <h2 id="leaderboard-actions-heading">Play for {mode === 'speed_1v1' ? 'Speed' : 'Standard'} rating</h2>
           <p className={styles.muted}>Queue for this exact mode, finish under server authority, then return for rating movement.</p>
-          <div className={styles.actionRow}><a className={styles.primaryButton} href={mode === 'speed_1v1' ? '/play#speed-queue' : '/play#standard-queue'}>Play rated</a><a className={styles.secondaryButton} href="/profile">My profile</a></div>
+          <div className={styles.actionRow}>{selectedModeAvailable ? <a className={styles.primaryButton} href={mode === 'speed_1v1' ? '/play#speed-queue' : '/play#standard-queue'}>Play rated</a> : <span className={styles.disabledMode} aria-disabled="true">Mode availability unverified</span>}<a className={styles.secondaryButton} href="/profile">My profile</a></div>
         </article>
       </section>
     </PageFrame>

@@ -99,7 +99,7 @@ describe('mode-aware Home and navigation boundaries', () => {
   it('keeps disabled Home useful, local, and free of operational account/server surfaces', () => {
     for (const copy of [
       'Start practice', 'Rules', 'What you get', 'How to play', 'new random word each round', 'six guesses',
-      'correct, present, or absent', 'Progress and stats stay in this browser', 'Local and not rated',
+      'correct, present, or absent', 'When browser storage is available, progress and stats stay in this browser', 'Local and not rated',
       'No account or API request',
     ]) assert.match(disabledHomeSource, new RegExp(copy, 'i'));
     assert.doesNotMatch(disabledHomeSource, /lobb|ranked|leaderboard|profile|account action|server status/i);

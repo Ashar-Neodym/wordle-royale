@@ -63,7 +63,7 @@ describe('generic profile and leaderboard identity presentation', () => {
             `${currentProfileStatus}/${unrelatedRatedProfileStatus}/${leaderboardStatus}`,
           );
           assert.notEqual(heading, unrelatedRatedProfile?.displayName ?? 'Alice Fixture');
-          assert.equal(leaderboardMode === 'fixture_preview', leaderboardStatus === 'connected');
+          assert.equal(leaderboardMode === 'empty', leaderboardStatus === 'connected');
           assert.equal(leaderboardMode === 'unavailable', leaderboardStatus === 'unavailable');
         }
       }
@@ -74,7 +74,7 @@ describe('generic profile and leaderboard identity presentation', () => {
 
   it('shows live rows only for a connected non-empty leaderboard', () => {
     assert.equal(leaderboardDisplayMode('connected', 3), 'live');
-    assert.equal(leaderboardDisplayMode('connected', 0), 'fixture_preview');
+    assert.equal(leaderboardDisplayMode('connected', 0), 'empty');
     assert.equal(leaderboardDisplayMode('unavailable', 3), 'unavailable');
   });
 

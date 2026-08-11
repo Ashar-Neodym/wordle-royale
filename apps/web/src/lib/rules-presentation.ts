@@ -65,13 +65,18 @@ const RANKED_RULES: RulesPresentation = {
     },
     {
       id: 'scoring',
-      title: 'Scoring and ratings',
-      body: 'Faster solves, fewer guesses, and final standings feed the ranked result. Rating rows are marked provisional until enough games are played.',
+      title: 'Standard scoring',
+      body: 'A solved Standard round scores 100 base points, a guess bonus of 60, 50, 40, 25, 10, or 0 points for solving in guesses one through six, and a 0–50 point time bonus based on the remaining round-time ratio, rounded to the nearest point. An unsolved round scores 0. Final standings and server-applied rating results are separate from this points formula.',
+    },
+    {
+      id: 'speed-adjudication',
+      title: 'Speed adjudication',
+      body: 'Speed is one shared 75-second puzzle with up to six accepted guesses. A forfeit overrides puzzle progress; otherwise a solve beats a failure, then fewer accepted guesses wins, then the server solve time in 100 ms buckets breaks equal-guess solves. Equal solve-time buckets draw. Disconnecting does not pause the clock; failing to become ready before reveal is a no-contest.',
     },
     {
       id: 'fair-play',
       title: 'Fair play',
-      body: 'No active match page should expose plaintext answers, answer hashes, salts, or client-authoritative scoring. Fixture/demo state is labeled when the local API is offline.',
+      body: 'No active match page should expose plaintext answers, answer hashes, salts, or client-authoritative scoring. If authoritative match state is unavailable, ranked pages show that unavailability instead of substituting demo state.',
     },
   ],
   actions: [

@@ -43,12 +43,12 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>{status}</p>
           <h2 id="match-detail-heading">Result detail</h2>
-          <p>{liveResult ? `Completed ${liveResult.completedAt}` : liveState ? 'Active server state is reachable. Result finalization is not ready yet.' : 'Match result/state is not reachable from the local API.'}</p>
+          <p>{liveResult ? `Completed ${liveResult.completedAt}` : liveState ? 'Active server state is reachable. Result finalization is not ready yet.' : 'Match result/state is not reachable from the configured service.'}</p>
         </div>
         {!liveResult && !liveState ? (
           <article className={styles.errorPanel} aria-live="polite">
             <strong>Match unavailable</strong>
-            <p>{result.error ?? state.error ?? 'The match may not exist locally, or the API may be offline.'}</p>
+            <p>{result.error ?? state.error ?? 'The match may not exist, or the match service may be unavailable.'}</p>
             <a className={styles.secondaryButton} href="/history">Back to history</a>
           </article>
         ) : null}
@@ -62,7 +62,7 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
                   <span className={styles.placement}>{standing.placement ? `#${standing.placement}` : '—'}</span>
                   <div>
                     <strong>{standing.userId.slice(0, 8)}</strong>
-                    <p>{liveResult.rankedMode === 'speed_1v1' ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}` : `${standing.totalScore} pts · ${standing.totalValidGuesses} valid guesses · ${standing.roundsSolved} solved`}</p>
+                    <p>{liveResult.rankedMode === 'speed_1v1' ? `${standing.result ?? 'void'} · ${standing.guessesUsed ?? '—'} guesses · ${standing.solveElapsedMs === null || standing.solveElapsedMs === undefined ? 'no solve time' : `${(standing.solveElapsedMs / 1000).toFixed(1)}s`} · ${(standing.terminalReason ?? 'resolved').replaceAll('_', ' ')}` : `${standing.totalScore} pts`}</p>
                   </div>
                   {delta ? <TokenBadge label={`${delta.ratingAfter} (${formatSigned(delta.ratingDelta)})`} bg={token.bg} border={token.text} text={token.text} /> : <TokenBadge label="No rating" bg={rank.color.provisional.bg} border={rank.color.provisional.border} text={rank.color.provisional.text} />}
                 </div>
@@ -87,7 +87,7 @@ export default async function MatchDetailPage({ params }: MatchDetailPageProps):
               </article>
               <article className={styles.actionCard}>
                 <h3>Share result</h3>
-                <p>This text is generated from final placement and score only; no answer, hash, salt, or hidden guesses.</p>
+                <p>This text contains final placement and score plus a link to this result. It includes no answer, hash, salt, hidden guesses, or account contact data.</p>
                 <textarea className={styles.shareTextArea} readOnly value={shareSummary} aria-label="Spoiler-safe share summary" />
               </article>
               <article className={styles.actionCard}>

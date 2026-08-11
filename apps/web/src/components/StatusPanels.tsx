@@ -1,5 +1,4 @@
 import type { ReactElement } from 'react';
-import { lobbyStates, rank, score } from '../lib/tokens';
 import type { WebApiSnapshot } from '../lib/api-client';
 import styles from './web-shell.module.css';
 
@@ -14,7 +13,6 @@ export function TokenBadge({ label, bg, border, text, title }: BadgeProps): Reac
 }
 
 export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
-  const ready = lobbyStates.ready;
   const isAuthoritative = api.authority.availability === 'authoritative';
   const readinessStatus = api.readiness.data?.status ?? api.readiness.status;
   const dependencies = api.readiness.data?.dependencies ?? {};
@@ -26,7 +24,7 @@ export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
     .join(' · ');
 
   return (
-    <section className={styles.statusGrid} aria-label="Server and rating status">
+    <section className={styles.statusGrid} aria-label="Server status">
       <div className={styles.statusCard} role={isAuthoritative ? undefined : 'alert'}>
         <div>
           <strong>{isAuthoritative ? `Authoritative API online · ${readinessStatus}` : 'Authoritative API truth unavailable'}</strong>
@@ -36,11 +34,6 @@ export function StatusStrip({ api }: { api: WebApiSnapshot }): ReactElement {
               : `${api.authority.reason ?? 'Authoritative API evidence is incomplete.'} Origin ${api.authority.apiOrigin ?? 'unconfigured'} · Web ${api.authority.webRevision.slice(0, 12)} · API ${api.authority.apiRevision.slice(0, 12)}`}
           </p>
         </div>
-      </div>
-      <div className={styles.statusCard}>
-        <TokenBadge label={ready.label} bg={ready.bg} border={ready.border} text={ready.text} />
-        <TokenBadge label={rank.color.provisional.label} bg={rank.color.provisional.bg} border={rank.color.provisional.border} text={rank.color.provisional.text} />
-        <TokenBadge label="+36 MMR" bg={score.delta.positive.bg} border={score.delta.positive.text} text={score.delta.positive.text} title={score.delta.positive.label} />
       </div>
     </section>
   );

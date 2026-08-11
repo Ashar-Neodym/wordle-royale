@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 
 export const APPLICATION_METADATA: Metadata = Object.freeze({
   title: 'Wordle Royale',
-  description: 'Rated, server-authoritative word games with live Standard matchmaking.',
+  description: 'Word games for practice, challenges, and supported competitive modes.',
   applicationName: 'Wordle Royale',
 });
 

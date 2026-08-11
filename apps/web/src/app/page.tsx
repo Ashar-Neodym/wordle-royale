@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react';
 import { getWebApiSnapshot } from '../lib/api-client';
-import { gameplayFixtures } from '../lib/fixtures';
 import { startPreviewDemoSessionAction } from './actions';
 import { PageFrame } from '../components/PageFrame';
 import { DisabledHome } from '../components/DisabledHome';
@@ -16,7 +15,6 @@ export default async function HomePage(): Promise<ReactElement> {
   if (home.kind === 'disabled') return <DisabledHome />;
 
   const { api, presentation } = home;
-  const localPlayer = gameplayFixtures.solvedRound.players[0];
   const currentUser = api.currentUser.status === 'connected' ? api.currentUser.data : null;
   return (
     <PageFrame>
@@ -41,7 +39,7 @@ export default async function HomePage(): Promise<ReactElement> {
           <p className={styles.muted}>{presentation.mode === 'preview_demo'
             ? currentUser
               ? 'Explicit demo session active. This is not a durable account; session and preview data may reset on restart or redeploy.'
-              : `${localPlayer ? 'Practice fixtures are labeled separately.' : 'Public browsing is available.'} Start demo mode before current-player writes. No password or email is required.`
+              : 'Public browsing is available. Start demo mode before current-player writes. No password or email is required.'
             : presentation.mode === 'durable'
               ? currentUser ? 'Your durable account session is active.' : 'Use the Account page to sign in with an existing account.'
               : 'Account access is disabled for this production deployment.'}</p>
@@ -57,7 +55,7 @@ export default async function HomePage(): Promise<ReactElement> {
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Pages</p>
           <h2 id="home-routes-heading">Choose where to go</h2>
-          <p>Wordle Royale now uses real routes instead of one long page. Live-vs-fixture state remains visible and secondary.</p>
+          <p>Choose local play or browse the competitive features currently reported by the service.</p>
         </div>
         <div className={styles.routeGrid}>
           <a className={styles.routeCard} href="/practice"><strong>Practice</strong><span>Play now · guest · not rated</span></a>

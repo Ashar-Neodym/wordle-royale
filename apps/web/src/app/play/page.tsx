@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 100;
 
 const rankedModeChoices = [
-  { label: 'Standard', mode: 'standard_1v1', detail: 'Live automatic rated 1v1 queue with server-owned pairing and match creation.', availability: 'Live queue' },
+  { label: 'Standard', mode: 'standard_1v1', detail: 'Automatic rated 1v1 queue with server-owned pairing and match creation.', availability: 'Available when verified' },
   { label: 'Speed / Blitz', mode: 'speed_1v1', detail: '75-second shared puzzle; same guesses break by server solve time.', availability: 'Live when enabled' },
   { label: 'Classic', mode: 'classic_1v1', detail: 'Lower-pressure 1v1. Same-guess solves draw.', availability: 'Not live yet' },
   { label: 'Multiplayer', mode: 'multiplayer_lobby', detail: '2–4 player lobby ladder; rating separate from 1v1 modes.', availability: 'Not live yet' },
@@ -73,10 +73,13 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
   const speedQueueEnabled = api.authority.status === 'enabled';
   const speedCatalogAvailable = api.authority.availability === 'authoritative';
   const speedAvailabilityLabel = api.authority.status === 'enabled'
-    ? 'Live queue'
+    ? 'Available'
     : api.authority.status === 'disabled'
-      ? 'Not live yet'
-      : 'Live status unavailable';
+      ? 'Not enabled'
+      : 'Status unavailable';
+  const standardAvailable = api.rankedModes.status === 'connected'
+    && api.rankedModes.data?.modes.some((mode) => mode.id === 'standard_1v1' && mode.enabled) === true;
+  const standardAvailabilityLabel = standardAvailable ? 'Available' : 'Status unavailable';
   const liveMatchStateLabel = matchState?.data ? matchState.data.state : matchState?.status === 'unavailable' ? 'state unavailable' : 'loading';
   const queueSessionState = presentation.mode === 'disabled'
     ? 'signed_out'
@@ -93,7 +96,7 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
           <div>
             <p className={styles.eyebrow}>Live ranked match</p>
             <h1 id="live-match-heading">Board first. Result and ratings stay with the match.</h1>
-            <p>Match {matchId?.slice(0, 8)} · {liveMatchStateLabel}. Practice fixtures are hidden from the live view unless the server is offline.</p>
+            <p>Match {matchId?.slice(0, 8)} · {liveMatchStateLabel}. No practice state is substituted if the match service is unavailable.</p>
           </div>
           <a className={styles.secondaryButton} href="/leaderboard">Ratings</a>
         </section>
@@ -122,21 +125,21 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
         <div className={styles.sectionHeader}>
           <p className={styles.eyebrow}>Ranked modes</p>
           <h2 id="ranked-mode-heading">Choose a rated format</h2>
-          <p>Standard and catalog-enabled Speed use separate live automatic queues. Classic and Multiplayer remain unavailable.</p>
+          <p>Standard and Speed are separate automatic queues when their authoritative availability is confirmed. Classic and Multiplayer remain unavailable.</p>
         </div>
-        <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} authPresentationMode={presentation.mode} />
+        <StandardQueuePanel sessionState={queueSessionState} sessionError={api.currentUser.error} authPresentationMode={presentation.mode} availabilityVerified={standardAvailable} />
         <SpeedQueuePanel sessionState={queueSessionState} queueEnabled={speedQueueEnabled} catalogAvailable={speedCatalogAvailable} authPresentationMode={presentation.mode} />
         <div className={styles.modeChoiceGrid}>
           {rankedModeChoices.map((choice) => (
             <article className={styles.modeChoiceCard} key={choice.mode}>
               <div className={styles.cardTopline}>
                 <h3>{choice.label}</h3>
-                <span>{choice.mode === 'speed_1v1' ? speedAvailabilityLabel : choice.availability}</span>
+                <span>{choice.mode === 'standard_1v1' ? standardAvailabilityLabel : choice.mode === 'speed_1v1' ? speedAvailabilityLabel : choice.availability}</span>
               </div>
               <p className={styles.eyebrow}>{choice.mode}</p>
               <p className={styles.muted}>{choice.detail}</p>
               <div className={styles.actionRow}>
-                <a className={choice.mode === 'standard_1v1' || (choice.mode === 'speed_1v1' && speedQueueEnabled) ? styles.primaryButton : styles.secondaryButton} href={choice.mode === 'standard_1v1' ? '#standard-queue' : choice.mode === 'speed_1v1' && speedQueueEnabled ? '#speed-queue' : '/profile#mode-ratings-heading'}>{choice.mode === 'standard_1v1' || (choice.mode === 'speed_1v1' && speedQueueEnabled) ? 'Find match' : 'View prepared mode'}</a>
+                {choice.mode === 'standard_1v1' && standardAvailable ? <a className={styles.primaryButton} href="#standard-queue">Find match</a> : choice.mode === 'speed_1v1' && speedQueueEnabled ? <a className={styles.primaryButton} href="#speed-queue">Find match</a> : <span className={styles.disabledMode} aria-disabled="true">Unavailable</span>}
               </div>
             </article>
           ))}
@@ -155,6 +158,7 @@ export default async function PlayPage({ searchParams }: PlayPageProps): Promise
             actionState={actionState}
             previewSessionActive={api.currentUser.status === 'connected'}
             authPresentationMode={presentation.mode}
+            standardAvailable={standardAvailable}
             startPreviewDemoSessionAction={startPreviewDemoSessionAction}
             createRankedLobbyAction={createRankedLobbyAction}
             joinLobbyByCodeAction={joinLobbyByCodeAction}

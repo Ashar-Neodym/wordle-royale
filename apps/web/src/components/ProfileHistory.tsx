@@ -278,7 +278,7 @@ export function HistoryStatusPanel({ history }: { history: ApiClientResult<Match
   return (
     <article className={styles.errorPanel} aria-live="polite">
       <strong>History API unavailable</strong>
-      <p>{history.error ?? 'The local API is offline. No fixture match history is shown here because history should not pretend to be real.'}</p>
+      <p>{history.error ?? 'The history service is unavailable. No substitute match history is shown.'}</p>
       <ServerReadRetryButton label="Retry history" />
     </article>
   );

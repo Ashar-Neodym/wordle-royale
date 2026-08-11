@@ -19,7 +19,7 @@ export function DisabledHome(): ReactElement {
           <p className={styles.eyebrow}>What you get</p>
           <strong id="home-facts-heading">Practice on your terms</strong>
           <p className={styles.muted}>Local and not rated</p>
-          <p className={styles.muted}>Progress and stats stay in this browser</p>
+          <p className={styles.muted}>When browser storage is available, progress and stats stay in this browser</p>
           <p className={styles.muted}>No account or API request</p>
         </aside>
       </section>

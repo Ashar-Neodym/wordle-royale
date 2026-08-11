@@ -37,7 +37,7 @@ function EnvironmentNotice({ presentation }: { presentation: AuthPresentationPub
   return (
     <aside className={styles.previewNotice} aria-label="Account availability">
       <strong>Production</strong>
-      <span>Durable account access is active. {presentation.registrationMode === 'open'
+      <span>Durable account mode is enabled. {presentation.registrationMode === 'open'
         ? 'Public registration is open.'
         : presentation.registrationMode === 'canary'
           ? 'Registration is limited to a controlled canary; public signup is not open.'

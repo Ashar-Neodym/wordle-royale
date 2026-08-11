@@ -40,11 +40,11 @@ describe('Rules presentation resolver', () => {
         { href: '/play', label: 'Play rated', emphasis: 'primary' },
         { href: '/lobbies', label: 'Find lobby', emphasis: 'secondary' },
       ]);
-      assert.deepEqual(rules.articles.map((article) => article.id).filter(Boolean), ['scoring', 'fair-play']);
+      assert.deepEqual(rules.articles.map((article) => article.id).filter(Boolean), ['scoring', 'speed-adjudication', 'fair-play']);
       const copy = [rules.introduction, ...rules.articles.flatMap((article) => [article.title, article.body])].join(' ');
       for (const phrase of [
-        'rated lobby', 'server state', 'valid five-letter guesses', 'Faster solves', 'provisional',
-        'plaintext answers', 'client-authoritative scoring', 'Fixture/demo state',
+        'rated lobby', 'server state', 'valid five-letter guesses', '100 base points', '60, 50, 40, 25, 10, or 0',
+        '75-second puzzle', '100 ms buckets', 'no-contest', 'plaintext answers', 'client-authoritative scoring', 'instead of substituting demo state',
       ]) assert.match(copy, new RegExp(phrase, 'i'));
     }
   });
