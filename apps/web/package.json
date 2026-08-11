@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "test": "node --test src/lib/practice-game.test.ts src/lib/practice-persistence.test.ts src/lib/challenge-id.test.ts src/lib/challenge-persistence.test.ts src/lib/api-client-result-validation.test.ts src/lib/home-presentation.test.ts src/lib/restricted-route-presentation.test.ts src/lib/server-action-presentation.test.ts src/lib/rules-presentation.test.ts src/components/practice-keyboard.test.ts src/components/practice-surface.test.ts src/components/challenge-surface.test.ts src/components/accessibility-closure.test.ts src/components/ranked-completion-flow.test.ts src/components/home-navigation.test.ts src/app/play/play-page-presentation.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "test:challenge": "node --test src/lib/challenge-id.test.ts src/lib/challenge-persistence.test.ts src/components/challenge-surface.test.ts",
     "test:challenge:id": "node --test src/lib/challenge-id.test.ts",
     "test:challenge:persistence": "node --test src/lib/challenge-persistence.test.ts",

@@ -10,6 +10,32 @@ body {
 a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 :focus-visible { outline: 3px solid #9dbc7c; outline-offset: 3px; }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+html[data-wr-motion='reduce'] *, html[data-wr-motion='reduce'] *::before, html[data-wr-motion='reduce'] *::after {
+  animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important;
 }
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-wr-motion]) *, html:not([data-wr-motion]) *::before, html:not([data-wr-motion]) *::after,
+  html[data-wr-motion='system'] *, html[data-wr-motion='system'] *::before, html[data-wr-motion='system'] *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* Enhanced palette: near-black #111, white #fff, yellow #ffe066 and green #315f11
+   retain strong luminance separation. Existing tile symbols/patterns remain non-color cues. */
+html[data-wr-contrast='enhanced'] {
+  --wr-human-bg: #111111;
+  --wr-human-surface: #181818;
+  --wr-human-surface-2: #242424;
+  --wr-human-border: #d8d8d8;
+  --wr-human-text: #ffffff;
+  --wr-human-muted: #eeeeee;
+  --wr-human-link: #ffe066;
+  --wr-human-link-dark: #315f11;
+  --wr-human-link-dark-hover: #315f11;
+  --wr-human-warn: #ffe066;
+}
+html[data-wr-contrast='enhanced'] body { background: #111111; }
+html[data-wr-contrast='enhanced'] :focus-visible { outline-color: #ffe066; outline-width: 4px; }
+html[data-wr-contrast='enhanced'] button,
+html[data-wr-contrast='enhanced'] input,
+html[data-wr-contrast='enhanced'] fieldset { border-color: #d8d8d8; }

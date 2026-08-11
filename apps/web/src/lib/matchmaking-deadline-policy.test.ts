@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { MATCHMAKING_LIFECYCLE_MS } from '../../../api/src/matchmaking/matchmaking-lifecycle.ts';
 import { runMatchmakingOperationWithDeadline } from '../components/standard-queue-state.ts';
 import {
   cancelStandard1v1Ticket,
@@ -19,8 +18,12 @@ import {
 describe('cross-layer matchmaking deadline policy', () => {
   it('binds directly to the enforced backend lifecycle and preserves every strict margin', () => {
     const policy = MATCHMAKING_DEADLINE_POLICY;
+    const lifecycleSource = readFileSync(new URL('../../../api/src/matchmaking/matchmaking-lifecycle.ts', import.meta.url), 'utf8');
+    const lifecycleMatch = /export const MATCHMAKING_LIFECYCLE_MS = (\d[\d_]*)/.exec(lifecycleSource);
+    assert.ok(lifecycleMatch, 'backend lifecycle must remain a statically verifiable exported constant');
+    const backendLifecycleMs = Number(lifecycleMatch[1]?.replaceAll('_', ''));
 
-    assert.equal(policy.backendLifecycleMs, MATCHMAKING_LIFECYCLE_MS);
+    assert.equal(policy.backendLifecycleMs, backendLifecycleMs);
     assert.equal(policy.backendLifecycleMs, 90_000);
     assert.equal(policy.apiProxyMs, 95_000);
     assert.equal(policy.serverActionMaxMs, 100_000);

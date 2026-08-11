@@ -30,6 +30,6 @@ describe('ranked completion flow', () => {
   });
 
   it('is permanently included in the web test script', () => {
-    assert.match(webPackage.scripts.test, /src\/components\/ranked-completion-flow\.test\.ts/);
+    assert.equal(webPackage.scripts.test, 'node scripts/run-tests.mjs');
   });
 });

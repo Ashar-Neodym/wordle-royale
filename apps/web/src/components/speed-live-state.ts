@@ -1,6 +1,6 @@
-import type { ApiClientResult } from '../lib/api-client';
+import type { ApiClientResult } from '../lib/api-client.ts';
 import type { Speed1v1Ticket, SpeedMatchSnapshot } from '@wordle-royale/contracts';
-import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation';
+import { authLimitedPresentation, type AuthPresentationMode } from '../lib/auth-presentation.ts';
 
 export type SpeedQueueUiState =
   | 'signed_out'

@@ -35,7 +35,8 @@ describe('auth presentation UI boundaries', () => {
   });
 
   it('gates preview and lobby entry actions by the centralized presentation mode', () => {
-    assert.match(action, /presentation\.mode !== 'preview_demo'/);
+    assert.match(action, /runPreviewDemoServerAction/);
+    assert.match(action, /runOperationalServerAction/);
     assert.match(lobby, /authPresentationMode === 'preview_demo'/);
     assert.match(lobby, /authPresentationMode === 'durable'/);
     assert.match(lobby, /Lobby writes are unavailable/);

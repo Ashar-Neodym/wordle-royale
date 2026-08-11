@@ -71,6 +71,6 @@ describe('/play account-mode presentation', () => {
   });
 
   it('is permanently included in the executed web test script', () => {
-    assert.ok(webPackage.scripts.test.split(/\s+/u).includes('src/app/play/play-page-presentation.test.ts'));
+    assert.equal(webPackage.scripts.test, 'node scripts/run-tests.mjs');
   });
 });

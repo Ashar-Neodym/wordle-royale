@@ -54,11 +54,8 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Workspace scaffold test
+      - name: Workspace, web, and API behavior tests
         run: pnpm test
-
-      - name: API behavior tests
-        run: pnpm --filter @wordle-royale/api test
 
       - name: Build all packages and apps
         run: |

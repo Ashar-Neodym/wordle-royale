@@ -31,7 +31,7 @@ function profileLinks(presentation: AuthPresentationPublic): readonly NavLinkMod
     { href: '/account', label: 'Account', note: accountNote },
     { href: '/profile', label: 'My profile', note: 'mode ratings' },
     { href: '/history', label: 'Match history', note: 'rated games' },
-    { href: '/settings', label: 'Settings', note: presentation.mode === 'preview_demo' ? 'preview account' : 'preferences' },
+    { href: '/settings', label: 'Settings', note: 'local display preferences' },
   ];
 }
 
@@ -41,11 +41,13 @@ export function siteNavModel(presentation: AuthPresentationPublic): SiteNavModel
       { kind: 'link', href: '/practice', label: 'Practice' },
       { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'link', href: '/learn/rules', label: 'Rules' },
+      { kind: 'link', href: '/settings', label: 'Settings' },
     ],
     mobile: [
       { href: '/practice', label: 'Practice' },
       { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/learn/rules', label: 'Rules' },
+      { href: '/settings', label: 'Settings', note: 'local display preferences' },
     ],
   };
 
@@ -71,7 +73,7 @@ export function siteNavModel(presentation: AuthPresentationPublic): SiteNavModel
       { href: '/account', label: 'Account' },
       { href: '/learn/rules', label: 'Rules' },
       { href: '/history', label: 'History' },
-      { href: '/settings', label: 'Settings' },
+      { href: '/settings', label: 'Settings', note: 'local display preferences' },
       { href: '/server', label: 'Server' },
     ],
   };

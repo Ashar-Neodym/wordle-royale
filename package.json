@@ -12,7 +12,7 @@
     "validate:workspace": "node scripts/validate-workspace.mjs",
     "typecheck": "pnpm validate:workspace",
     "lint": "pnpm validate:workspace",
-    "test": "pnpm validate:workspace",
+    "test": "pnpm validate:workspace && pnpm --filter @wordle-royale/web test && pnpm --filter @wordle-royale/api test",
     "build": "pnpm -r --if-present build",
     "dev:web": "pnpm --filter @wordle-royale/web dev",
     "dev:api": "pnpm --filter @wordle-royale/api dev",

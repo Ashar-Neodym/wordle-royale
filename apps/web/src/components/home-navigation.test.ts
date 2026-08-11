@@ -19,11 +19,13 @@ describe('mode-aware Home and navigation boundaries', () => {
       { kind: 'link', href: '/practice', label: 'Practice' },
       { kind: 'link', href: '/challenge', label: 'Challenges' },
       { kind: 'link', href: '/learn/rules', label: 'Rules' },
+      { kind: 'link', href: '/settings', label: 'Settings' },
     ]);
     assert.deepEqual(model.mobile, [
       { href: '/practice', label: 'Practice' },
       { href: '/challenge', label: 'Challenges', note: 'async · local · unrated' },
       { href: '/learn/rules', label: 'Rules' },
+      { href: '/settings', label: 'Settings', note: 'local display preferences' },
     ]);
   });
 
@@ -38,7 +40,7 @@ describe('mode-aware Home and navigation boundaries', () => {
       { href: '/account', label: 'Account' },
       { href: '/learn/rules', label: 'Rules' },
       { href: '/history', label: 'History' },
-      { href: '/settings', label: 'Settings' },
+      { href: '/settings', label: 'Settings', note: 'local display preferences' },
       { href: '/server', label: 'Server' },
     ];
     const commonDesktop = [
@@ -66,7 +68,7 @@ describe('mode-aware Home and navigation boundaries', () => {
           { href: '/account', label: 'Account', note: 'temporary demo session' },
           { href: '/profile', label: 'My profile', note: 'mode ratings' },
           { href: '/history', label: 'Match history', note: 'rated games' },
-          { href: '/settings', label: 'Settings', note: 'preview account' },
+          { href: '/settings', label: 'Settings', note: 'local display preferences' },
         ] },
         { kind: 'account', href: '/account', label: 'Demo session' },
         { kind: 'link', href: '/server', label: 'Server' },
@@ -80,7 +82,7 @@ describe('mode-aware Home and navigation boundaries', () => {
           { href: '/account', label: 'Account', note: 'sign in and session' },
           { href: '/profile', label: 'My profile', note: 'mode ratings' },
           { href: '/history', label: 'Match history', note: 'rated games' },
-          { href: '/settings', label: 'Settings', note: 'preferences' },
+          { href: '/settings', label: 'Settings', note: 'local display preferences' },
         ] },
         { kind: 'account', href: '/account', label: 'Account' },
         { kind: 'link', href: '/server', label: 'Server' },

@@ -204,5 +204,5 @@ describe('ranked grid and rematch semantics', () => {
 });
 
 it('permanently includes the accessibility closure tests in the web suite', () => {
-  assert.match(webPackage.scripts.test, /src\/components\/accessibility-closure\.test\.ts/);
+  assert.equal(webPackage.scripts.test, 'node scripts/run-tests.mjs');
 });

@@ -1,9 +1,9 @@
-import type { ApiClientResult, Standard1v1Ticket } from '../lib/api-client';
+import type { ApiClientResult, Standard1v1Ticket } from '../lib/api-client.ts';
 import {
   MATCHMAKING_DEADLINE_POLICY,
   matchmakingDeadlinePolicyFor,
   type MatchmakingOperation,
-} from '../lib/matchmaking-deadline-policy';
+} from '../lib/matchmaking-deadline-policy.ts';
 
 export type QueueUiState =
   | 'signed_out'
