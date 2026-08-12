@@ -4,13 +4,13 @@ Status: independently reviewable local candidate only, based exactly on released
 
 ## Narrow eligibility decision
 
-Only **Render Free with no payment method attached** is a candidate for a future, separately owner-approved checkpoint. If Render requires or has a payment method attached, stop: this candidate does not authorize proceeding. The intended Free instance is 512 MB RAM / 0.1 CPU and the workspace allowance is 750 running hours per month. Official Render Free behavior is to suspend Free services rather than bill when Free usage is exhausted; a Free web service spins down after 15 idle minutes and wakes on the next HTTP request or WebSocket connection. This makes cold-start latency expected, not a readiness failure.
+Only **Render Free with no payment method attached** is a candidate for a future, separately owner-approved checkpoint. If Render requires or has a payment method attached, stop: this candidate does not authorize proceeding. The intended Free instance is 512 MB RAM / 0.1 CPU and the workspace allowance is 750 running hours per month. Exhausting those instance hours suspends all Free web services until the next month. For a cardless workspace, outbound-bandwidth exhaustion suspends Free services, while build-minute exhaustion disables new builds for the rest of the month; none of these limits authorizes paid usage. A Free web service spins down after 15 idle minutes and wakes on the next HTTP request or WebSocket connection. This makes cold-start latency expected, not a readiness failure.
 
 Koyeb is disqualified because its signup path requires a card, a $29 hold, and a prorated signup charge. Railway remains retired because it requires paid service. Existing Koyeb/Railway history, migrations, inventory adapters, audit records, and fixtures grant no deployment authority.
 
 ## Future service shape (not authorized)
 
-Exactly one Render **Web Service**, Free instance type, with Frankfurt preferred. Use the linked GitHub repository, root `Dockerfile`, Docker runtime, and image `CMD`; Render supports this Docker/GitHub shape and WebSockets. The provider-neutral image reads Render's assigned `PORT`. Configure HTTP health check `GET /healthz`; do not use `/readyz` for liveness. Do not create a database, Redis, web service/static site, auth integration, queue/worker, cron job, or any second service. Do not add migration, seed, bootstrap, or pre-deploy commands.
+Exactly one Render **Web Service** for the locked-standby API, using the Free instance type, with Frankfurt preferred. Use the linked GitHub repository, root `Dockerfile`, Docker runtime, and image `CMD`; Render supports this Docker/GitHub shape and WebSockets. The provider-neutral image reads Render's assigned `PORT`. Configure HTTP health check `GET /healthz`; do not use `/readyz` for liveness. Do not create any additional web service or static site, database, Redis, auth integration, queue/worker, cron job, or second service of any kind. Do not add migration, seed, bootstrap, or pre-deploy commands.
 
 ## Locked environment
 
