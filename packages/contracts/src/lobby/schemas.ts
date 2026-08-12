@@ -1,11 +1,25 @@
 import { z } from 'zod';
-import { clientRequestSchema, idSchema, timestampSchema } from '../common/schemas.ts';
+import { clientRequestSchema, idSchema, paginationRequestSchema, timestampSchema } from '../common/schemas.ts';
 import { difficulties, disabledRatedLobbyReason, gameModes, lobbyMemberRoles, lobbyMemberStates, lobbyStates, lobbyVisibilities, matchmakingStates } from './constants.ts';
 
 export const lobbyVisibilitySchema = z.enum(lobbyVisibilities);
 export const lobbyStateSchema = z.enum(lobbyStates);
 export const gameModeSchema = z.enum(gameModes);
 export const difficultySchema = z.enum(difficulties);
+
+const lobbyLimitQuerySchema = z.union([
+  z.string().regex(/^[1-9][0-9]*$/).transform(Number),
+  z.number(),
+]).pipe(paginationRequestSchema.shape.limit.unwrap());
+
+/** Closed HTTP query contract. Values are strings because Nest receives URL query parameters. */
+export const lobbyListQuerySchema = z.object({
+  mode: z.enum(['ranked', 'casual']).optional(),
+  status: z.enum(['waiting', 'ready', 'in_match', 'closed']).optional(),
+  visibility: lobbyVisibilitySchema.default('public'),
+  limit: lobbyLimitQuerySchema.default(20),
+  cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
+}).strict();
 
 export const lobbySettingsBaseSchema = z.object({
   visibility: lobbyVisibilitySchema,

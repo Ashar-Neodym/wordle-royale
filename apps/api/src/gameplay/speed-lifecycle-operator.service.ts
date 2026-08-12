@@ -23,6 +23,13 @@ import {
   type PinnedReadinessTransport,
   type PublicOriginResolver,
 } from './public-origin-readiness.ts';
+import type { DeadlineRuntime } from './railway-inventory.adapter.ts';
+
+const systemDeadlineRuntime: DeadlineRuntime = {
+  now: () => performance.now(),
+  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimer: (timer) => clearTimeout(timer as NodeJS.Timeout),
+};
 
 export type OperatorOperation = 'close-v2' | 'open-v2' | 'disable' | 'close-v1' | 'open-v1';
 
@@ -111,12 +118,13 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
     private readonly dictionary: StandardDictionaryService,
     private readonly resolver: PublicOriginResolver = new SystemPublicOriginResolver(),
     private readonly transport: PinnedReadinessTransport = new HttpsPinnedReadinessTransport(),
+    private readonly deadlineRuntime: DeadlineRuntime = systemDeadlineRuntime,
   ) {}
 
   async verify(healthUrl: string, allowedHealthHosts: readonly string[], timeoutMs = 5_000): Promise<OperatorReadiness> {
-    const deadline = performance.now() + Math.max(1, timeoutMs);
+    const deadline = this.deadlineRuntime.now() + Math.max(1, timeoutMs);
     const remaining = (): number => {
-      const value = Math.floor(deadline - performance.now());
+      const value = Math.floor(deadline - this.deadlineRuntime.now());
       if (value <= 0) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
       return value;
     };
@@ -148,7 +156,7 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
           return [applicationResult, lifecycleResult, dictionaryResult];
         }, { isolationLevel: 'Serializable', maxWait: remaining(), timeout: remaining() });
       } catch (error) {
-        if (this.isTimeout(error) || performance.now() >= deadline) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
+        if (this.isTimeout(error) || this.deadlineRuntime.now() >= deadline) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
         throw new SpeedLifecycleOperatorError('schema_readiness_failed');
       }
     } else {
@@ -199,7 +207,7 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
         if (dependencies?.[dependency]?.status !== 'ok') throw new SpeedLifecycleOperatorError('standard_readiness_failed');
       }
     } catch (error) {
-      if (performance.now() >= deadline || (error instanceof Error && error.name === 'TimeoutError')) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
+      if (this.deadlineRuntime.now() >= deadline || (error instanceof Error && error.name === 'TimeoutError')) throw new SpeedLifecycleOperatorError('operator_wait_timeout');
       if (error instanceof SpeedLifecycleOperatorError) throw error;
       throw new SpeedLifecycleOperatorError('reconciler_readiness_failed');
     }
@@ -223,13 +231,13 @@ export class DefaultOperatorReadinessVerifier implements OperatorReadinessVerifi
   }
 
   private async withDeadline<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
+    let timer: unknown;
     try {
       return await Promise.race([work, new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' })), Math.max(1, timeoutMs));
+        timer = this.deadlineRuntime.setTimer(() => reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' })), Math.max(1, timeoutMs));
       })]);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) this.deadlineRuntime.clearTimer(timer);
     }
   }
 }

@@ -34,6 +34,7 @@ import {
 import { cookies } from 'next/headers.js';
 import { matchmakingDeadlinePolicyFor } from './matchmaking-deadline-policy.ts';
 import { SPEED_MUTATION_POLICY } from './speed-mutation-policy.ts';
+import type { LobbyBrowserQuery } from './lobby-pagination.ts';
 import {
   assessWebApiAuthority,
   resolveApiOriginConfiguration,
@@ -362,9 +363,12 @@ export async function getProfile(): Promise<ApiClientResult<PublicProfileDto>> {
   return requestReadEnvelope<PublicProfileDto>('/profile/me');
 }
 
-export async function listLobbies(limit = 20, cursor?: string): Promise<ApiClientResult<LobbyListPayload>> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor) params.set('cursor', cursor);
+export async function listLobbies(query: LobbyBrowserQuery = { limit: 20 }): Promise<ApiClientResult<LobbyListPayload>> {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  if (query.mode) params.set('mode', query.mode);
+  if (query.status) params.set('status', query.status);
+  if (query.visibility) params.set('visibility', query.visibility);
+  if (query.cursor) params.set('cursor', query.cursor);
   return requestReadEnvelope<LobbyListPayload>(`/lobbies?${params.toString()}`);
 }
 
@@ -503,14 +507,14 @@ export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiC
   return requestReadEnvelope<MatchHistoryList>(`/matches/history/me?${params.toString()}`);
 }
 
-export async function getWebApiSnapshot(lobbyCursor?: string): Promise<WebApiSnapshot> {
+export async function getWebApiSnapshot(lobbyQuery: LobbyBrowserQuery = { limit: 20 }): Promise<WebApiSnapshot> {
   const [health, readiness, runtimeCompatibility, currentUser, profile, lobbies, leaderboard, rankedModes] = await Promise.all([
     getHealth(),
     getReadiness(),
     getRuntimeCompatibility(),
     getCurrentUser(),
     getProfile(),
-    listLobbies(20, lobbyCursor),
+    listLobbies(lobbyQuery),
     getLeaderboard(20),
     getRankedModes(),
   ]);

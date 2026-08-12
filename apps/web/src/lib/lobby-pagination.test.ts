@@ -5,11 +5,15 @@ import { lobbyContinuationHref } from './lobby-pagination.ts';
 
 describe('lobby continuation presentation', () => {
   it('encodes opaque cursors and preserves a safe join code', () => {
-    const href = lobbyContinuationHref('opaque+/= cursor', 'ABC123');
+    const href = lobbyContinuationHref({ limit: 37, mode: 'ranked', status: 'waiting', visibility: 'private' }, 'opaque+/= cursor', 'ABC123');
     const url = new URL(href, 'https://example.test');
     assert.equal(url.pathname, '/lobbies');
     assert.equal(url.searchParams.get('cursor'), 'opaque+/= cursor');
     assert.equal(url.searchParams.get('code'), 'ABC123');
+    assert.equal(url.searchParams.get('limit'), '37');
+    assert.equal(url.searchParams.get('mode'), 'ranked');
+    assert.equal(url.searchParams.get('status'), 'waiting');
+    assert.equal(url.searchParams.get('visibility'), 'private');
   });
 
   it('forwards a continuation cursor to the lobby API', async () => {
@@ -26,11 +30,14 @@ describe('lobby continuation presentation', () => {
       });
     };
     try {
-      await listLobbies(20, 'opaque+/= cursor');
+      await listLobbies({ limit: 37, mode: 'casual', status: 'ready', visibility: 'public', cursor: 'opaque+/= cursor' });
       const url = new URL(requested);
       assert.equal(url.pathname, '/lobbies');
-      assert.equal(url.searchParams.get('limit'), '20');
+      assert.equal(url.searchParams.get('limit'), '37');
       assert.equal(url.searchParams.get('cursor'), 'opaque+/= cursor');
+      assert.equal(url.searchParams.get('mode'), 'casual');
+      assert.equal(url.searchParams.get('status'), 'ready');
+      assert.equal(url.searchParams.get('visibility'), 'public');
     } finally {
       globalThis.fetch = originalFetch;
       if (originalWebEnvironment === undefined) delete process.env.WORDLE_WEB_ENV;

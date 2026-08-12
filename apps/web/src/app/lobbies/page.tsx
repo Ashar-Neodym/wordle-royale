@@ -10,6 +10,7 @@ import { requireAuthPresentationConfiguration } from '../../lib/auth-presentatio
 import { DisabledRoute } from '../../components/DisabledRoute';
 import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
 import { lobbyContinuationHref } from '../../lib/lobby-pagination';
+import type { LobbyBrowserQuery } from '../../lib/lobby-pagination';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,18 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
     const params = await resolveSearchParams(searchParams);
     const cursor = searchValue(params, 'cursor');
     const code = searchValue(params, 'code');
-    const api = await getWebApiSnapshot(cursor);
+    const mode = searchValue(params, 'mode');
+    const status = searchValue(params, 'status');
+    const visibility = searchValue(params, 'visibility');
+    const rawLimit = searchValue(params, 'limit');
+    const query: LobbyBrowserQuery = {
+      limit: rawLimit && /^[1-9][0-9]*$/.test(rawLimit) ? Number(rawLimit) : 20,
+      ...(mode === 'ranked' || mode === 'casual' ? { mode } : {}),
+      ...(status === 'waiting' || status === 'ready' || status === 'in_match' || status === 'closed' ? { status } : {}),
+      ...(visibility === 'public' || visibility === 'private' ? { visibility } : {}),
+      ...(cursor ? { cursor } : {}),
+    };
+    const api = await getWebApiSnapshot(query);
     const actionState = rankedActionState(params);
     const standardAvailable = api.rankedModes.status === 'connected'
       && api.rankedModes.data?.modes.some((mode) => mode.id === 'standard_1v1' && mode.enabled) === true;
@@ -46,7 +58,7 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
             startRankedMatchAction={startRankedMatchAction}
           />
           {api.lobbies.status === 'connected' && api.lobbies.data?.pagination.nextCursor ? (
-            <p><a href={lobbyContinuationHref(api.lobbies.data.pagination.nextCursor, code)}>More lobbies</a></p>
+            <p><a href={lobbyContinuationHref(query, api.lobbies.data.pagination.nextCursor, code)}>More lobbies</a></p>
           ) : null}
         </div>
         <aside className={styles.sidePanel} aria-label="Lobby status">

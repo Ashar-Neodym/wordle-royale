@@ -23,6 +23,18 @@ export interface RailwayCommandExecutor {
   run(args: readonly string[], timeoutMs?: number, signal?: AbortSignal): Promise<RailwayCommandResult>;
 }
 
+export type DeadlineRuntime = {
+  now(): number;
+  setTimer(callback: () => void, delayMs: number): unknown;
+  clearTimer(timer: unknown): void;
+};
+
+const systemDeadlineRuntime: DeadlineRuntime = {
+  now: () => performance.now(),
+  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimer: (timer) => clearTimeout(timer as NodeJS.Timeout),
+};
+
 export class RailwayInventoryError extends Error {
   constructor(readonly code: string) {
     super(code);
@@ -66,10 +78,13 @@ export class RailwayInventoryAdapter {
   private pending: Promise<void> = Promise.resolve();
   private unsettledCommand: Promise<void> | null = null;
 
-  constructor(private readonly executor: RailwayCommandExecutor = new RailwayCliExecutor()) {}
+  constructor(
+    private readonly executor: RailwayCommandExecutor = new RailwayCliExecutor(),
+    private readonly deadlineRuntime: DeadlineRuntime = systemDeadlineRuntime,
+  ) {}
 
   async observe(scope: RailwayScope, expectedArtifact: string, expectedReplicas: number, timeoutMs = 15_000): Promise<RailwayInventoryObservation> {
-    const deadline = performance.now() + Math.max(1, timeoutMs);
+    const deadline = this.deadlineRuntime.now() + Math.max(1, timeoutMs);
     const previous = this.pending;
     let release!: () => void;
     this.pending = new Promise<void>((resolve) => { release = resolve; });
@@ -161,7 +176,7 @@ export class RailwayInventoryAdapter {
   }
 
   private async command(args: readonly string[], deadline: number): Promise<RailwayCommandResult> {
-    const remaining = Math.floor(deadline - performance.now());
+    const remaining = Math.floor(deadline - this.deadlineRuntime.now());
     if (remaining <= 0) throw new RailwayInventoryError('railway_inventory_timeout');
     const cancellation = new AbortController();
     const work = this.executor.run(args, Math.min(12_000, remaining), cancellation.signal);
@@ -177,15 +192,15 @@ export class RailwayInventoryAdapter {
   }
 
   private async withDeadline<T>(work: Promise<T>, deadline: number): Promise<T> {
-    const remaining = Math.floor(deadline - performance.now());
+    const remaining = Math.floor(deadline - this.deadlineRuntime.now());
     if (remaining <= 0) throw new RailwayInventoryError('railway_inventory_timeout');
-    let timer: NodeJS.Timeout | undefined;
+    let timer: unknown;
     try {
       return await Promise.race([work, new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new RailwayInventoryError('railway_inventory_timeout')), remaining);
+        timer = this.deadlineRuntime.setTimer(() => reject(new RailwayInventoryError('railway_inventory_timeout')), remaining);
       })]);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) this.deadlineRuntime.clearTimer(timer);
     }
   }
 

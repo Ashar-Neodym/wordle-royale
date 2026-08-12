@@ -245,14 +245,13 @@ describe('Ticket 195 strict Railway inventory adapter', () => {
   });
 
   it('bounds delayed command execution with a monotonic observation deadline', async () => {
-    const started = performance.now();
+    const delays: number[] = [];
+    const runtime = { now: () => 1_000, setTimer: (callback: () => void, delay: number) => { delays.push(delay); queueMicrotask(callback); return {}; }, clearTimer: () => undefined };
     await assert.rejects(
-      new RailwayInventoryAdapter(executor({ delayMs: 250 })).observe(scope, `git:${SHA}`, 2, 50),
+      new RailwayInventoryAdapter(executor({ delayMs: 250 }), runtime).observe(scope, `git:${SHA}`, 2, 50),
       (error: any) => error?.code === 'railway_inventory_timeout',
     );
-    const elapsed = performance.now() - started;
-    assert.ok(elapsed >= 40, `deadline fired prematurely after ${elapsed}ms`);
-    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
+    assert.deepEqual(delays, [50, 50]);
   });
 
   it('holds the adapter-wide command gate until a cancellation-ignoring command actually settles', async () => {

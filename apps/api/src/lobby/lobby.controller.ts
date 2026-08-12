@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { clientRequestSchema, createLobbyRequestSchema, joinLobbyByCodeRequestSchema } from '@wordle-royale/contracts';
-import type { CreateLobbyRequest, JoinLobbyByCodeRequest } from '@wordle-royale/contracts';
+import { clientRequestSchema, createLobbyRequestSchema, joinLobbyByCodeRequestSchema, lobbyListQuerySchema } from '@wordle-royale/contracts';
+import type { CreateLobbyRequest, JoinLobbyByCodeRequest, LobbyListQuery } from '@wordle-royale/contracts';
 import { CurrentUserService } from '../auth/current-user.service.ts';
 import { ok } from '../shared/envelope.ts';
 import { ZodValidationPipe } from '../shared/zod-validation.pipe.ts';
@@ -14,7 +14,7 @@ export class LobbyController {
   ) {}
 
   @Get()
-  async listPublicLobbies(@Query() query: Record<string, string | undefined>, @Req() request: unknown) {
+  async listPublicLobbies(@Query(new ZodValidationPipe(lobbyListQuerySchema)) query: LobbyListQuery, @Req() request: unknown) {
     return ok(await this.lobbies.listPublicLobbies(query), request as never);
   }
 

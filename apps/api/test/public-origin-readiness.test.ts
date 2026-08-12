@@ -15,6 +15,14 @@ const prisma = {
 };
 const dictionary = { checkStandardDictionary: async () => ({ status: 'ok' }) };
 
+function immediateDeadline() {
+  const delays: number[] = [];
+  return {
+    delays,
+    runtime: { now: () => 1_000, setTimer: (callback: () => void, delay: number) => { delays.push(delay); queueMicrotask(callback); return {}; }, clearTimer: () => undefined },
+  };
+}
+
 async function failure(action: () => Promise<unknown>): Promise<string> {
   try { await action(); return 'PASS'; }
   catch (error) { return (error as SpeedLifecycleOperatorError).code; }
@@ -108,24 +116,20 @@ describe('Ticket 199 public-origin readiness fencing', () => {
   });
 
   it('enforces an absolute deadline when the readiness transport never settles', async () => {
+    const deadline = immediateDeadline();
     const verifier = new DefaultOperatorReadinessVerifier(prisma as any, dictionary as any, {
       resolve: async () => ['8.8.8.8'],
-    }, { getJson: async () => await new Promise<never>(() => undefined) });
-    const started = performance.now();
+    }, { getJson: async () => await new Promise<never>(() => undefined) }, deadline.runtime);
     assert.equal(await failure(() => verifier.verify('https://api.example.test', ['api.example.test'], 25)), 'operator_wait_timeout');
-    const elapsed = performance.now() - started;
-    assert.ok(elapsed >= 20, `deadline fired prematurely after ${elapsed}ms`);
-    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
+    assert.deepEqual(deadline.delays, [25, 25]);
   });
 
   it('enforces the same absolute deadline when DNS resolution never settles', async () => {
+    const deadline = immediateDeadline();
     const verifier = new DefaultOperatorReadinessVerifier(prisma as any, dictionary as any, {
       resolve: async () => await new Promise<never>(() => undefined),
-    }, { getJson: async () => healthy });
-    const started = performance.now();
+    }, { getJson: async () => healthy }, deadline.runtime);
     assert.equal(await failure(() => verifier.verify('https://api.example.test', ['api.example.test'], 25)), 'operator_wait_timeout');
-    const elapsed = performance.now() - started;
-    assert.ok(elapsed >= 20, `deadline fired prematurely after ${elapsed}ms`);
-    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
+    assert.deepEqual(deadline.delays, [25]);
   });
 });

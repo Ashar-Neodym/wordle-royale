@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { idSchema, lobbyDtoSchema, timestampSchema } from '@wordle-royale/contracts';
-import type { CreateLobbyRequest, JoinLobbyByCodeRequest, LobbyDto } from '@wordle-royale/contracts';
+import type { CreateLobbyRequest, JoinLobbyByCodeRequest, LobbyDto, LobbyListQuery } from '@wordle-royale/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.ts';
 
@@ -61,29 +61,36 @@ type LobbyRecord = {
   createdAt?: Date | string;
 };
 
-type LobbyListQuery = {
-  status?: string;
-  mode?: string;
-  visibility?: string;
-  limit?: string;
-  cursor?: string;
-};
+const LOBBY_CURSOR_VERSION = 2;
+const MAX_LOBBY_CURSOR_LENGTH = 512;
+const lobbyCursorSchema = z.object({
+  v: z.literal(LOBBY_CURSOR_VERSION), createdAt: timestampSchema, id: idSchema,
+  query: z.object({
+    mode: z.enum(['ranked', 'casual']).nullable(),
+    status: z.enum(['waiting', 'ready', 'in_match', 'closed']).nullable(),
+    visibility: z.enum(['public', 'private']),
+    limit: z.number().int().min(1).max(100),
+  }).strict(),
+}).strict();
 
-const LOBBY_CURSOR_VERSION = 1;
-const MAX_LOBBY_CURSOR_LENGTH = 256;
-const lobbyCursorSchema = z.object({ v: z.literal(LOBBY_CURSOR_VERSION), createdAt: timestampSchema, id: idSchema }).strict();
+type CanonicalLobbyListQuery = Omit<LobbyListQuery, 'cursor'>;
 
-function encodeLobbyCursor(row: LobbyRecord): string {
+function encodeLobbyCursor(row: LobbyRecord, query: CanonicalLobbyListQuery): string {
   if (row.createdAt === undefined) throw new Error('Cannot paginate a lobby without createdAt.');
-  return Buffer.from(JSON.stringify({ v: LOBBY_CURSOR_VERSION, createdAt: toRecordDate(row.createdAt), id: row.id }), 'utf8').toString('base64url');
+  return Buffer.from(JSON.stringify({
+    v: LOBBY_CURSOR_VERSION, createdAt: toRecordDate(row.createdAt), id: row.id,
+    query: { mode: query.mode ?? null, status: query.status ?? null, visibility: query.visibility, limit: query.limit },
+  }), 'utf8').toString('base64url');
 }
 
-function decodeLobbyCursor(value: string): { createdAt: Date; id: string } {
+function decodeLobbyCursor(value: string, query: CanonicalLobbyListQuery): { createdAt: Date; id: string } {
   try {
     if (!value || value.length > MAX_LOBBY_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error('shape');
     const decoded = Buffer.from(value, 'base64url');
     if (decoded.toString('base64url') !== value) throw new Error('encoding');
     const parsed = lobbyCursorSchema.parse(JSON.parse(decoded.toString('utf8')));
+    const expected = { mode: query.mode ?? null, status: query.status ?? null, visibility: query.visibility, limit: query.limit };
+    if (JSON.stringify(parsed.query) !== JSON.stringify(expected)) throw new Error('query');
     const createdAt = new Date(parsed.createdAt);
     if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== parsed.createdAt) throw new Error('timestamp');
     return { createdAt, id: parsed.id };
@@ -142,15 +149,12 @@ function toRecordDate(value: Date | string | undefined): string {
 export class LobbyService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listPublicLobbies(query: LobbyListQuery = {}): Promise<{ items: LobbyDto[]; pagination: { nextCursor: string | null } }> {
-    const visibility = query.visibility === 'private' ? 'private' : 'public';
-    const status = ['waiting', 'ready', 'in_match', 'closed'].includes(query.status ?? '') ? query.status : undefined;
-    const mode = ['ranked', 'casual'].includes(query.mode ?? '') ? query.mode : undefined;
-    const limit = Math.max(1, Math.min(50, Number.parseInt(query.limit ?? '20', 10) || 20));
+  async listPublicLobbies(query: LobbyListQuery = { visibility: 'public', limit: 20 }): Promise<{ items: LobbyDto[]; pagination: { nextCursor: string | null } }> {
+    const { visibility, status, mode, limit } = query;
     const where: Record<string, unknown> = { visibility, status: status ?? { in: ['waiting', 'ready'] } };
     if (mode) where.mode = mode;
     if (query.cursor !== undefined) {
-      const cursor = decodeLobbyCursor(query.cursor);
+      const cursor = decodeLobbyCursor(query.cursor, query);
       where.OR = [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }];
     }
 
@@ -163,7 +167,7 @@ export class LobbyService {
     const page = rows.slice(0, limit);
     return {
       items: page.map((row) => this.toDto(row)),
-      pagination: { nextCursor: rows.length > limit ? encodeLobbyCursor(page[page.length - 1]!) : null },
+      pagination: { nextCursor: rows.length > limit ? encodeLobbyCursor(page[page.length - 1]!, query) : null },
     };
   }
 

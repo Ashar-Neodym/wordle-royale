@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { BadRequestException } from '@nestjs/common';
+import { lobbyListQuerySchema } from '@wordle-royale/contracts';
 import { LobbyService } from '../src/lobby/lobby.service.ts';
 
 const createdAt = new Date('2026-08-01T00:00:00.000Z');
@@ -14,10 +15,11 @@ describe('durable lobby pagination', () => {
     const calls: any[] = [];
     const prisma = { client: { lobby: { findMany: async (query: any) => { calls.push(query); const visible = query.where.OR ? rows.slice(2) : rows; return visible.slice(0, query.take); } } } };
     const service = new LobbyService(prisma as never);
-    const first = await service.listPublicLobbies({ limit: '2' });
+    const query = lobbyListQuerySchema.parse({ limit: '2', mode: 'ranked', status: 'waiting', visibility: 'public' });
+    const first = await service.listPublicLobbies(query);
     assert.deepEqual(first.items.map((item) => item.id), ids.slice(0, 2));
     assert.ok(first.pagination.nextCursor);
-    const second = await service.listPublicLobbies({ limit: '2', cursor: first.pagination.nextCursor! });
+    const second = await service.listPublicLobbies({ ...query, cursor: first.pagination.nextCursor! });
     assert.deepEqual(second.items.map((item) => item.id), ids.slice(2));
     assert.equal(second.pagination.nextCursor, null);
     assert.equal(calls.every((call) => call.take === 3), true);
@@ -32,11 +34,31 @@ describe('durable lobby pagination', () => {
       'not-base64!',
       `${Buffer.from('{}').toString('base64url')}=`,
       Buffer.from('{}').toString('base64url'),
-      Buffer.from(JSON.stringify({ v: 2, createdAt: createdAt.toISOString(), id: ids[0] })).toString('base64url'),
-      Buffer.from(JSON.stringify({ v: 1, createdAt: 'bad', id: ids[0] })).toString('base64url'),
-      Buffer.from(JSON.stringify({ v: 1, createdAt: '2026-08-01T00:00:00Z', id: ids[0] })).toString('base64url'),
+      Buffer.from(JSON.stringify({ v: 3, createdAt: createdAt.toISOString(), id: ids[0] })).toString('base64url'),
+      Buffer.from(JSON.stringify({ v: 2, createdAt: 'bad', id: ids[0] })).toString('base64url'),
+      Buffer.from(JSON.stringify({ v: 2, createdAt: '2026-08-01T00:00:00Z', id: ids[0] })).toString('base64url'),
     ]) {
-      await assert.rejects(service.listPublicLobbies({ cursor }), BadRequestException);
+      await assert.rejects(service.listPublicLobbies({ visibility: 'public', limit: 20, cursor }), BadRequestException);
     }
+  });
+
+  it('strictly validates the closed query DTO instead of parsing or clamping malformed input', () => {
+    for (const query of [
+      { limit: '2junk' }, { limit: '0' }, { limit: '-4' }, { limit: '101' },
+      { limit: '20.0' }, { mode: 'speed' }, { status: 'unknown' }, { visibility: 'friends' },
+      { limit: '20', surprise: 'accepted' }, { cursor: '' }, { cursor: ['one', 'two'] },
+    ]) assert.equal(lobbyListQuerySchema.safeParse(query).success, false, JSON.stringify(query));
+    assert.deepEqual(lobbyListQuerySchema.parse({}), { visibility: 'public', limit: 20 });
+    assert.deepEqual(lobbyListQuerySchema.parse({ limit: '50', mode: 'casual' }), { visibility: 'public', limit: 50, mode: 'casual' });
+  });
+
+  it('binds an opaque cursor to every canonical result-set parameter', async () => {
+    const service = new LobbyService({ client: { lobby: { findMany: async () => rows } } } as never);
+    const query = lobbyListQuerySchema.parse({ limit: '2', mode: 'ranked', status: 'waiting', visibility: 'public' });
+    const cursor = (await service.listPublicLobbies(query)).pagination.nextCursor!;
+    for (const changed of [
+      { ...query, mode: 'casual' as const }, { ...query, status: 'ready' as const },
+      { ...query, visibility: 'private' as const }, { ...query, limit: 3 },
+    ]) await assert.rejects(service.listPublicLobbies({ ...changed, cursor }), BadRequestException);
   });
 });
