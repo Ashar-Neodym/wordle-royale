@@ -1,6 +1,6 @@
 # Railway inventory-proof and Speed lifecycle v2 activation runbook
 
-> **Historical / retired target (2026-08-11):** Railway is no longer an eligible deployment target because paid service was ruled out. Preserve this runbook as audit history only. It grants no current deployment or activation authority; the Koyeb-compatible locked standby checkpoint is documented in `docs/koyeb-locked-standby.md`.
+> **Historical / retired target (2026-08-12):** Railway is no longer an eligible deployment target because paid service was ruled out. Preserve this runbook as audit history only. It grants no current deployment or activation authority; the Render Free locked-standby candidate is documented in `docs/render-locked-standby.md`.
 
 Date: 2026-07-17
 Owner: Elisa

@@ -1,6 +1,6 @@
 # Hosted Preview Migration/Readiness Hardening — Wave P
 
-> **Historical / retired target (2026-08-11):** Railway-specific pre-deploy guidance below is retained only as history. Railway is not an eligible current target and migrations must not be added to the Koyeb-compatible standby image entrypoint. See `docs/koyeb-locked-standby.md`.
+> **Historical / retired target (2026-08-12):** Railway-specific pre-deploy guidance below is retained only as history. Railway is not an eligible current target and migrations must not be added to the Render Free locked-standby image entrypoint. See `docs/render-locked-standby.md`.
 
 Date: 2026-07-09
 Owner: Yuna

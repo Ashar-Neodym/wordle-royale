@@ -1,6 +1,6 @@
 # Wordle Royale
 
-Wordle Royale is a pnpm monorepo with a public, account-free Practice game at `/practice`. Practice runs entirely in the browser, persists the current round and stats locally when storage is available, and provides spoiler-free result sharing. The current browser MVP remains Vercel-only and local. A provider-neutral API container is now eligible for a future Koyeb-compatible **locked standby** checkpoint, but no provider account, deployment, database, durable auth, queue, or hosted web integration is active or authorized.
+Wordle Royale is a pnpm monorepo with a public, account-free Practice game at `/practice`. Practice runs entirely in the browser, persists the current round and stats locally when storage is available, and provides spoiler-free result sharing. The current browser MVP remains Vercel-only and local. A provider-neutral API container is now a readiness candidate for a future cardless Render Free **locked standby** checkpoint, but no provider account/configuration, deployment, database, durable auth, queue, or hosted web integration is active or authorized.
 
 ## Workspace layout
 
@@ -40,7 +40,7 @@ For setup details, see `docs/local-development.md`.
 
 ## Locked standby API container
 
-The root `Dockerfile` builds the Node 22/pnpm API without running migrations. Hosted preview/production must explicitly set `API_SURFACE_MODE=standby` or `active`; omission fails startup. Standby is the only eligible checkpoint mode today. It requires durable auth and both queues disabled, requires no database or Redis, and permits only exact `GET` requests to `/healthz`, `/readyz`, `/.well-known/wordle-runtime-compatibility`, and `/ranked/modes`. Every other raw method/path receives sanitized `503 backend_standby` before auth, controller, or dependency work. See `docs/koyeb-locked-standby.md`.
+The root `Dockerfile` builds the Node 22/pnpm API without running migrations. Hosted preview/production must explicitly set `API_SURFACE_MODE=standby` or `active`; omission fails startup. Standby is the only eligible checkpoint mode today. It requires durable auth and both queues disabled, requires no database or Redis, and permits only exact `GET` requests to `/healthz`, `/readyz`, `/.well-known/wordle-runtime-compatibility`, and `/ranked/modes`. Every other raw method/path receives sanitized `503 backend_standby` before auth, controller, or dependency work. See `docs/render-locked-standby.md`.
 
 ## Controlled preview dictionary bootstrap
 
