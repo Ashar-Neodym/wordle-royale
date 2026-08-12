@@ -35,8 +35,11 @@ describe('Rules presentation resolver', () => {
     for (const presentation of [preview, durable]) {
       const rules = resolveRulesPresentation(() => presentation);
       assert.equal(rules.kind, 'ranked');
-      assert.equal(rules.title, 'Rules and fair play');
-      assert.deepEqual(rules.actions, [
+      assert.equal(rules.title, presentation.mode === 'preview_demo' ? 'Preview rules and fair play' : 'Rules and fair play');
+      assert.deepEqual(rules.actions, presentation.mode === 'preview_demo' ? [
+        { href: '/play', label: 'Try rated flow', emphasis: 'primary' },
+        { href: '/lobbies', label: 'Browse preview lobbies', emphasis: 'secondary' },
+      ] : [
         { href: '/play', label: 'Play rated', emphasis: 'primary' },
         { href: '/lobbies', label: 'Find lobby', emphasis: 'secondary' },
       ]);
@@ -46,6 +49,12 @@ describe('Rules presentation resolver', () => {
         'rated lobby', 'server state', 'valid five-letter guesses', '100 base points', '60, 50, 40, 25, 10, or 0',
         '75-second puzzle', '100 ms buckets', 'no-contest', 'plaintext answers', 'client-authoritative scoring', 'instead of substituting demo state',
       ]) assert.match(copy, new RegExp(phrase, 'i'));
+      if (presentation.mode === 'preview_demo') {
+        assert.match(copy, /temporary demo session/i);
+        assert.match(copy, /not a durable player account or production record/i);
+      } else {
+        assert.doesNotMatch(copy, /temporary demo session|demonstration data/i);
+      }
     }
   });
 

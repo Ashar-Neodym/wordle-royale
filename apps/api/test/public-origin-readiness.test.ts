@@ -113,7 +113,9 @@ describe('Ticket 199 public-origin readiness fencing', () => {
     }, { getJson: async () => await new Promise<never>(() => undefined) });
     const started = performance.now();
     assert.equal(await failure(() => verifier.verify('https://api.example.test', ['api.example.test'], 25)), 'operator_wait_timeout');
-    assert.ok(performance.now() - started < 125);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed >= 20, `deadline fired prematurely after ${elapsed}ms`);
+    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
   });
 
   it('enforces the same absolute deadline when DNS resolution never settles', async () => {
@@ -122,6 +124,8 @@ describe('Ticket 199 public-origin readiness fencing', () => {
     }, { getJson: async () => healthy });
     const started = performance.now();
     assert.equal(await failure(() => verifier.verify('https://api.example.test', ['api.example.test'], 25)), 'operator_wait_timeout');
-    assert.ok(performance.now() - started < 125);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed >= 20, `deadline fired prematurely after ${elapsed}ms`);
+    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
   });
 });

@@ -4,11 +4,12 @@ import { LobbyBrowser } from '../../components/LobbyScreens';
 import { StatusStrip } from '../../components/StatusPanels';
 import { PageFrame, PageHeader } from '../../components/PageFrame';
 import { createRankedLobbyAction, joinLobbyAction, joinLobbyByCodeAction, startPreviewDemoSessionAction, startRankedMatchAction } from '../actions';
-import { rankedActionState, resolveSearchParams, type SearchParamsInput } from '../page-helpers';
+import { rankedActionState, resolveSearchParams, searchValue, type SearchParamsInput } from '../page-helpers';
 import styles from '../../components/web-shell.module.css';
 import { requireAuthPresentationConfiguration } from '../../lib/auth-presentation';
 import { DisabledRoute } from '../../components/DisabledRoute';
 import { resolveRestrictedRoute } from '../../lib/restricted-route-presentation';
+import { lobbyContinuationHref } from '../../lib/lobby-pagination';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,9 @@ type LobbiesPageProps = {
 export default async function LobbiesPage({ searchParams }: LobbiesPageProps): Promise<ReactElement> {
   const route = await resolveRestrictedRoute('lobbies', async (presentation) => {
     const params = await resolveSearchParams(searchParams);
-    const api = await getWebApiSnapshot();
+    const cursor = searchValue(params, 'cursor');
+    const code = searchValue(params, 'code');
+    const api = await getWebApiSnapshot(cursor);
     const actionState = rankedActionState(params);
     const standardAvailable = api.rankedModes.status === 'connected'
       && api.rankedModes.data?.modes.some((mode) => mode.id === 'standard_1v1' && mode.enabled) === true;
@@ -42,6 +45,9 @@ export default async function LobbiesPage({ searchParams }: LobbiesPageProps): P
             joinLobbyAction={joinLobbyAction}
             startRankedMatchAction={startRankedMatchAction}
           />
+          {api.lobbies.status === 'connected' && api.lobbies.data?.pagination.nextCursor ? (
+            <p><a href={lobbyContinuationHref(api.lobbies.data.pagination.nextCursor, code)}>More lobbies</a></p>
+          ) : null}
         </div>
         <aside className={styles.sidePanel} aria-label="Lobby status">
           <StatusStrip api={api} />

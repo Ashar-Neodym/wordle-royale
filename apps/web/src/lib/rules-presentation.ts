@@ -85,10 +85,25 @@ const RANKED_RULES: RulesPresentation = {
   ],
 };
 
+const PREVIEW_RULES: RulesPresentation = {
+  ...RANKED_RULES,
+  title: 'Preview rules and fair play',
+  introduction: 'Preview demo mode exercises the server-authoritative ranked flow with an explicit temporary demo session. It is not a durable account or production rating record.',
+  articles: [
+    { title: 'Preview identity', body: 'Start an explicit temporary demo session before account-backed actions. Preview identity and results are demonstration data, not a durable player account or production record.' },
+    ...RANKED_RULES.articles,
+  ],
+  actions: [
+    { href: '/play', label: 'Try rated flow', emphasis: 'primary' },
+    { href: '/lobbies', label: 'Browse preview lobbies', emphasis: 'secondary' },
+  ],
+};
+
 /** Resolve strict deployment presentation before selecting user-visible Rules copy. */
 export function resolveRulesPresentation(
   resolvePresentation: () => AuthPresentationPublic,
 ): RulesPresentation {
   const presentation = resolvePresentation();
-  return presentation.mode === 'disabled' ? PRACTICE_RULES : RANKED_RULES;
+  if (presentation.mode === 'disabled') return PRACTICE_RULES;
+  return presentation.mode === 'preview_demo' ? PREVIEW_RULES : RANKED_RULES;
 }

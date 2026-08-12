@@ -362,8 +362,10 @@ export async function getProfile(): Promise<ApiClientResult<PublicProfileDto>> {
   return requestReadEnvelope<PublicProfileDto>('/profile/me');
 }
 
-export async function listLobbies(): Promise<ApiClientResult<LobbyListPayload>> {
-  return requestReadEnvelope<LobbyListPayload>('/lobbies');
+export async function listLobbies(limit = 20, cursor?: string): Promise<ApiClientResult<LobbyListPayload>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return requestReadEnvelope<LobbyListPayload>(`/lobbies?${params.toString()}`);
 }
 
 export async function createLobby(body: CreateLobbyRequest): Promise<ApiClientResult<LobbyDto>> {
@@ -501,14 +503,14 @@ export async function getMatchHistory(limit = 20, cursor?: string): Promise<ApiC
   return requestReadEnvelope<MatchHistoryList>(`/matches/history/me?${params.toString()}`);
 }
 
-export async function getWebApiSnapshot(): Promise<WebApiSnapshot> {
+export async function getWebApiSnapshot(lobbyCursor?: string): Promise<WebApiSnapshot> {
   const [health, readiness, runtimeCompatibility, currentUser, profile, lobbies, leaderboard, rankedModes] = await Promise.all([
     getHealth(),
     getReadiness(),
     getRuntimeCompatibility(),
     getCurrentUser(),
     getProfile(),
-    listLobbies(),
+    listLobbies(20, lobbyCursor),
     getLeaderboard(20),
     getRankedModes(),
   ]);

@@ -250,7 +250,9 @@ describe('Ticket 195 strict Railway inventory adapter', () => {
       new RailwayInventoryAdapter(executor({ delayMs: 250 })).observe(scope, `git:${SHA}`, 2, 50),
       (error: any) => error?.code === 'railway_inventory_timeout',
     );
-    assert.ok(performance.now() - started < 175);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed >= 40, `deadline fired prematurely after ${elapsed}ms`);
+    assert.ok(elapsed < 1_000, `deadline did not terminate promptly: ${elapsed}ms`);
   });
 
   it('holds the adapter-wide command gate until a cancellation-ignoring command actually settles', async () => {

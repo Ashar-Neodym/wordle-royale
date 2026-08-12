@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { idSchema, lobbyDtoSchema, timestampSchema } from '@wordle-royale/contracts';
 import type { CreateLobbyRequest, JoinLobbyByCodeRequest, LobbyDto } from '@wordle-royale/contracts';
@@ -66,7 +66,31 @@ type LobbyListQuery = {
   mode?: string;
   visibility?: string;
   limit?: string;
+  cursor?: string;
 };
+
+const LOBBY_CURSOR_VERSION = 1;
+const MAX_LOBBY_CURSOR_LENGTH = 256;
+const lobbyCursorSchema = z.object({ v: z.literal(LOBBY_CURSOR_VERSION), createdAt: timestampSchema, id: idSchema }).strict();
+
+function encodeLobbyCursor(row: LobbyRecord): string {
+  if (row.createdAt === undefined) throw new Error('Cannot paginate a lobby without createdAt.');
+  return Buffer.from(JSON.stringify({ v: LOBBY_CURSOR_VERSION, createdAt: toRecordDate(row.createdAt), id: row.id }), 'utf8').toString('base64url');
+}
+
+function decodeLobbyCursor(value: string): { createdAt: Date; id: string } {
+  try {
+    if (!value || value.length > MAX_LOBBY_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error('shape');
+    const decoded = Buffer.from(value, 'base64url');
+    if (decoded.toString('base64url') !== value) throw new Error('encoding');
+    const parsed = lobbyCursorSchema.parse(JSON.parse(decoded.toString('utf8')));
+    const createdAt = new Date(parsed.createdAt);
+    if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== parsed.createdAt) throw new Error('timestamp');
+    return { createdAt, id: parsed.id };
+  } catch {
+    throw new BadRequestException({ code: 'invalid_lobby_cursor', message: 'Lobby cursor is invalid.', details: {} });
+  }
+}
 
 type UserForMember = {
   id: string;
@@ -125,14 +149,22 @@ export class LobbyService {
     const limit = Math.max(1, Math.min(50, Number.parseInt(query.limit ?? '20', 10) || 20));
     const where: Record<string, unknown> = { visibility, status: status ?? { in: ['waiting', 'ready'] } };
     if (mode) where.mode = mode;
+    if (query.cursor !== undefined) {
+      const cursor = decodeLobbyCursor(query.cursor);
+      where.OR = [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }];
+    }
 
     const rows = await this.prisma.client.lobby.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
     }) as LobbyRecord[];
 
-    return { items: rows.map((row) => this.toDto(row)), pagination: { nextCursor: null } };
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((row) => this.toDto(row)),
+      pagination: { nextCursor: rows.length > limit ? encodeLobbyCursor(page[page.length - 1]!) : null },
+    };
   }
 
   async createLobby(input: CreateLobbyRequest, userId = stubHostUserId): Promise<LobbyDto> {
