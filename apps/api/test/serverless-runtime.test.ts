@@ -19,6 +19,45 @@ afterEach(() => {
 });
 
 describe('serverless API runtime', () => {
+  for (const event of ['finish', 'close'] as const) {
+    it(`removes every response listener after ${event}`, async () => {
+      process.env.API_RUNTIME_MODE = 'serverless';
+      const response = new EventEmitter();
+      const application = {
+        getHttpAdapter: () => ({ getInstance: () => () => response.emit(event) }),
+      } as unknown as INestApplication;
+
+      await createCachedHandler(async () => application)({} as never, response as never);
+
+      assert.deepEqual(
+        ['finish', 'close', 'error'].map((name) => response.listenerCount(name)),
+        [0, 0, 0],
+      );
+    });
+  }
+
+  it('removes every response listener after an asynchronous response error', async () => {
+    process.env.API_RUNTIME_MODE = 'serverless';
+    const response = new EventEmitter();
+    const application = {
+      getHttpAdapter: () => ({ getInstance: () => () => response.emit('error', new Error('hostile error')) }),
+    } as unknown as INestApplication;
+
+    await assert.rejects(createCachedHandler(async () => application)({} as never, response as never), /hostile error/);
+    assert.deepEqual(['finish', 'close', 'error'].map((name) => response.listenerCount(name)), [0, 0, 0]);
+  });
+
+  it('removes every response listener when Express throws synchronously', async () => {
+    process.env.API_RUNTIME_MODE = 'serverless';
+    const response = new EventEmitter();
+    const application = {
+      getHttpAdapter: () => ({ getInstance: () => () => { throw new Error('hostile throw'); } }),
+    } as unknown as INestApplication;
+
+    await assert.rejects(createCachedHandler(async () => application)({} as never, response as never), /hostile throw/);
+    assert.deepEqual(['finish', 'close', 'error'].map((name) => response.listenerCount(name)), [0, 0, 0]);
+  });
+
   it('caches one cold bootstrap and reuses it for warm and concurrent invocations', async () => {
     process.env.API_RUNTIME_MODE = 'serverless';
     let bootstraps = 0;

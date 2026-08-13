@@ -14,6 +14,7 @@
     "lint": "pnpm validate:workspace",
     "test": "pnpm validate:workspace && pnpm --filter @wordle-royale/web test && pnpm --filter @wordle-royale/api test",
     "build": "pnpm -r --if-present build",
+    "verify:vercel-api-package": "node scripts/verify-vercel-api-package.mjs",
     "dev:web": "pnpm --filter @wordle-royale/web dev",
     "dev:api": "pnpm --filter @wordle-royale/api dev",
     "dev:mobile": "pnpm --filter @wordle-royale/mobile dev",

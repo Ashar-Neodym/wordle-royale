@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --filter @wordle-royale/api db:generate",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "env": {
+    "API_RUNTIME_MODE": "serverless",
+    "SPEED_1V1_QUEUE_ENABLED": "false"
+  },
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "{apps/api/prisma/**,node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ]
+}

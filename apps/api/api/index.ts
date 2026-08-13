@@ -19,23 +19,31 @@ export function createCachedHandler(bootstrap: Bootstrap = createApiApplication)
     const express = application.getHttpAdapter().getInstance() as NodeHandler;
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      const cleanup = () => {
+        response.off('finish', finish);
+        response.off('close', finish);
+        response.off('error', fail);
+      };
       const finish = () => {
         if (settled) return;
         settled = true;
-        response.off('error', fail);
+        cleanup();
         resolve();
       };
       const fail = (error: Error) => {
         if (settled) return;
         settled = true;
-        response.off('finish', finish);
-        response.off('close', finish);
+        cleanup();
         reject(error);
       };
       response.once('finish', finish);
       response.once('close', finish);
       response.once('error', fail);
-      express(request, response);
+      try {
+        express(request, response);
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   };
 }
