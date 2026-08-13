@@ -11,6 +11,7 @@ import {
   SPEED_RECONCILER_SELECTION_LIMIT,
 } from './speed-reconciler-budget.ts';
 import { SpeedRuntimeHealthService, type SpeedReconcilerHealthSnapshot } from './speed-runtime-health.service.ts';
+import { serverlessRuntime } from '../config/runtime-config.ts';
 
 export type SpeedReconcilerMetrics = {
   processed: number;
@@ -59,6 +60,7 @@ export class SpeedExpiryReconcilerService implements OnModuleInit, OnModuleDestr
   ) {}
 
   onModuleInit(): void {
+    if (serverlessRuntime()) return;
     if (!this.enabled()) return;
     this.schedulingEnabled = true;
     this.schedulerEpoch = this.runtimeHealth.markSchedulerStarted();

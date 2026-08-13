@@ -12,6 +12,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "api/**/*.ts",
     "scripts/**/*.ts",
     "../../packages/contracts/src/**/*.ts",
     "../../packages/game-engine/src/**/*.ts"

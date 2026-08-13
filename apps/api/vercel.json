@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "env": {
+    "API_RUNTIME_MODE": "serverless",
+    "SPEED_1V1_QUEUE_ENABLED": "false"
+  },
+  "builds": [
+    { "src": "api/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/api/index.ts" }
+  ]
+}

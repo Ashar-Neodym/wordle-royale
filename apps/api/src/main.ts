@@ -7,7 +7,7 @@ import { ApiExceptionFilter } from './shared/api-exception.filter.ts';
 
 const defaultPort = 3001;
 
-function configureCors(app: INestApplication) {
+export function configureCors(app: INestApplication) {
   const origins = allowedCorsOrigins();
   if (origins.length === 0) return;
   app.enableCors({
@@ -31,11 +31,18 @@ export function configureTrustedProxy(app: INestApplication): void {
   express.set('trust proxy', trustedProxyHops(configuredProxyHops));
 }
 
-async function bootstrap() {
+export async function createApiApplication(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule);
   configureTrustedProxy(app);
   configureCors(app);
   app.useGlobalFilters(new ApiExceptionFilter());
+
+  await app.init();
+  return app;
+}
+
+async function bootstrap() {
+  const app = await createApiApplication();
 
   const parsedPort = Number.parseInt(process.env.PORT ?? String(defaultPort), 10);
   await app.listen(Number.isFinite(parsedPort) ? parsedPort : defaultPort);

@@ -13,6 +13,6 @@
       "@wordle-royale/word-tools": ["../../packages/word-tools/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "prisma/**/*.ts"],
+  "include": ["src/**/*.ts", "api/**/*.ts", "test/**/*.ts", "prisma/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

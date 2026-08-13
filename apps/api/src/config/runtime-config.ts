@@ -1,6 +1,7 @@
 export type RuntimeConfig = Record<string, string | undefined>;
 export type AuthRegistrationMode = 'closed' | 'canary' | 'open';
 export type ApiSurfaceMode = 'standby' | 'active';
+export type ApiRuntimeMode = 'server' | 'serverless';
 export type ExternalOidcConfig = { issuer: string; audience: string; jwksUrl: string; algorithms: string[] };
 
 const localDatabaseUrl = 'postgresql://wordle:***@localhost:5432/wordle_royale_local?schema=public';
@@ -42,6 +43,16 @@ export function apiSurfaceMode(config: RuntimeConfig = process.env): ApiSurfaceM
   if (value === 'standby' || value === 'active') return value;
   if (!value && !isProdLike(config)) return 'active';
   fail('API_SURFACE_MODE must be explicitly set to standby or active in preview/production.');
+}
+
+export function apiRuntimeMode(config: RuntimeConfig = process.env): ApiRuntimeMode {
+  const value = config.API_RUNTIME_MODE?.trim() || 'server';
+  if (value === 'server' || value === 'serverless') return value;
+  fail('API_RUNTIME_MODE must be exactly server or serverless.');
+}
+
+export function serverlessRuntime(config: RuntimeConfig = process.env): boolean {
+  return apiRuntimeMode(config) === 'serverless';
 }
 
 function strictSeconds(value: string, name: string, minimum: number, maximum: number): number {
@@ -122,6 +133,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
     NODE_ENV: config.NODE_ENV ?? 'development',
     APP_ENV: appEnv(config),
     API_SURFACE_MODE: apiSurfaceMode(config),
+    API_RUNTIME_MODE: apiRuntimeMode(config),
     AUTH_MODE: config.AUTH_MODE ?? (config.NODE_ENV === 'production' ? 'session_required' : 'dev_stub'),
     DURABLE_AUTH_ENABLED: config.DURABLE_AUTH_ENABLED ?? 'false',
     EXTERNAL_AUTH_MODE: config.EXTERNAL_AUTH_MODE ?? 'disabled',
@@ -150,6 +162,17 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
   };
 
   const durableAuthEnabled = envFlagEnabled(resolved.DURABLE_AUTH_ENABLED, false);
+  if (resolved.API_RUNTIME_MODE === 'serverless') {
+    if (envFlagEnabled(config.SPEED_1V1_QUEUE_ENABLED, false)) {
+      fail('SPEED_1V1_QUEUE_ENABLED must be false in serverless mode; Speed requires a separately designed lifecycle runtime.');
+    }
+    if (config.SPEED_LIFECYCLE_PROVIDER_ADAPTER?.trim() || config.SPEED_LIFECYCLE_RELEASE_ID?.trim()) {
+      fail('Speed lifecycle capability leases are forbidden in serverless mode.');
+    }
+    if (config.EXPECTED_API_REPLICA_COUNT?.trim()) {
+      fail('EXPECTED_API_REPLICA_COUNT must be unset in serverless mode because function concurrency has no fixed replica count.');
+    }
+  }
   if (resolved.API_SURFACE_MODE === 'standby') {
     if (durableAuthEnabled) fail('DURABLE_AUTH_ENABLED must be false in standby mode.');
     if (envFlagEnabled(config.STANDARD_1V1_QUEUE_ENABLED, false)) fail('STANDARD_1V1_QUEUE_ENABLED must be false in standby mode.');
@@ -204,7 +227,9 @@ export function validateRuntimeConfig(config: RuntimeConfig): Record<string, str
     if (!envFlagEnabled(resolved.COOKIE_SECURE, false)) fail('COOKIE_SECURE must be true in preview/prod-like mode.');
     if (resolved.APP_ENV === 'production' && durableAuthEnabled) {
       trustedProxyHops(config.TRUSTED_PROXY_HOPS);
-      if (config.EXPECTED_API_REPLICA_COUNT !== '1') fail('EXPECTED_API_REPLICA_COUNT must be exactly 1 for durable-auth activation v1.');
+      if (resolved.API_RUNTIME_MODE === 'server' && config.EXPECTED_API_REPLICA_COUNT !== '1') {
+        fail('EXPECTED_API_REPLICA_COUNT must be exactly 1 for durable-auth activation v1.');
+      }
     }
     resolved.REDIS_URL = config.REDIS_URL ?? '';
     resolved.REDIS_REQUIRED = config.REDIS_REQUIRED ?? 'false';

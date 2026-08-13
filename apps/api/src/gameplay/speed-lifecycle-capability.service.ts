@@ -1,6 +1,7 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.ts';
+import { serverlessRuntime } from '../config/runtime-config.ts';
 import {
   SPEED_LIFECYCLE_CONTROL_KEY,
   SPEED_LIFECYCLE_CONTROL_PROTOCOL,
@@ -17,6 +18,7 @@ export class SpeedLifecycleCapabilityService implements OnModuleInit, OnModuleDe
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
+    if (serverlessRuntime()) return;
     await this.heartbeat().catch(() => undefined);
     this.timer = setInterval(() => { void this.heartbeat().catch(() => undefined); }, SPEED_LIFECYCLE_HEARTBEAT_INTERVAL_MS);
     this.timer.unref();
